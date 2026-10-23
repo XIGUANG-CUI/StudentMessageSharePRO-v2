@@ -1,0 +1,994 @@
+{% extends "base.html" %}
+
+{% block title %}销假处理 - 学生数据管理系统{% endblock %}
+
+{% block content %}
+<style>
+:root {
+    --lc-primary: #4361ee;
+    --lc-primary-light: #eef1ff;
+    --lc-success: #10b981;
+    --lc-success-light: #ecfdf5;
+    --lc-danger: #ef4444;
+    --lc-danger-light: #fef2f2;
+    --lc-warning: #f59e0b;
+    --lc-info: #3b82f6;
+    --lc-info-light: #eff6ff;
+    --lc-gray-50: #f9fafb;
+    --lc-gray-100: #f3f4f6;
+    --lc-gray-200: #e5e7eb;
+    --lc-gray-300: #d1d5db;
+    --lc-gray-500: #6b7280;
+    --lc-gray-700: #374151;
+    --lc-gray-900: #111827;
+    --lc-radius: 14px;
+    --lc-radius-sm: 10px;
+    --lc-shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+    --lc-shadow: 0 4px 12px rgba(0,0,0,.06), 0 2px 4px rgba(0,0,0,.04);
+    --lc-shadow-lg: 0 10px 30px rgba(0,0,0,.08), 0 4px 8px rgba(0,0,0,.04);
+    --lc-transition: 200ms cubic-bezier(.4,0,.2,1);
+}
+
+/* ===== Page Header ===== */
+.lc-header {
+    margin-bottom: 1.5rem;
+}
+.lc-header .lc-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--lc-gray-900);
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+.lc-header .lc-title i {
+    color: var(--lc-primary);
+    font-size: 1.4rem;
+}
+.lc-header .lc-subtitle {
+    font-size: .875rem;
+    color: var(--lc-gray-500);
+    margin-top: .25rem;
+}
+
+/* ===== Card Base ===== */
+.lc-card {
+    background: #fff;
+    border: 1px solid var(--lc-gray-200);
+    border-radius: var(--lc-radius);
+    box-shadow: var(--lc-shadow-sm);
+    transition: box-shadow var(--lc-transition);
+    overflow: hidden;
+}
+.lc-card:hover {
+    box-shadow: var(--lc-shadow);
+}
+.lc-card-header {
+    padding: .875rem 1.25rem;
+    font-weight: 600;
+    font-size: .925rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--lc-gray-100);
+}
+.lc-card-header i {
+    margin-right: .5rem;
+    opacity: .85;
+}
+.lc-card-body {
+    padding: 1.25rem;
+}
+.lc-card-header-primary {
+    background: linear-gradient(135deg, var(--lc-primary), #5b7bf5);
+    color: #fff;
+    border-bottom: none;
+}
+.lc-card-header-dark {
+    background: linear-gradient(135deg, #1e293b, #334155);
+    color: #fff;
+    border-bottom: none;
+}
+.lc-card-header-info {
+    background: linear-gradient(135deg, var(--lc-info), #60a5fa);
+    color: #fff;
+    border-bottom: none;
+}
+
+/* ===== Search Card ===== */
+.lc-search-input-wrap {
+    position: relative;
+}
+.lc-search-input-wrap .lc-search-icon {
+    position: absolute;
+    left: .875rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--lc-gray-500);
+    pointer-events: none;
+    z-index: 2;
+    transition: color var(--lc-transition);
+}
+.lc-search-input {
+    width: 100%;
+    height: 48px;
+    padding: 0 2.75rem 0 2.5rem;
+    border: 2px solid var(--lc-gray-200);
+    border-radius: var(--lc-radius-sm);
+    font-size: .925rem;
+    color: var(--lc-gray-900);
+    background: var(--lc-gray-50);
+    transition: all var(--lc-transition);
+    outline: none;
+}
+.lc-search-input:focus {
+    border-color: var(--lc-primary);
+    background: #fff;
+    box-shadow: 0 0 0 4px rgba(67,97,238,.12);
+}
+.lc-search-input:focus ~ .lc-search-icon,
+.lc-search-input:focus + .lc-search-icon {
+    color: var(--lc-primary);
+}
+.lc-search-input::placeholder {
+    color: var(--lc-gray-300);
+}
+.lc-search-clear {
+    position: absolute;
+    right: .625rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: var(--lc-gray-200);
+    border-radius: 50%;
+    color: var(--lc-gray-500);
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: .75rem;
+    z-index: 2;
+    transition: all var(--lc-transition);
+}
+.lc-search-clear:hover {
+    background: var(--lc-gray-300);
+    color: var(--lc-gray-700);
+}
+.lc-search-clear.visible {
+    display: flex;
+}
+.lc-search-hint {
+    font-size: .75rem;
+    color: var(--lc-gray-500);
+    margin-top: .5rem;
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+}
+
+/* ===== Student Info ===== */
+.lc-student-info {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--lc-gray-100);
+    animation: lcFadeIn .3s ease;
+}
+.lc-student-info .lc-info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .625rem;
+}
+.lc-student-info .lc-info-item {
+    background: var(--lc-gray-50);
+    border-radius: 8px;
+    padding: .5rem .75rem;
+}
+.lc-student-info .lc-info-label {
+    font-size: .7rem;
+    color: var(--lc-gray-500);
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    margin-bottom: .15rem;
+}
+.lc-student-info .lc-info-value {
+    font-size: .875rem;
+    font-weight: 600;
+    color: var(--lc-gray-900);
+    word-break: break-all;
+}
+
+/* ===== Quick Actions ===== */
+.lc-quick-actions {
+    display: flex;
+    gap: .5rem;
+    justify-content: center;
+}
+.lc-btn-action {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    padding: .5rem 1rem;
+    border-radius: 8px;
+    font-size: .8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--lc-transition);
+    text-decoration: none;
+    border: 1.5px solid var(--lc-gray-200);
+    background: #fff;
+    color: var(--lc-gray-700);
+}
+.lc-btn-action:hover {
+    border-color: var(--lc-primary);
+    color: var(--lc-primary);
+    background: var(--lc-primary-light);
+}
+.lc-btn-action-primary {
+    border-color: var(--lc-primary);
+    color: var(--lc-primary);
+    background: var(--lc-primary-light);
+}
+.lc-btn-action-primary:hover {
+    background: var(--lc-primary);
+    color: #fff;
+}
+
+/* ===== QR Card ===== */
+.lc-qr-card {
+    flex-grow: 1;
+    min-height: 0;
+}
+.lc-qr-card .lc-card-header-info {
+    border-radius: var(--lc-radius) var(--lc-radius) 0 0;
+}
+.lc-qr-card .lc-card-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+}
+.lc-qr-img-wrap {
+    display: inline-block;
+    padding: .5rem;
+    background: #fff;
+    border: 2px solid var(--lc-gray-100);
+    border-radius: var(--lc-radius-sm);
+    box-shadow: var(--lc-shadow-sm);
+}
+.lc-qr-img-wrap img {
+    display: block;
+    width: 240px;
+    height: 240px;
+}
+.lc-qr-url {
+    font-size: .75rem;
+    color: var(--lc-gray-500);
+    margin-top: .75rem;
+    word-break: break-all;
+    font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    background: var(--lc-gray-50);
+    padding: .35rem .75rem;
+    border-radius: 6px;
+    display: inline-block;
+    max-width: 100%;
+}
+
+/* ===== Table Card ===== */
+.lc-record-card {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+.lc-record-card .lc-card-body {
+    padding: 0;
+    flex: 1;
+    overflow: auto;
+}
+.lc-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .875rem;
+}
+.lc-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+.lc-table thead th {
+    background: var(--lc-gray-50);
+    font-size: .75rem;
+    font-weight: 600;
+    color: var(--lc-gray-500);
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    padding: .75rem 1.25rem;
+    border-bottom: 2px solid var(--lc-gray-200);
+    white-space: nowrap;
+}
+.lc-table tbody td {
+    padding: .5rem 1rem;
+    border-bottom: 1px solid var(--lc-gray-100);
+    color: var(--lc-gray-700);
+    vertical-align: middle;
+}
+.lc-table tbody tr {
+    transition: background var(--lc-transition);
+}
+.lc-table tbody tr:hover {
+    background: var(--lc-gray-50);
+}
+.lc-table tbody tr:last-child td {
+    border-bottom: none;
+}
+.lc-table-absence-row {
+    background: var(--lc-danger-light);
+}
+.lc-table-absence-row:hover {
+    background: #fee2e2 !important;
+}
+.lc-student-code {
+    font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    font-size: .8125rem;
+    color: var(--lc-gray-500);
+    background: var(--lc-gray-100);
+    padding: .15rem .5rem;
+    border-radius: 4px;
+}
+.lc-student-name {
+    font-weight: 600;
+    color: var(--lc-gray-900);
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+.lc-student-name .lc-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--lc-primary), #7c5cfc);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .75rem;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+.lc-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    padding: .25rem .65rem;
+    border-radius: 20px;
+    font-size: .75rem;
+    font-weight: 600;
+}
+.lc-badge-danger {
+    background: var(--lc-danger-light);
+    color: var(--lc-danger);
+}
+.lc-badge-success {
+    background: var(--lc-success-light);
+    color: var(--lc-success);
+}
+.lc-badge-neutral {
+    background: var(--lc-gray-100);
+    color: var(--lc-gray-500);
+}
+.lc-btn-confirm {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .4rem .85rem;
+    border: none;
+    border-radius: 8px;
+    font-size: .8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--lc-transition);
+    background: var(--lc-success);
+    color: #fff;
+}
+.lc-btn-confirm:hover {
+    background: #059669;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(16,185,129,.3);
+}
+.lc-btn-confirm:active {
+    transform: translateY(0);
+}
+
+/* ===== Empty State ===== */
+.lc-empty {
+    text-align: center;
+    padding: 3rem 1.5rem;
+    color: var(--lc-gray-500);
+}
+.lc-empty-icon {
+    width: 72px;
+    height: 72px;
+    margin: 0 auto 1rem;
+    background: var(--lc-gray-100);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.75rem;
+    color: var(--lc-gray-300);
+}
+.lc-empty-title {
+    font-size: .9375rem;
+    font-weight: 600;
+    color: var(--lc-gray-700);
+    margin-bottom: .25rem;
+}
+.lc-empty-desc {
+    font-size: .8125rem;
+}
+
+/* ===== Modal ===== */
+.lc-modal .modal-content {
+    border: none;
+    border-radius: var(--lc-radius);
+    box-shadow: var(--lc-shadow-lg);
+    overflow: hidden;
+}
+.lc-modal .modal-header {
+    border-bottom: none;
+    padding: 1.25rem 1.5rem;
+}
+.lc-modal .modal-header-success {
+    background: linear-gradient(135deg, var(--lc-success), #34d399);
+    color: #fff;
+}
+.lc-modal .modal-body {
+    padding: 1.5rem;
+}
+.lc-modal .modal-footer {
+    border-top: 1px solid var(--lc-gray-100);
+    padding: 1rem 1.5rem;
+}
+.lc-modal .lc-modal-student {
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: var(--lc-gray-900);
+}
+.lc-modal .lc-modal-info {
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+    font-size: .875rem;
+}
+.lc-modal .lc-modal-info-label {
+    color: var(--lc-gray-500);
+}
+.lc-modal .lc-modal-info-value {
+    font-weight: 600;
+    color: var(--lc-gray-700);
+}
+.lc-btn-cancel {
+    padding: .5rem 1.25rem;
+    border-radius: 8px;
+    font-size: .875rem;
+    font-weight: 600;
+    border: 1.5px solid var(--lc-gray-200);
+    background: #fff;
+    color: var(--lc-gray-700);
+    cursor: pointer;
+    transition: all var(--lc-transition);
+}
+.lc-btn-cancel:hover {
+    background: var(--lc-gray-50);
+    border-color: var(--lc-gray-300);
+}
+.lc-btn-success {
+    padding: .5rem 1.25rem;
+    border-radius: 8px;
+    font-size: .875rem;
+    font-weight: 600;
+    border: none;
+    background: var(--lc-success);
+    color: #fff;
+    cursor: pointer;
+    transition: all var(--lc-transition);
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+}
+.lc-btn-success:hover {
+    background: #059669;
+    box-shadow: 0 4px 12px rgba(16,185,129,.3);
+}
+.lc-btn-success:disabled {
+    background: var(--lc-gray-300);
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+/* ===== Page Badge ===== */
+.lc-page-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .3rem .75rem;
+    border-radius: 20px;
+    font-size: .75rem;
+    font-weight: 600;
+    background: var(--lc-gray-100);
+    color: var(--lc-gray-700);
+}
+
+/* ===== Animations ===== */
+@keyframes lcFadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+@keyframes lcPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .5; }
+}
+.lc-loading {
+    animation: lcPulse 1.5s ease-in-out infinite;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 991.98px) {
+    .lc-record-card {
+        min-height: 400px;
+    }
+    .lc-qr-img-wrap img {
+        width: 180px;
+        height: 180px;
+    }
+}
+@media (max-width: 767.98px) {
+    .lc-header .lc-title {
+        font-size: 1.25rem;
+    }
+    .lc-search-input {
+        height: 44px;
+        font-size: .875rem;
+    }
+    .lc-student-info .lc-info-grid {
+        grid-template-columns: 1fr;
+    }
+    .lc-table thead th,
+    .lc-table tbody td {
+        padding: .6rem .75rem;
+        font-size: .8125rem;
+    }
+    .lc-qr-img-wrap img {
+        width: 150px;
+        height: 150px;
+    }
+}
+</style>
+
+<div class="container-fluid py-4">
+    <div class="lc-header">
+        <h2 class="lc-title">
+            <i class="bi bi-check2-circle"></i>销假处理
+        </h2>
+        <p class="lc-subtitle">快速查找缺勤学生 • 一键销假</p>
+    </div>
+
+    {% if success_message %}
+    <div class="alert alert-success alert-dismissible fade show border-0" role="alert" style="background:var(--lc-success-light);color:var(--lc-success);border-radius:var(--lc-radius-sm);">
+        <i class="bi bi-check-circle-fill me-2"></i>{{ success_message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endif %}
+
+    {% if error_message %}
+    <div class="alert alert-danger alert-dismissible fade show border-0" role="alert" style="background:var(--lc-danger-light);color:var(--lc-danger);border-radius:var(--lc-radius-sm);">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ error_message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endif %}
+
+    <div class="row g-4">
+        <div class="col-lg-4 d-flex flex-column">
+            <div class="lc-card mb-3 flex-shrink-0">
+                <div class="lc-card-header lc-card-header-primary">
+                    <span><i class="bi bi-person-search"></i>查找学生</span>
+                </div>
+                <div class="lc-card-body">
+                    <div class="lc-search-input-wrap">
+                        <i class="bi bi-search lc-search-icon"></i>
+                        <input type="text" class="lc-search-input" id="keywordInput"
+                               placeholder="输入学号或姓名搜索..."
+                               autocomplete="off">
+                        <button class="lc-search-clear" id="searchClearBtn" onclick="clearSearch()" title="清除">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                    <div class="lc-search-hint">
+                        <i class="bi bi-info-circle"></i>学号精确查找 · 姓名/拼音模糊查找 · 身份证后四位查找
+                    </div>
+                    <div id="studentInfo" class="lc-student-info" style="display:none;">
+                        <div class="lc-info-grid">
+                            <div class="lc-info-item">
+                                <div class="lc-info-label">学号</div>
+                                <div class="lc-info-value" id="infoStudentNo">-</div>
+                            </div>
+                            <div class="lc-info-item">
+                                <div class="lc-info-label">姓名</div>
+                                <div class="lc-info-value" id="infoName">-</div>
+                            </div>
+                            <div class="lc-info-item">
+                                <div class="lc-info-label">性别</div>
+                                <div class="lc-info-value" id="infoGender">-</div>
+                            </div>
+                            <div class="lc-info-item">
+                                <div class="lc-info-label">专业</div>
+                                <div class="lc-info-value" id="infoMajor">-</div>
+                            </div>
+                        </div>
+                        <div class="lc-info-item mt-2">
+                            <div class="lc-info-label">班级</div>
+                            <div class="lc-info-value" id="infoClass">-</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lc-card mb-3 flex-shrink-0" id="quickActionsCard" style="visibility:hidden;">
+                <div class="lc-card-body">
+                    <div class="lc-quick-actions">
+                        <button type="button" class="lc-btn-action lc-btn-action-primary" onclick="continueAnother()">
+                            <i class="bi bi-arrow-repeat"></i>继续处理
+                        </button>
+                        <a href="{{ url_for('admin.admin_students') }}" class="lc-btn-action">
+                            <i class="bi bi-list"></i>学生列表
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lc-card mb-3 lc-qr-card">
+                <div class="lc-card-header lc-card-header-info">
+                    <span><i class="bi bi-qr-code"></i>手机扫码点名</span>
+                    <button type="button" class="btn btn-sm text-white opacity-75 hover-opacity-100 border-0" id="toggleQrEditBtn" onclick="toggleQrEdit()" title="切换输入链接" style="background:rgba(255,255,255,.15);border-radius:6px;">
+                        <i class="bi bi-pencil"></i>
+                    </button>
+                </div>
+                <div class="lc-card-body text-center">
+                    <div class="lc-qr-img-wrap">
+                        <img id="qrCodeImage" src="" alt="手机点名二维码">
+                    </div>
+                    <div class="lc-qr-url" id="qrUrlText">加载中...</div>
+                    <div id="qrUrlEdit" class="mt-3" style="display:none;">
+                        <div class="input-group input-group-sm">
+                            <input type="text" id="qrUrlInput" class="form-control"
+                                   placeholder="输入手机端URL"
+                                   style="border-radius:8px 0 0 8px;">
+                            <button class="btn btn-primary" type="button" onclick="updateQrUrl()"
+                                    style="border-radius:0 8px 8px 0;font-weight:600;">
+                                生成
+                            </button>
+                        </div>
+                        <small class="text-muted d-block mt-1">格式：http://IP:端口/mobile/login</small>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-3">
+                {% with _fh_type='export', _fh_title='出勤明细导出说明', _fh_icon='bi-file-earmark-spreadsheet',
+                    _fh_fields=['学号','学生姓名','学生身份证号','学校类别','入学年份','日期列1(出勤/缺勤)','日期列2...'],
+                    _fh_note='导出格式为出勤透视表：固定列为学生信息，日期列动态展开。状态着色——绿色=出勤，红色=缺勤。支持日期范围筛选，不含已删除和已毕业学生。' %}
+                {% include '_field_help.html' %}
+                {% endwith %}
+                <div class="row g-1 mb-2">
+                    <div class="col-6">
+                        <input type="date" id="exportStartDate" class="form-control form-control-sm"
+                               style="border-radius:6px;font-size:.75rem;">
+                    </div>
+                    <div class="col-6">
+                        <input type="date" id="exportEndDate" class="form-control form-control-sm"
+                               style="border-radius:6px;font-size:.75rem;">
+                    </div>
+                </div>
+                <button type="button" class="lc-btn-action w-100 justify-content-center" onclick="exportAttendance()">
+                    <i class="bi bi-file-earmark-spreadsheet"></i>导出出勤明细
+                </button>
+            </div>
+        </div>
+
+        <div class="col-lg-8">
+            <div class="lc-card lc-record-card">
+                <div class="lc-card-header lc-card-header-dark">
+                    <span><i class="bi bi-calendar-x"></i>缺勤记录</span>
+                    <span class="lc-page-badge" id="resultCount">0 条记录</span>
+                </div>
+                <div class="lc-card-body">
+                    <div class="table-responsive">
+                        <table class="lc-table">
+                            <thead>
+                                <tr>
+                                    <th>学号</th>
+                                    <th>身份证号</th>
+                                    <th>姓名</th>
+                                    <th>缺勤日期</th>
+                                    <th>状态</th>
+                                    <th style="width:100px;">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resultsBody">
+                                <tr>
+                                    <td colspan="6">
+                                        <div class="lc-empty">
+                                            <div class="lc-empty-icon">
+                                                <i class="bi bi-search"></i>
+                                            </div>
+                                            <div class="lc-empty-title">开始查找</div>
+                                            <div class="lc-empty-desc">输入学号或姓名查找缺勤记录</div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade lc-modal" id="confirmModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header modal-header-success">
+                <h5 class="modal-title"><i class="bi bi-check-circle me-2"></i>确认销假</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+                <div class="mb-3">
+                    <div style="width:48px;height:48px;border-radius:50%;background:var(--lc-success-light);margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:1.5rem;color:var(--lc-success);">
+                        <i class="bi bi-person-check"></i>
+                    </div>
+                </div>
+                <p class="mb-2 lc-modal-student" id="modalStudentName"></p>
+                <p class="text-muted mb-3">确认将该学生的出勤状态更新为 <span class="lc-badge lc-badge-success">出勤</span></p>
+                <div class="lc-modal-info justify-content-center mb-1">
+                    <span class="lc-modal-info-label">销假日期：</span>
+                    <span class="lc-modal-info-value" id="modalAttendanceDate"></span>
+                </div>
+            </div>
+            <div class="modal-footer justify-content-center">
+                <button type="button" class="lc-btn-cancel" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="lc-btn-success" id="confirmBtn" onclick="doConfirmCancel()">
+                    <i class="bi bi-check2-circle"></i>确认销假
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var debounceTimer = null;
+var lastKeyword = '';
+var selectedStudent = null;
+var confirmModal = null;
+var defaultQrUrl = '';
+
+document.addEventListener('DOMContentLoaded', function() {
+    confirmModal = new bootstrap.Modal(document.getElementById('confirmModal'));
+
+    var kwInput = document.getElementById('keywordInput');
+    kwInput.addEventListener('input', function() {
+        var val = this.value.trim();
+        document.getElementById('searchClearBtn').classList.toggle('visible', val.length > 0);
+        debounceSearch();
+    });
+
+    loadQrCode();
+});
+
+function clearSearch() {
+    document.getElementById('keywordInput').value = '';
+    document.getElementById('searchClearBtn').classList.remove('visible');
+    document.getElementById('keywordInput').focus();
+    lastKeyword = '';
+    document.getElementById('resultsBody').innerHTML = '<tr><td colspan="6"><div class="lc-empty"><div class="lc-empty-icon"><i class="bi bi-search"></i></div><div class="lc-empty-title">开始查找</div><div class="lc-empty-desc">输入学号或姓名查找缺勤记录</div></div></td></tr>';
+    document.getElementById('resultCount').textContent = '0 条记录';
+    document.getElementById('studentInfo').style.display = 'none';
+}
+
+function loadQrCode() {
+    fetch('{{ url_for("admin.api_mobile_url") }}')
+        .then(function(res) { return safeJSON(res); })
+        .then(function(data) {
+            defaultQrUrl = data.url;
+            document.getElementById('qrUrlText').textContent = data.url;
+            document.getElementById('qrUrlInput').value = data.url;
+            document.getElementById('qrCodeImage').src = '{{ url_for("admin.api_mobile_qr") }}';
+        })
+        .catch(function() {
+            document.getElementById('qrUrlText').textContent = '无法获取局域网地址';
+        });
+}
+
+function toggleQrEdit() {
+    var editDiv = document.getElementById('qrUrlEdit');
+    editDiv.style.display = editDiv.style.display === 'none' ? 'block' : 'none';
+}
+
+function updateQrUrl() {
+    var input = document.getElementById('qrUrlInput').value.trim();
+    if (!input) {
+        if (defaultQrUrl) {
+            document.getElementById('qrUrlInput').value = defaultQrUrl;
+            document.getElementById('qrUrlText').textContent = defaultQrUrl;
+            document.getElementById('qrCodeImage').src = '{{ url_for("admin.api_mobile_qr") }}';
+        }
+        return;
+    }
+    document.getElementById('qrUrlText').textContent = input;
+    document.getElementById('qrCodeImage').src = '{{ url_for("admin.api_mobile_qr") }}?url=' + encodeURIComponent(input);
+}
+
+function debounceSearch() {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(performSearch, 200);
+}
+
+function performSearch() {
+    var keyword = document.getElementById('keywordInput').value.trim();
+
+    if (!keyword) {
+        document.getElementById('resultsBody').innerHTML = '<tr><td colspan="6"><div class="lc-empty"><div class="lc-empty-icon"><i class="bi bi-search"></i></div><div class="lc-empty-title">开始查找</div><div class="lc-empty-desc">输入学号或姓名查找缺勤记录</div></div></td></tr>';
+        document.getElementById('resultCount').textContent = '0 条记录';
+        document.getElementById('studentInfo').style.display = 'none';
+        return;
+    }
+
+    if (keyword === lastKeyword) return;
+    lastKeyword = keyword;
+
+    showSearchLoading();
+
+    var url = '{{ url_for("leave_cancel.api_leave_cancel_search_absences") }}?keyword=' + encodeURIComponent(keyword);
+
+    fetch(url)
+        .then(function(res) { return safeJSON(res); })
+        .then(function(data) {
+            if (data.error) {
+                showToast(data.error, 'warning');
+                renderEmptyResults();
+                return;
+            }
+            renderResults(data.results);
+        })
+        .catch(function(err) {
+            console.error('Search error:', err);
+            showToast('查询失败', 'danger');
+            renderEmptyResults();
+        });
+}
+
+function showSearchLoading() {
+    document.getElementById('resultsBody').innerHTML = '<tr><td colspan="6"><div class="lc-empty"><div class="lc-empty-icon lc-loading"><i class="bi bi-hourglass-split"></i></div><div class="lc-empty-title">搜索中...</div></div></td></tr>';
+}
+
+function renderResults(results) {
+    var tbody = document.getElementById('resultsBody');
+    var count = document.getElementById('resultCount');
+
+    if (!results || results.length === 0) {
+        renderEmptyResults();
+        document.getElementById('studentInfo').style.display = 'none';
+        return;
+    }
+
+    var totalAbsences = 0;
+    for (var i = 0; i < results.length; i++) {
+        if (results[i].has_absence) totalAbsences++;
+    }
+    count.textContent = results.length + ' 人 · ' + totalAbsences + ' 缺勤';
+
+    var html = '';
+    for (var i = 0; i < results.length; i++) {
+        var item = results[i];
+        var student = item.student;
+        var nameChar = (student.name || '?').charAt(0);
+
+        if (!item.has_absence) {
+            html += '<tr>' +
+                '<td><span class="lc-student-code">' + (student.student_no || '-') + '</span></td>' +
+                '<td><span class="lc-student-code">' + (student.id_card || '-') + '</span></td>' +
+                '<td><span class="lc-student-name"><span class="lc-avatar">' + nameChar + '</span>' + student.name + '</span></td>' +
+                '<td>-</td>' +
+                '<td><span class="lc-badge lc-badge-success"><i class="bi bi-check-circle"></i>无缺勤</span></td>' +
+                '<td>-</td></tr>';
+        } else {
+            var record = item.absence;
+            html += '<tr class="lc-table-absence-row">' +
+                '<td><span class="lc-student-code">' + (student.student_no || '-') + '</span></td>' +
+                '<td><span class="lc-student-code">' + (student.id_card || '-') + '</span></td>' +
+                '<td><span class="lc-student-name"><span class="lc-avatar" style="background:linear-gradient(135deg,var(--lc-danger),#f87171);">' + nameChar + '</span>' + student.name + '</span></td>' +
+                '<td><i class="bi bi-calendar3 me-1 text-muted"></i>' + record.attendance_date + '</td>' +
+                '<td><span class="lc-badge lc-badge-danger"><i class="bi bi-x-circle"></i>缺勤</span></td>' +
+                '<td><button class="lc-btn-confirm" onclick="showConfirmModal(\'' + student.id_card + '\',\'' + (student.name || '').replace(/'/g, "\\'") + '\',\'' + record.attendance_date + '\')"><i class="bi bi-check2-circle"></i>销假</button></td></tr>';
+        }
+    }
+    tbody.innerHTML = html;
+}
+
+function renderEmptyResults() {
+    document.getElementById('resultCount').textContent = '0 条记录';
+    document.getElementById('resultsBody').innerHTML = '<tr><td colspan="6"><div class="lc-empty"><div class="lc-empty-icon"><i class="bi bi-emoji-frown"></i></div><div class="lc-empty-title">未找到记录</div><div class="lc-empty-desc">没有找到匹配的缺勤记录</div></div></td></tr>';
+}
+
+function showConfirmModal(idCard, name, date) {
+    selectedStudent = { id_card: idCard, name: name, attendance_date: date };
+    document.getElementById('modalStudentName').textContent = name;
+    document.getElementById('modalAttendanceDate').textContent = date;
+    var btn = document.getElementById('confirmBtn');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-check2-circle"></i>确认销假';
+    confirmModal.show();
+}
+
+function doConfirmCancel() {
+    if (!selectedStudent) return;
+
+    var btn = document.getElementById('confirmBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>处理中...';
+
+    fetch('{{ url_for("leave_cancel.api_leave_cancel_confirm") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            id_card: selectedStudent.id_card,
+            attendance_date: selectedStudent.attendance_date
+        })
+    })
+    .then(function(res) { return safeJSON(res); })
+    .then(function(data) {
+        if (data.success) {
+            confirmModal.hide();
+            showToast('销假成功！', 'success');
+            document.getElementById('quickActionsCard').style.visibility = 'visible';
+            performSearch();
+        } else {
+            showToast(data.error || '销假失败', 'danger');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check2-circle"></i>确认销假';
+        }
+    })
+    .catch(function() {
+        showToast('网络错误，请重试', 'danger');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check2-circle"></i>确认销假';
+    });
+}
+
+function continueAnother() {
+    document.getElementById('quickActionsCard').style.visibility = 'hidden';
+    document.getElementById('keywordInput').value = '';
+    document.getElementById('searchClearBtn').classList.remove('visible');
+    lastKeyword = '';
+    document.getElementById('resultsBody').innerHTML = '<tr><td colspan="6"><div class="lc-empty"><div class="lc-empty-icon"><i class="bi bi-search"></i></div><div class="lc-empty-title">开始查找</div><div class="lc-empty-desc">输入学号或姓名查找缺勤记录</div></div></td></tr>';
+    document.getElementById('resultCount').textContent = '0 条记录';
+    document.getElementById('studentInfo').style.display = 'none';
+    document.getElementById('keywordInput').focus();
+}
+
+function exportAttendance() {
+    var start = document.getElementById('exportStartDate').value;
+    var end = document.getElementById('exportEndDate').value;
+    var url = '{{ url_for("admin.export_attendance_excel") }}';
+    var params = [];
+    if (start) params.push('start_date=' + encodeURIComponent(start));
+    if (end) params.push('end_date=' + encodeURIComponent(end));
+    if (params.length) url += '?' + params.join('&');
+    window.location.href = url;
+}
+</script>
+{% endblock %}

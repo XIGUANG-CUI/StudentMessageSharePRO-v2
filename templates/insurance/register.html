@@ -1,0 +1,605 @@
+{% extends "base.html" %}
+{% block title %}保险缴费登记 - 学生数据管理系统{% endblock %}
+{% block head %}
+<style>
+    .ir-layout { display: flex; gap: 16px; height: calc(100vh - 130px); }
+    .ir-left { flex: 1; overflow-y: auto; background: #fff; border-radius: 8px; border: 1px solid #dee2e6; padding: 8px; }
+    .ir-right { width: 320px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; }
+    .ir-search-box { background: #f8f9fa; border-radius: 8px; padding: 12px; border: 1px solid #dee2e6; }
+    .ir-tree { font-size: 0.875rem; }
+    .ir-year-node { margin-bottom: 8px; }
+    .ir-year-header { display: flex; align-items: center; padding: 8px 10px; background: #4e73df; color: #fff; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem; user-select: none; }
+    .ir-year-header:hover { background: #3b5fc0; }
+    .ir-year-header .ir-toggle { margin-right: 8px; transition: transform .2s; display: inline-block; font-size: 0.75rem; }
+    .ir-year-header.collapsed .ir-toggle { transform: rotate(-90deg); }
+    .ir-year-header .ir-count { margin-left: auto; opacity: 0.85; font-size: 0.78rem; font-weight: 400; }
+    .ir-class-group { margin: 4px 0 4px 16px; }
+    .ir-class-header { display: flex; align-items: center; padding: 5px 10px; background: #e8edf5; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 0.82rem; color: #2c3e50; user-select: none; }
+    .ir-class-header:hover { background: #d8dfeb; }
+    .ir-class-header .ir-toggle { margin-right: 6px; transition: transform .2s; display: inline-block; font-size: 0.7rem; }
+    .ir-class-header.collapsed .ir-toggle { transform: rotate(-90deg); }
+    .ir-class-header .ir-class-count { margin-left: auto; color: #6c757d; font-size: 0.75rem; font-weight: 400; }
+    .ir-students { margin-left: 8px; }
+    .ir-student-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; align-items: center; padding: 4px 6px; border-bottom: 1px solid #eee; font-size: 0.8rem; transition: background .15s; }
+    .ir-student-row:hover { background: #f0f4ff; }
+    .ir-student-row:last-child { border-bottom: none; }
+    .ir-col-name { font-weight: 600; color: #212529; }
+    .ir-col-class { color: #6c757d; }
+    .ir-col-idcard { font-size: 0.75rem; color: #adb5bd; font-family: monospace; }
+    .ir-chip { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: 500; white-space: nowrap; }
+    .ir-chip-pending { background: #fff3cd; color: #856404; }
+    .ir-chip-done { background: #d4edda; color: #155724; }
+    .ir-chip-reject { background: #f8d7da; color: #721c24; }
+    .ir-cell { cursor: pointer; padding: 2px 4px; border-radius: 3px; min-height: 22px; display: flex; align-items: center; transition: background .15s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ir-cell:hover { background: #e7f1ff; }
+    .ir-cell.has-value { color: #0d6efd; font-weight: 500; }
+    .ir-cell.empty { color: #bbb; font-style: italic; }
+    .ir-cell.editing { background: #fff3cd; outline: 2px solid #ffc107; border-radius: 4px; }
+    .ir-cell input { width: 100%; border: none; background: transparent; font-size: 0.78rem; outline: none; padding: 0; }
+    .ir-cell input[type="date"] { font-size: 0.75rem; }
+    .ir-col-header { font-size: 0.7rem; color: #6c757d; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; padding-top: 6px; }
+    .ir-student-header { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; align-items: end; padding: 0 6px; margin-bottom: 2px; }
+    .ir-legend { display: flex; gap: 16px; flex-wrap: wrap; padding: 8px; font-size: 0.72rem; color: #6c757d; border-bottom: 1px solid #eee; }
+    .ir-legend span { display: flex; align-items: center; gap: 4px; }
+    .ir-legend .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .ir-legend .dot-filled { background: #0d6efd; }
+    .ir-legend .dot-empty { background: #dee2e6; }
+    .ir-selected-detail { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; }
+    .ir-selected-detail h6 { font-size: 0.85rem; margin-bottom: 8px; color: #4e73df; }
+    .ir-selected-detail .ir-detail-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 0.78rem; border-bottom: 1px dotted #eee; }
+    .ir-selected-detail .ir-detail-row:last-child { border-bottom: none; }
+    .ir-selected-detail .ir-detail-label { color: #6c757d; }
+    .ir-selected-detail .ir-detail-val { color: #212529; font-weight: 500; }
+    .ir-toast { position: fixed; bottom: 20px; right: 20px; z-index: 9999; padding: 10px 18px; border-radius: 6px; color: #fff; font-size: 0.85rem; animation: irSlideUp .3s ease; }
+    .ir-toast.success { background: #198754; }
+    .ir-toast.error { background: #dc3545; }
+    @keyframes irSlideUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+    /* === 批量操作（Phase 2/3 共享组件） === */
+    .ir-student-row, .ir-student-header { grid-template-columns: 26px repeat(7, 1fr); }
+    .ir-cell-cb { display: flex; align-items: center; justify-content: center; }
+    .ir-batch-badge { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 10px; font-size: 0.65rem; font-weight: 600; background: #e7f1ff; color: #1c5fd6; vertical-align: middle; }
+    .ic-batch-bar { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 9000; display: none; background: #212529; color: #fff; padding: 8px 14px; border-radius: 12px; align-items: center; gap: 10px; box-shadow: 0 6px 22px rgba(0,0,0,.35); }
+    .ic-batch-bar .ic-batch-info { font-size: 0.85rem; }
+    .ic-batch-bar .ic-batch-actions { display: flex; gap: 6px; }
+    .ir-selectall-box { font-size: 0.72rem; color: #6c757d; display: flex; align-items: center; gap: 4px; }
+    .ir-filter-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .ir-filter-row .form-select { flex: 1 1 30%; min-width: 86px; font-size: 0.75rem; padding: 2px 6px; height: auto; }
+    .ir-filter-reset { font-size: 0.72rem; color: #4e73df; cursor: pointer; user-select: none; white-space: nowrap; align-self: center; }
+    .ir-filter-reset:hover { text-decoration: underline; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h5 class="mb-0"><i class="bi bi-shield-check me-2"></i>保险缴费登记</h5>
+    <div class="ir-legend">
+        <span><span class="dot dot-filled"></span> 已填写</span>
+        <span><span class="dot dot-empty"></span> 未填写</span>
+        <span><i class="bi bi-info-circle"></i> 点击单元格编辑</span>
+    </div>
+</div>
+
+<div class="ir-layout">
+    <div class="ir-left" id="irTreeContainer">
+        <div class="text-center text-muted py-5">
+            <div class="spinner-border spinner-border-sm mb-2" role="status"></div>
+            <div>加载学生列表…</div>
+        </div>
+    </div>
+
+    <div class="ir-right">
+        <div class="ir-search-box">
+            <label class="form-label small fw-bold mb-1"><i class="bi bi-search me-1"></i>快速搜索与筛选</label>
+            <div class="ir-filter-row">
+                <select class="form-select" id="irFilterGrade">
+                    <option value="">全部年级</option>
+                    {% for g in filter_values.grades %}
+                    <option value="{{ g }}" {% if g == grade %}selected{% endif %}>{{ g }}级</option>
+                    {% endfor %}
+                </select>
+                <select class="form-select" id="irFilterClass">
+                    <option value="">全部班级</option>
+                    {% for c in filter_values.classes %}
+                    <option value="{{ c }}" {% if c == admin_class %}selected{% endif %}>{{ c }}</option>
+                    {% endfor %}
+                </select>
+                <select class="form-select" id="irFilterMajor">
+                    <option value="">全部专业</option>
+                    {% for mj in filter_values.majors %}
+                    <option value="{{ mj }}" {% if mj == major %}selected{% endif %}>{{ mj }}</option>
+                    {% endfor %}
+                </select>
+                <span class="ir-filter-reset" id="irFilterReset">重置</span>
+            </div>
+            <input type="text" class="form-control form-control-sm" id="irSearch" placeholder="学号 / 姓名 / 拼音 / 身份证号" autofocus>
+            <div class="text-muted mt-1 d-flex justify-content-between" style="font-size:0.7rem">
+                <span><span id="irTotalCount">0</span> 名学生 · <span id="irClassCount">0</span> 个班级</span>
+                <label class="ir-selectall-box mb-0"><input type="checkbox" id="irSelectAll"> 全选本视图</label>
+            </div>
+        </div>
+
+        <div class="ir-selected-detail d-none" id="irDetail">
+            <h6><i class="bi bi-person-badge me-1"></i>已选学生信息</h6>
+            <div class="ir-detail-row"><span class="ir-detail-label">姓名</span><span class="ir-detail-val" id="irDetailName">-</span></div>
+            <div class="ir-detail-row"><span class="ir-detail-label">学号</span><span class="ir-detail-val" id="irDetailNo">-</span></div>
+            <div class="ir-detail-row"><span class="ir-detail-label">班级</span><span class="ir-detail-val" id="irDetailClass">-</span></div>
+            <div class="ir-detail-row"><span class="ir-detail-label">身份证号</span><span class="ir-detail-val" id="irDetailIdcard" style="font-family:monospace;font-size:0.72rem">-</span></div>
+            <button class="btn btn-sm btn-outline-primary w-100 mt-2" id="irScrollToBtn">
+                <i class="bi bi-arrow-return-left"></i> 回到列表位置
+            </button>
+        </div>
+
+        <div class="ir-selected-detail d-none" id="irBatchHint">
+            <h6><i class="bi bi-list-check me-1"></i>批量登记</h6>
+            <div class="text-muted" style="font-size:0.75rem">
+                勾选左侧学生行前的复选框，底部出现批量工具条，点「批量设置」可一次性填写所选多人的缴费记录。
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 批量设置弹窗（Phase 3） -->
+<div class="modal fade" id="irBatchModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-list-check me-1"></i>批量缴费登记</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small">仅填写需要统一的字段，留空的不覆盖。将应用到所选 <strong id="irBatchCount">0</strong> 名学生。</p>
+                <div class="mb-2">
+                    <label class="form-label small mb-1">学平险缴费日期</label>
+                    <input type="date" class="form-control form-control-sm" id="irBatchPayDate">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small mb-1">学平险保费金额</label>
+                    <input type="text" class="form-control form-control-sm" id="irBatchPremium" placeholder="留空不填">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small mb-1">实习险缴费日期</label>
+                    <input type="date" class="form-control form-control-sm" id="irBatchInternDate">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small mb-1">学平险保单号</label>
+                    <input type="text" class="form-control form-control-sm" id="irBatchPolicyNo" placeholder="留空不填">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-sm btn-primary" id="irBatchApply">应用到所选</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/insurance_status.js') }}"></script>
+<script src="{{ url_for('static', filename='js/insurance_common.js') }}"></script>
+<script>window.CURRENT_SCHOOL_YEAR = {{ current_school_year }};</script>
+<script>
+(function() {
+    var treeData = {};
+    var collapsedYears = {};
+    var collapsedClasses = {};
+    var selectedStudentId = null;
+    var searchTimer = null;
+    var editingCell = null;
+    var batchController = null;
+
+    function toast(msg, type) {
+        var el = document.createElement('div');
+        el.className = 'ir-toast ' + (type || 'success');
+        el.textContent = msg;
+        document.body.appendChild(el);
+        setTimeout(function() { el.remove(); }, 2000);
+    }
+
+    function formatVal(v) { return escapeHtml(v || ''); }
+
+    function schoolName(school) {
+        if (school === 1) return '中职';
+        if (school === 2) return '技工';
+        return '';
+    }
+
+    function supervisorFlagChip(flag) {
+        if (!flag || flag === '') return '<span class="ir-chip ir-chip-pending">待处理</span>';
+        var safeFlag = escapeHtml(flag);
+        if (flag.indexOf('办结') >= 0) return '<span class="ir-chip ir-chip-done">' + safeFlag + '</span>';
+        if (flag === InsuranceStatus.EXEMPT) return '<span class="ir-chip ir-chip-reject">不参保</span>';
+        // PENDING_* 为「已审批、待办结」状态，属待处理，不应显示为已完成
+        if (flag === InsuranceStatus.PENDING_XUEPING || flag === InsuranceStatus.PENDING_INTERN) return '<span class="ir-chip ir-chip-pending">' + safeFlag + '</span>';
+        return '<span class="ir-chip ir-chip-pending">' + safeFlag + '</span>';
+    }
+
+    function formatDate(v) {
+        if (!v) return '';
+        if (InsuranceStatus.is_external_pay(v)) return '新生默认首保';
+        if (typeof v === 'string') {
+            if (v.match(/^\d{4}-\d{2}-\d{2}/)) return v;
+            // 斜杠日期格式 "YYYY/M/D"（中文 Excel 短日期格式）
+            var sm = v.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+            if (sm) return sm[1] + '-' + sm[2].padStart(2, '0') + '-' + sm[3].padStart(2, '0');
+            // 斜杠日期格式 "M/D/YY"（Excel 短日期格式，2 位年份）
+            var dm = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})/);
+            if (dm) return '20' + dm[3] + '-' + dm[1].padStart(2, '0') + '-' + dm[2].padStart(2, '0');
+        }
+        var num = parseFloat(v);
+        if (!isNaN(num) && num > 40000 && num < 60000) {
+            var d = new Date((num - 25569) * 86400 * 1000);
+            var y = d.getFullYear();
+            var m = String(d.getMonth() + 1).padStart(2, '0');
+            var day = String(d.getDate()).padStart(2, '0');
+            return y + '-' + m + '-' + day;
+        }
+        return String(v);
+    }
+
+    function cellHtml(value, field, student) {
+        var cls = value ? 'has-value' : 'empty';
+        var isDateField = field === 'student_insurance_pay_date' || field === 'student_insurance_expiry' || field === 'internship_insurance_pay_date';
+        if (isDateField) value = formatDate(value);
+        var display = value || '—';
+        if (isDateField && !value) display = '点击选日期';
+        if (field === 'insurance_premium') {
+            display = value || '静默';
+        }
+        if (field === 'student_insurance_no') {
+            display = value || '点击填写';
+        }
+        return '<span class="ir-cell ' + cls + '" data-field="' + field + '" data-id="' + student.id + '" title="点击编辑">' + escapeHtml(String(display)) + '</span>';
+    }
+
+    function loadTree(search) {
+        if (typeof search !== 'string') search = document.getElementById('irSearch').value.trim();
+        var parts = [];
+        if (search) parts.push('search=' + encodeURIComponent(search));
+        var g = document.getElementById('irFilterGrade').value;
+        var c = document.getElementById('irFilterClass').value;
+        var mj = document.getElementById('irFilterMajor').value;
+        if (g) parts.push('grade=' + encodeURIComponent(g));
+        if (c) parts.push('admin_class=' + encodeURIComponent(c));
+        if (mj) parts.push('major=' + encodeURIComponent(mj));
+        var params = parts.length ? '?' + parts.join('&') : '';
+        return fetch('/api/insurance/register-tree' + params)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                treeData = data.tree || {};
+                renderTree();
+                updateCounts();
+            });
+    }
+
+    function renderTree() {
+        var container = document.getElementById('irTreeContainer');
+        var years = Object.keys(treeData).sort(function(a, b) { return b - a; });
+
+        if (!years.length) {
+            container.innerHTML = '<div class="text-center text-muted py-5">无符合条件的学生</div>';
+            return;
+        }
+
+        var html = '';
+        for (var yi = 0; yi < years.length; yi++) {
+            var year = years[yi];
+            var classes = treeData[year];
+            var classNames = Object.keys(classes).sort();
+            var totalInYear = 0;
+            for (var ci = 0; ci < classNames.length; ci++) {
+                totalInYear += classes[classNames[ci]].length;
+            }
+
+            var yearCollapsed = collapsedYears[year];
+            html += '<div class="ir-year-node">';
+            html += '<div class="ir-year-header' + (yearCollapsed ? ' collapsed' : '') + '" data-year="' + year + '">';
+            html += '<span class="ir-toggle">&#9660;</span>';
+            html += '入学年 ' + year;
+            html += '<span class="ir-count">' + totalInYear + '人 · ' + classNames.length + '班</span>';
+            html += '</div>';
+
+            if (!yearCollapsed) {
+                for (var ci = 0; ci < classNames.length; ci++) {
+                    var cls = classNames[ci];
+                    var students = classes[cls];
+                    var clsCollapsed = collapsedClasses[year + '|' + cls];
+                    html += '<div class="ir-class-group">';
+                    html += '<div class="ir-class-header' + (clsCollapsed ? ' collapsed' : '') + '" data-year="' + year + '" data-class="' + cls + '">';
+                    html += '<span class="ir-toggle">&#9660;</span>';
+                    html += '班级 ' + cls;
+                    html += '<span class="ir-class-count">' + students.length + '人</span>';
+                    html += '</div>';
+
+                    if (!clsCollapsed) {
+                        html += '<div class="ir-student-header"><div></div><div class="ir-col-header">学生</div><div class="ir-col-header">校别</div><div class="ir-col-header">专业</div><div class="ir-col-header">学平险缴费日期</div><div class="ir-col-header">保费</div><div class="ir-col-header">实习险缴费日期</div><div class="ir-col-header">主管标记</div></div>';
+                        html += '<div class="ir-students">';
+                        for (var si = 0; si < students.length; si++) {
+                            var s = students[si];
+                            var selClass = s.id === selectedStudentId ? ' style="background:#e7f1ff"' : '';
+                            var batchBadge = '';
+                            var g = parseInt(s.grade, 10);
+                            var en = parseInt(s.enrollment_year, 10);
+                            if (!isNaN(g)) {
+                                // 先判定类别再计算：普通(grade==enroll) / 转入(grade<enroll) / 特殊(grade>enroll)
+                                // 特殊：年级由初中毕业时间推算可能偏高；若年级超出当前学年(未来)以入学年为准，否则以年级为准
+                                var cb = null, startY;
+                                if (isNaN(en)) {
+                                    startY = g;
+                                } else if (g > en) {
+                                    startY = (g > window.CURRENT_SCHOOL_YEAR) ? en : g;
+                                } else {
+                                    startY = g;
+                                }
+                                cb = window.CURRENT_SCHOOL_YEAR - startY + 1;
+                                if (cb >= 1 && cb <= 3) batchBadge = '<span class="ir-batch-badge">第' + cb + '年</span>';
+                            }
+                            html += '<div class="ir-student-row" data-student-id="' + s.id + '"' + selClass +
+                                ' data-name="' + escapeHtml(s.name || '') + '"' +
+                                ' data-student-no="' + escapeHtml(s.student_no || '') + '"' +
+                                ' data-admin-class="' + escapeHtml(s.admin_class || '') + '"' +
+                                ' data-id-card="' + escapeHtml(s.id_card || '') + '">';
+                            html += '<div class="ir-cell-cb"><input type="checkbox" class="ic-row-cb"></div>';
+                            html += '<div><span class="ir-col-name">' + formatVal(s.name) + '</span>' + batchBadge + ' <span class="ir-col-class">' + formatVal(s.admin_class) + '</span><br><span class="ir-col-idcard">' + formatVal(s.id_card) + '</span></div>';
+                            html += '<div style="font-size:0.78rem;color:#495057">' + (schoolName(s.school) || '-') + '</div>';
+                            html += '<div style="font-size:0.78rem;color:#495057">' + (formatVal(s.major) || '-') + '</div>';
+                            html += cellHtml(s.student_insurance_pay_date, 'student_insurance_pay_date', s);
+                            html += cellHtml(s.insurance_premium, 'insurance_premium', s);
+                            html += cellHtml(s.internship_insurance_pay_date, 'internship_insurance_pay_date', s);
+                            html += supervisorFlagChip(s.supervisor_flag);
+                            html += '</div>';
+                        }
+                        html += '</div>';
+                    }
+                    html += '</div>';
+                }
+            }
+            html += '</div>';
+        }
+
+        container.innerHTML = html;
+        if (batchController) batchController.syncCheckboxes();
+    }
+
+    function updateCounts() {
+        var totalStudents = 0;
+        var totalClasses = 0;
+        var years = Object.keys(treeData);
+        for (var yi = 0; yi < years.length; yi++) {
+            var classes = treeData[years[yi]];
+            var clsNames = Object.keys(classes);
+            totalClasses += clsNames.length;
+            for (var ci = 0; ci < clsNames.length; ci++) {
+                totalStudents += classes[clsNames[ci]].length;
+            }
+        }
+        document.getElementById('irTotalCount').textContent = totalStudents;
+        document.getElementById('irClassCount').textContent = totalClasses;
+    }
+
+    function saveCell(studentId, field, value) {
+        fetch('/api/insurance/register-single', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({student_id: studentId, field: field, value: value})
+        }).then(function(r) { return r.json(); })
+          .then(function(data) {
+              if (data.error) { toast(data.error, 'error'); return; }
+              toast('已保存', 'success');
+              var treeEl = document.getElementById('irTreeContainer');
+              var savedScroll = treeEl.scrollTop;
+              loadTree(document.getElementById('irSearch').value.trim()).then(function() {
+                  treeEl.scrollTop = savedScroll;
+              });
+          });
+    }
+
+    function startEdit(cell) {
+        if (editingCell === cell) return;
+        finishEdit(true);
+
+        var field = cell.dataset.field;
+        var studentId = parseInt(cell.dataset.id);
+        var currentVal = cell.textContent.trim();
+        if (currentVal === '点击选日期' || currentVal === '点击填写' || currentVal === '—' || currentVal === '静默') {
+            currentVal = '';
+        }
+
+        editingCell = cell;
+        cell.classList.add('editing');
+
+        if (field === 'student_insurance_pay_date' || field === 'student_insurance_expiry' || field === 'internship_insurance_pay_date') {
+            var input = document.createElement('input');
+            input.type = 'date';
+            input.value = currentVal;
+            input.addEventListener('blur', function() { finishEdit(true); });
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') { finishEdit(true); }
+                if (e.key === 'Escape') { finishEdit(false); }
+            });
+            input.addEventListener('change', function() { finishEdit(true); });
+            cell.textContent = '';
+            cell.appendChild(input);
+            input.focus();
+            if (!currentVal) input.showPicker && input.showPicker();
+        } else {
+            var input = document.createElement('input');
+            input.type = field === 'insurance_premium' ? 'text' : 'text';
+            input.value = currentVal;
+            input.placeholder = field === 'insurance_premium' ? '静默' : '输入…';
+            input.addEventListener('blur', function() { finishEdit(true); });
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') { finishEdit(true); }
+                if (e.key === 'Escape') { finishEdit(false); }
+            });
+            cell.textContent = '';
+            cell.appendChild(input);
+            input.focus();
+            input.select();
+        }
+    }
+
+    function finishEdit(save) {
+        if (!editingCell) return;
+        var cell = editingCell;
+        editingCell = null;
+        cell.classList.remove('editing');
+
+        var input = cell.querySelector('input');
+        var newValue = input ? input.value.trim() : '';
+        var field = cell.dataset.field;
+        var studentId = parseInt(cell.dataset.id);
+
+        if (save && input) {
+            saveCell(studentId, field, newValue);
+        } else {
+            loadTree(document.getElementById('irSearch').value.trim());
+        }
+    }
+
+    function selectStudent(studentId, studentData) {
+        selectedStudentId = studentId;
+        document.getElementById('irDetail').classList.remove('d-none');
+        document.getElementById('irDetailName').textContent = studentData.name || '-';
+        document.getElementById('irDetailNo').textContent = studentData.student_no || '-';
+        document.getElementById('irDetailClass').textContent = studentData.admin_class || '-';
+        document.getElementById('irDetailIdcard').textContent = studentData.id_card || '-';
+    }
+
+    document.getElementById('irTreeContainer').addEventListener('click', function(e) {
+        var yearHeader = e.target.closest('.ir-year-header');
+        if (yearHeader) {
+            var year = yearHeader.dataset.year;
+            collapsedYears[year] = !collapsedYears[year];
+            renderTree();
+            return;
+        }
+
+        var classHeader = e.target.closest('.ir-class-header');
+        if (classHeader) {
+            var year = classHeader.dataset.year;
+            var cls = classHeader.dataset.class;
+            collapsedClasses[year + '|' + cls] = !collapsedClasses[year + '|' + cls];
+            renderTree();
+            return;
+        }
+
+        var cell = e.target.closest('.ir-cell');
+        if (cell) {
+            startEdit(cell);
+            return;
+        }
+
+        var row = e.target.closest('.ir-student-row');
+        if (row) {
+            var sid = parseInt(row.dataset.studentId);
+            selectStudent(sid, {
+                name: row.dataset.name,
+                student_no: row.dataset.studentNo,
+                admin_class: row.dataset.adminClass,
+                id_card: row.dataset.idCard
+            });
+        }
+    });
+
+    document.getElementById('irSearch').addEventListener('input', function() {
+        clearTimeout(searchTimer);
+        var self = this;
+        searchTimer = setTimeout(function() {
+            loadTree(self.value.trim());
+        }, 300);
+    });
+
+    // === 筛选接线（Phase 5）===
+    ['irFilterGrade', 'irFilterClass', 'irFilterMajor'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('change', function() { loadTree(); });
+    });
+    document.getElementById('irFilterReset').addEventListener('click', function() {
+        document.getElementById('irFilterGrade').value = '';
+        document.getElementById('irFilterClass').value = '';
+        document.getElementById('irFilterMajor').value = '';
+        loadTree();
+    });
+
+    document.getElementById('irScrollToBtn').addEventListener('click', function() {
+        if (selectedStudentId) {
+            var row = document.querySelector('.ir-student-row[data-student-id="' + selectedStudentId + '"]');
+            if (row) row.scrollIntoView({behavior: 'smooth', block: 'center'});
+        }
+    });
+
+    document.addEventListener('click', function(e) {
+        if (editingCell && !editingCell.contains(e.target)) {
+            finishEdit(true);
+        }
+    });
+
+    // === 批量登记（Phase 3）===
+    var irBatchModal = null;
+    document.addEventListener('DOMContentLoaded', function() {
+        irBatchModal = new bootstrap.Modal(document.getElementById('irBatchModal'));
+    });
+
+    batchController = InsuranceCommon.createBatchController({
+        containerId: 'irTreeContainer',
+        rowSelector: '.ir-student-row',
+        getRowId: function (row) { return parseInt(row.dataset.studentId, 10); },
+        toolbarId: 'irBatchBar',
+        actions: [
+            { label: '批量设置', cls: 'btn-primary', handler: function (ids) {
+                if (!ids.length) return;
+                document.getElementById('irBatchCount').textContent = ids.length;
+                document.getElementById('irBatchPayDate').value = '';
+                document.getElementById('irBatchPremium').value = '';
+                document.getElementById('irBatchInternDate').value = '';
+                document.getElementById('irBatchPolicyNo').value = '';
+                if (irBatchModal) irBatchModal.show();
+            } }
+        ]
+    });
+
+    document.getElementById('irSelectAll').addEventListener('change', function() {
+        batchController.selectAllVisible(this.checked);
+    });
+
+    document.getElementById('irBatchApply').addEventListener('click', function() {
+        var ids = batchController.getSelectedIds();
+        if (!ids.length) { toast('请先勾选学生', 'error'); return; }
+        var fields = {};
+        var pay = document.getElementById('irBatchPayDate').value.trim();
+        var prem = document.getElementById('irBatchPremium').value.trim();
+        var intern = document.getElementById('irBatchInternDate').value.trim();
+        var policy = document.getElementById('irBatchPolicyNo').value.trim();
+        if (pay) fields.student_insurance_pay_date = pay;
+        if (prem) fields.insurance_premium = prem;
+        if (intern) fields.internship_insurance_pay_date = intern;
+        if (policy) fields.student_insurance_no = policy;
+        if (!Object.keys(fields).length) { toast('请至少填写一个字段', 'error'); return; }
+        fetch('/api/insurance/register-batch', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({student_ids: ids, fields: fields})
+        }).then(function(r) { return r.json(); })
+          .then(function(data) {
+              if (data.error) { toast(data.error, 'error'); return; }
+              toast('已批量登记 ' + (data.count || ids.length) + ' 名学生', 'success');
+              if (irBatchModal) irBatchModal.hide();
+              batchController.clear();
+              loadTree(document.getElementById('irSearch').value.trim());
+          });
+    });
+
+    if (window._restoreScroll) {
+        document.getElementById('irTreeContainer').scrollTop = window._restoreScroll;
+    }
+    var treeContainer = document.getElementById('irTreeContainer');
+    treeContainer.addEventListener('scroll', function() {
+        if (treeContainer.scrollTop > 0) {
+            window._restoreScroll = treeContainer.scrollTop;
+        }
+    });
+
+    loadTree('');
+})();
+</script>
+{% endblock %}

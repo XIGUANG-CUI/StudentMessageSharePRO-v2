@@ -1,0 +1,881 @@
+{% extends "base.html" %}
+
+{% block title %}多维查询 - 学生数据管理系统{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-search"></i> 多维查询</h2>
+    <a href="{{ url_for('insurance.admin_insurance_query') }}" class="btn btn-outline-primary">
+        <i class="bi bi-shield-check me-1"></i>保单查询
+    </a>
+</div>
+
+<style>
+    .filter-priority {
+        background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+        border-radius: 12px;
+        padding: 18px 22px;
+        box-shadow: 0 4px 15px rgba(30, 64, 175, 0.3);
+    }
+    .filter-priority .form-label {
+        color: rgba(255,255,255,0.85) !important;
+        font-weight: 600;
+        font-size: 13px;
+        margin-bottom: 5px;
+    }
+    .filter-priority select,
+    .filter-priority input {
+        background: rgba(255, 255, 255, 0.95);
+        border: 2px solid rgba(255, 255, 255, 0.4);
+        border-radius: 8px;
+        color: #1e40af;
+        font-weight: 600;
+    }
+    .filter-priority select:focus {
+        border-color: #fff;
+        box-shadow: 0 0 0 3px rgba(255,255,255,0.25);
+    }
+    .filter-priority .btn-group .btn {
+        background: rgba(30, 64, 175, 0.45);
+        border: 2px solid rgba(255,255,255,0.2);
+        color: rgba(255,255,255,0.55);
+        font-weight: 500;
+        border-radius: 8px;
+        transition: all 0.2s ease;
+    }
+    .filter-priority .btn-group .btn:hover {
+        background: rgba(255,255,255,0.3);
+        border-color: rgba(255,255,255,0.6);
+        color: rgba(255,255,255,0.85);
+    }
+    .filter-priority .btn-group .btn.active {
+        background: #fff;
+        border-color: #fff;
+        color: #1e40af;
+        font-weight: 700;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    .filter-section-title {
+        color: #475569;
+        font-weight: 600;
+        font-size: 14px;
+        margin-bottom: 10px;
+        padding-left: 8px;
+        border-left: 3px solid #3b82f6;
+    }
+    .filter-card {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 13px 14px;
+        transition: all 0.2s ease;
+    }
+    .filter-card:hover {
+        border-color: #3b82f6;
+        box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+    }
+    .filter-card label {
+        color: #64748b;
+        font-weight: 500;
+        font-size: 13px;
+        margin-bottom: 5px;
+    }
+    .filter-card select,
+    .filter-card input {
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        font-size: 14px;
+    }
+    .filter-card select:focus,
+    .filter-card input:focus {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.08);
+    }
+    .btn-custom {
+        background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+        border: none;
+        border-radius: 8px;
+        padding: 10px 25px;
+        color: white;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+    .btn-custom:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(30, 64, 175, 0.4);
+    }
+    .btn-secondary-custom {
+        background: #f1f5f9;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 10px 25px;
+        color: #475569;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+    .btn-secondary-custom:hover {
+        background: #e2e8f0;
+        transform: translateY(-2px);
+    }
+    .age-separator {
+        color: #94a3b8;
+        font-weight: 500;
+        padding: 0 3px;
+    }
+</style>
+
+<div class="card mb-4 shadow-lg">
+    <div class="card-header bg-gradient-to-r from-blue-600 to-blue-700 text-white">
+        <a class="btn btn-link text-decoration-none text-white" data-bs-toggle="collapse" href="#filterSection">
+            <i class="bi bi-funnel"></i> 筛选条件
+        </a>
+    </div>
+    <div class="collapse show" id="filterSection">
+        <div class="card-body px-3 py-3">
+            <form method="GET" id="filterForm">
+                <div class="filter-priority mb-4">
+                    <div class="row align-items-end g-3">
+                        <div class="col-md-3">
+                            <label class="form-label"><i class="bi bi-building"></i> 学校类型</label>
+                            <select name="school" id="schoolSelect" class="form-select">
+                                <option value="">全部</option>
+                                <option value="1" {{ 'selected' if current_filters.get('school') == 1 else '' }}>中职</option>
+                                <option value="2" {{ 'selected' if current_filters.get('school') == 2 else '' }}>技工</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label"><i class="bi bi-journal-check"></i> 学籍状态</label>
+                            <select name="registration_status" class="form-select" {{ 'disabled' if current_mode == 'inspect' else '' }}>
+                                <option value="">全部</option>
+                                {% for rs in filter_values.registration_statuses %}
+                                <option value="{{ rs }}" {{ 'selected' if (current_mode == 'inspect' and rs == '正式学籍') or (current_mode != 'inspect' and current_filters.get('registration_status') == rs) else '' }}>{{ rs }}</option>
+                                {% endfor %}
+                            </select>
+                            {% if current_mode == 'inspect' %}
+                            <input type="hidden" name="registration_status" value="正式学籍">
+                            {% endif %}
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label"><i class="bi bi-person-lines-fill"></i> 在校状态</label>
+                            <select name="attendance_status" class="form-select">
+                                <option value="">全部</option>
+                                {% for ast in filter_values.attendance_statuses %}
+                                <option value="{{ ast }}" {{ 'selected' if current_filters.get('attendance_status') == ast else '' }}>{{ ast }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label"><i class="bi bi-eye"></i> 显示模式</label>
+                            <div class="btn-group w-100" role="group">
+                                <button type="button" id="btnActual" class="btn btn-light w-50 {{ 'active' if current_mode == 'actual' else '' }}" onclick="toggleMode('actual')">实际</button>
+                                <button type="button" id="btnInspect" class="btn btn-light w-50 {{ 'active' if current_mode == 'inspect' else '' }}" onclick="toggleMode('inspect')">迎检</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <input type="hidden" name="mode" id="modeInput" value="{{ current_mode }}">
+
+                <div class="filter-section-title"><i class="bi bi-funnel"></i> 基础筛选</div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-3 filter-card">
+                        <label class="form-label">📚 年级</label>
+                        <select name="grade" id="gradeSelect" class="form-select">
+                            <option value="">全部</option>
+                            {% for grade in filter_values.grades %}
+                            <option value="{{ grade }}" {{ 'selected' if current_filters.get('grade') == grade else '' }}>{{ grade }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-3 filter-card">
+                        <label class="form-label">� 专业</label>
+                        <select name="major" id="majorSelect" class="form-select">
+                            <option value="">全部</option>
+                            {% for major in filter_values.majors %}
+                            <option value="{{ major }}" {{ 'selected' if current_filters.get('major') == major else '' }}>{{ major }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-3 filter-card" id="adminClassCard" style="display: {{ 'none' if current_mode == 'inspect' else 'block' }};">
+                        <label class="form-label">🏢 行政班级</label>
+                        <select name="admin_class" id="adminClassSelect" class="form-select">
+                            <option value="">全部</option>
+                            {% for class in filter_values.classes %}
+                            <option value="{{ class }}" {{ 'selected' if current_filters.get('admin_class') == class else '' }}>{{ class }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-3 filter-card" id="virtualClassCard" style="display: {{ 'block' if current_mode == 'inspect' else 'none' }};">
+                        <label class="form-label">� 虚拟班级</label>
+                        <select name="virtual_class" id="virtualClassSelect" class="form-select">
+                            <option value="">全部</option>
+                            {% for vclass in filter_values.virtual_classes %}
+                            <option value="{{ vclass }}" {{ 'selected' if current_filters.get('virtual_class') == vclass else '' }}>{{ vclass }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <div class="filter-section-title"><i class="bi bi-person-badge"></i> 人员信息</div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-3 filter-card">
+                        <label class="form-label">👤 性别</label>
+                        <select name="gender" class="form-select">
+                            <option value="">全部</option>
+                            <option value="男" {{ 'selected' if current_filters.get('gender') == '男' else '' }}>男</option>
+                            <option value="女" {{ 'selected' if current_filters.get('gender') == '女' else '' }}>女</option>
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-3 filter-card">
+                        <label class="form-label">� 民族</label>
+                        <select name="ethnicity" id="ethnicitySelect" class="form-select">
+                            <option value="">全部</option>
+                            {% for eth in filter_values.ethnicities %}
+                            <option value="{{ eth }}" {{ 'selected' if current_filters.get('ethnicity') == eth else '' }}>{{ eth }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="col-md-3 filter-card">
+                        <label class="form-label">🔢 年龄范围</label>
+                        <div class="d-flex align-items-center gap-1">
+                            <input type="number" name="min_age" class="form-control form-control-sm" min="0" max="100"
+                                   value="{{ current_filters.get('min_age', '') }}" placeholder="最小">
+                            <span class="age-separator">—</span>
+                            <input type="number" name="max_age" class="form-control form-control-sm" min="0" max="100"
+                                   value="{{ current_filters.get('max_age', '') }}" placeholder="最大">
+                        </div>
+                    </div>
+
+                    <div class="col-md-3 filter-card">
+                        <label class="form-label">� 学号 / 姓名</label>
+                        <div class="d-flex gap-1">
+                            <input type="text" name="student_no" class="form-control form-control-sm"
+                                   value="{{ current_filters.get('student_no', '') }}" placeholder="学号">
+                            <input type="text" name="name" class="form-control form-control-sm"
+                                   value="{{ current_filters.get('name', '') }}" placeholder="姓名">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="text-end mt-3">
+                    <a href="{{ url_for('user.user_query') }}" class="btn btn-secondary-custom me-2">
+                        <i class="bi bi-x-circle"></i> 重置
+                    </a>
+                    <button type="submit" class="btn btn-custom">
+                        <i class="bi bi-search"></i> 查询
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% with _fh_type='export', _fh_title='查询结果导出说明', _fh_icon='bi-file-earmark-excel',
+    _fh_fields=['学号','学生身份证号','学生姓名','性别','年龄','民族','住址','专业','行政班级','虚拟班级','家长姓名','家长身份证号','家长电话','学生电话','年级','学籍状态','在校状态','专业方向','户口性质','入学形式','入学年份','备注','姓名拼音'],
+    _fh_note='导出数据范围：当前页面筛选条件对应的数据。导出列为当前角色的可见字段（保险字段需对应角色权限）。' %}
+{% include '_field_help.html' %}
+{% endwith %}
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>共查询到 <strong>{{ pagination.total }}</strong> 条记录</span>
+        <button class="btn btn-success btn-sm" onclick="exportData()">
+            <i class="bi bi-download"></i> 导出数据
+        </button>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        {% for col in visible_columns %}
+                        <th>{{ col.label }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for student in students %}
+                    <tr>
+                        {% for col in visible_columns %}
+                        <td>
+                            {% if col.field == '入学年份' %}
+                                {{ student.get('enrollment_year', '') if student.get('enrollment_year', 0) != 0 else '' }}
+                            {% elif col.badge %}
+                            <span class="badge bg-{{ col.badge.get(student.get(col.db_key, ''), 'secondary') }}">
+                                {{ student.get(col.db_key, '-') }}
+                            </span>
+                            {% else %}
+                            {{ student.get(col.db_key, '-') }}
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="{{ visible_columns|length }}" class="text-center text-muted">暂无数据</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        {% if pagination.pages > 1 %}
+        {% set args_dict = request.args.to_dict() %}
+        {% if 'page' in args_dict %}
+            {% set _ = args_dict.pop('page') %}
+        {% endif %}
+        <nav>
+            <ul class="pagination justify-content-center">
+                {% if pagination.page > 1 %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('user.user_query', page=pagination.page-1, **args_dict) }}">上一页</a>
+                </li>
+                {% endif %}
+                
+                {% for page_num in range(1, pagination.pages + 1) %}
+                    {% if page_num == pagination.page %}
+                    <li class="page-item active">
+                        <span class="page-link">{{ page_num }}</span>
+                    </li>
+                    {% elif page_num <= 3 or page_num > pagination.pages - 3 or (page_num >= pagination.page - 1 and page_num <= pagination.page + 1) %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('user.user_query', page=page_num, **args_dict) }}">{{ page_num }}</a>
+                    </li>
+                    {% elif page_num == 4 or page_num == pagination.pages - 2 %}
+                    <li class="page-item disabled">
+                        <span class="page-link">...</span>
+                    </li>
+                    {% endif %}
+                {% endfor %}
+                
+                {% if pagination.page < pagination.pages %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('user.user_query', page=pagination.page+1, **args_dict) }}">下一页</a>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+        <div class="text-center text-muted mt-1">
+            <small>每页 {{ pagination.per_page }} 条</small>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card border-start border-primary border-4 shadow-sm mt-4" id="classComparisonCard">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center bg-light">
+        <h6 class="card-title mb-0 text-primary"><i class="bi bi-diagram-3 me-1"></i>班级对照表</h6>
+        <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-light btn-sm rounded-pill" onclick="printClassComparison()" title="打印班级对照表">
+                <i class="bi bi-printer me-1"></i>打印
+            </button>
+            <button type="button" class="btn btn-light btn-sm rounded-pill" onclick="printClassComparisonDetail()" title="打印学生姓名明细">
+                <i class="bi bi-list-ul me-1"></i>打印明细
+            </button>
+            <span class="badge bg-primary rounded-pill" id="classComparisonTotal">总人数: 0</span>
+        </div>
+    </div>
+    <div class="card-body p-2">
+        <div class="table-responsive" style="max-height: 420px; overflow-y: auto;">
+            <table class="table table-sm table-bordered align-middle mb-0" id="classComparisonTable" style="table-layout: auto;">
+                <colgroup>
+                    <col style="width: 14%;">
+                    <col style="width: 30%;">
+                    <col style="width: 24%;">
+                    <col style="width: 14%;">
+                    <col style="width: 18%;">
+                </colgroup>
+                <thead class="table-light sticky-top small text-uppercase fw-semibold">
+                </thead>
+                <tbody>
+                    <tr>
+                        <td colspan="5" class="text-center text-muted py-4">请选择学校类型后加载</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+var _filterAbortController = null;
+
+function _safeFetch(url) {
+    if (_filterAbortController) {
+        _filterAbortController.abort();
+    }
+    _filterAbortController = new AbortController();
+    return fetch(url, { signal: _filterAbortController.signal });
+}
+
+function _buildSelectOptions(values) {
+    var html = '<option value="">全部</option>';
+    values.forEach(function(v) {
+        html += '<option value="' + escapeHtml(String(v)) + '">' + escapeHtml(String(v)) + '</option>';
+    });
+    return html;
+}
+
+function _safeSetSelectValue(selectEl, value) {
+    if (!value) return;
+    for (var i = 0; i < selectEl.options.length; i++) {
+        if (selectEl.options[i].value === value) {
+            selectEl.value = value;
+            return;
+        }
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    var scrollY = sessionStorage.getItem('pageScroll');
+    if (scrollY) {
+        sessionStorage.removeItem('pageScroll');
+        window.scrollTo(0, parseInt(scrollY));
+    }
+
+    var filterCollapsed = sessionStorage.getItem('filterCollapsed');
+    var collapseEl = document.getElementById('filterSection');
+    if (filterCollapsed === 'true' && collapseEl) {
+        collapseEl.classList.remove('show');
+    }
+
+    var minAgeInput = document.querySelector('input[name="min_age"]');
+    var maxAgeInput = document.querySelector('input[name="max_age"]');
+    if (minAgeInput) {
+        minAgeInput.addEventListener('input', function() {
+            var v = parseInt(this.value);
+            if (isNaN(v)) return;
+            if (v < 0) this.value = 0;
+            if (v > 100) this.value = 100;
+        });
+    }
+    if (maxAgeInput) {
+        maxAgeInput.addEventListener('input', function() {
+            var v = parseInt(this.value);
+            if (isNaN(v)) return;
+            if (v < 0) this.value = 0;
+            if (v > 100) this.value = 100;
+        });
+    }
+});
+
+document.addEventListener('click', function(e) {
+    var link = e.target.closest('.pagination .page-link');
+    if (link && link.href) {
+        sessionStorage.setItem('pageScroll', window.scrollY);
+    }
+});
+
+var filterSection = document.getElementById('filterSection');
+if (filterSection) {
+    filterSection.addEventListener('shown.bs.collapse', function() {
+        sessionStorage.setItem('filterCollapsed', 'false');
+    });
+    filterSection.addEventListener('hidden.bs.collapse', function() {
+        sessionStorage.setItem('filterCollapsed', 'true');
+    });
+}
+
+function exportData() {
+    var form = document.getElementById('filterForm');
+    var url = "{{ url_for('api.api_export') }}" + '?' + new URLSearchParams(new FormData(form)).toString();
+    window.location.href = url;
+}
+
+function toggleMode(mode) {
+    document.getElementById('btnActual').classList.toggle('active', mode === 'actual');
+    document.getElementById('btnInspect').classList.toggle('active', mode === 'inspect');
+    document.getElementById('modeInput').value = mode;
+
+    var regSelect = document.querySelector('select[name="registration_status"]');
+
+    if (mode === 'inspect') {
+        regSelect.value = '正式学籍';
+        regSelect.disabled = true;
+        var hiddenInput = document.querySelector('input[type="hidden"][name="registration_status"]');
+        if (!hiddenInput) {
+            hiddenInput = document.createElement('input');
+            hiddenInput.type = 'hidden';
+            hiddenInput.name = 'registration_status';
+            hiddenInput.value = '正式学籍';
+            regSelect.parentNode.appendChild(hiddenInput);
+        } else {
+            hiddenInput.value = '正式学籍';
+        }
+    } else {
+        regSelect.disabled = false;
+        regSelect.value = '';
+        var hiddenInput = document.querySelector('input[type="hidden"][name="registration_status"]');
+        if (hiddenInput) {
+            hiddenInput.parentNode.removeChild(hiddenInput);
+        }
+    }
+
+    var adminClassCard = document.getElementById('adminClassCard');
+    var virtualClassCard = document.getElementById('virtualClassCard');
+
+    var school = document.getElementById('schoolSelect').value;
+    var grade = document.getElementById('gradeSelect').value;
+
+    var params = new URLSearchParams();
+    if (school) params.append('school', school);
+    if (grade) params.append('grade', grade);
+
+    _safeFetch('/api/filters/options?' + params.toString())
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+            if (mode === 'actual') {
+                adminClassCard.style.display = 'block';
+                virtualClassCard.style.display = 'none';
+                document.getElementById('adminClassSelect').innerHTML = _buildSelectOptions(data.classes);
+            } else {
+                adminClassCard.style.display = 'none';
+                virtualClassCard.style.display = 'block';
+                document.getElementById('virtualClassSelect').innerHTML = _buildSelectOptions(data.virtual_classes);
+            }
+        })
+        .catch(function(err) {
+            if (err.name !== 'AbortError') {
+                showToast('筛选选项加载失败', 'danger');
+            }
+        });
+}
+
+function updateFilterOptions() {
+    var school = document.getElementById('schoolSelect').value;
+    var grade = document.getElementById('gradeSelect').value;
+
+    var params = new URLSearchParams();
+    if (school) params.append('school', school);
+    if (grade) params.append('grade', grade);
+
+    _safeFetch('/api/filters/options?' + params.toString())
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+            var gradeSelect = document.getElementById('gradeSelect');
+            var currentGrade = gradeSelect.value;
+            gradeSelect.innerHTML = _buildSelectOptions(data.grades);
+            _safeSetSelectValue(gradeSelect, currentGrade);
+
+            var majorSelect = document.getElementById('majorSelect');
+            var currentMajor = majorSelect.value;
+            majorSelect.innerHTML = _buildSelectOptions(data.majors);
+            _safeSetSelectValue(majorSelect, currentMajor);
+
+            var classSelect = document.getElementById('adminClassSelect');
+            var currentClass = classSelect.value;
+            classSelect.innerHTML = _buildSelectOptions(data.classes);
+            _safeSetSelectValue(classSelect, currentClass);
+
+            var vclassSelect = document.getElementById('virtualClassSelect');
+            var currentVclass = vclassSelect.value;
+            vclassSelect.innerHTML = _buildSelectOptions(data.virtual_classes);
+            _safeSetSelectValue(vclassSelect, currentVclass);
+
+            var ethnicitySelect = document.getElementById('ethnicitySelect');
+            var currentEthnicity = ethnicitySelect.value;
+            ethnicitySelect.innerHTML = _buildSelectOptions(data.ethnicities);
+            _safeSetSelectValue(ethnicitySelect, currentEthnicity);
+        })
+        .catch(function(err) {
+            if (err.name !== 'AbortError') {
+                showToast('筛选选项加载失败', 'danger');
+            }
+        });
+}
+
+document.getElementById('schoolSelect').addEventListener('change', function() {
+    document.getElementById('gradeSelect').value = '';
+    document.getElementById('majorSelect').value = '';
+    document.getElementById('adminClassSelect').value = '';
+    document.getElementById('virtualClassSelect').value = '';
+    document.getElementById('ethnicitySelect').value = '';
+    updateFilterOptions();
+});
+
+document.getElementById('gradeSelect').addEventListener('change', function() {
+    var school = document.getElementById('schoolSelect').value;
+    var grade = this.value;
+
+    if (grade) {
+        var params = new URLSearchParams();
+        if (school) params.append('school', school);
+        params.append('grade', grade);
+
+        _safeFetch('/api/filters/options?' + params.toString())
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                var majorSelect = document.getElementById('majorSelect');
+                var currentMajor = majorSelect.value;
+                majorSelect.innerHTML = _buildSelectOptions(data.majors);
+                _safeSetSelectValue(majorSelect, currentMajor);
+
+                var classSelect = document.getElementById('adminClassSelect');
+                var currentClass = classSelect.value;
+                classSelect.innerHTML = _buildSelectOptions(data.classes);
+                _safeSetSelectValue(classSelect, currentClass);
+
+                var vclassSelect = document.getElementById('virtualClassSelect');
+                var currentVclass = vclassSelect.value;
+                vclassSelect.innerHTML = _buildSelectOptions(data.virtual_classes);
+                _safeSetSelectValue(vclassSelect, currentVclass);
+
+                var ethnicitySelect = document.getElementById('ethnicitySelect');
+                var currentEthnicity = ethnicitySelect.value;
+                ethnicitySelect.innerHTML = _buildSelectOptions(data.ethnicities);
+                _safeSetSelectValue(ethnicitySelect, currentEthnicity);
+            })
+            .catch(function(err) {
+                if (err.name !== 'AbortError') {
+                    showToast('筛选选项加载失败', 'danger');
+                }
+            });
+    } else {
+        updateFilterOptions();
+    }
+});
+
+function naturalCompare(a, b) {
+    var aParts = a.match(/\d+|\D+/g) || [a];
+    var bParts = b.match(/\d+|\D+/g) || [b];
+    var len = Math.min(aParts.length, bParts.length);
+    for (var i = 0; i < len; i++) {
+        var aIsNum = /^\d+$/.test(aParts[i]);
+        var bIsNum = /^\d+$/.test(bParts[i]);
+        if (aIsNum && bIsNum) {
+            var diff = parseInt(aParts[i]) - parseInt(bParts[i]);
+            if (diff !== 0) return diff;
+        } else {
+            var diff = aParts[i].localeCompare(bParts[i]);
+            if (diff !== 0) return diff;
+        }
+    }
+    return aParts.length - bParts.length;
+}
+
+function loadClassComparison() {
+    var school = document.getElementById('schoolSelect').value;
+    var mode = document.getElementById('modeInput').value;
+    var registrationStatus = document.querySelector('select[name="registration_status"]').value;
+
+    var params = new URLSearchParams();
+    if (school) params.append('school', school);
+    if (registrationStatus) params.append('registration_status', registrationStatus);
+
+    fetch('/api/class-comparison?' + params.toString())
+        .then(function(response) {
+            if (!response.ok) {
+                throw new Error('HTTP ' + response.status);
+            }
+            return response.json();
+        })
+        .then(function(data) {
+            var thead = document.querySelector('#classComparisonTable thead');
+            var tbody = document.querySelector('#classComparisonTable tbody');
+            var totalBadge = document.getElementById('classComparisonTotal');
+
+            if (!data.length) {
+                thead.innerHTML = '';
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">暂无数据</td></tr>';
+                totalBadge.textContent = '总人数: 0';
+                return;
+            }
+
+            var grandTotal = 0;
+            data.forEach(function(r) { grandTotal += r.count; });
+            totalBadge.textContent = '总人数: ' + formatNumber(grandTotal);
+
+            if (mode === 'actual') {
+                thead.innerHTML = '<tr><th>实际班级</th><th>专业</th><th>虚拟班级</th><th class="text-end">人数</th><th class="text-end">总人数</th></tr>';
+                tbody.innerHTML = buildComparisonRows(data, 'admin_class', 'virtual_class');
+            } else {
+                data.sort(function(a, b) {
+                    return naturalCompare(a.virtual_class || '', b.virtual_class || '') || naturalCompare(a.major || '', b.major || '') || naturalCompare(a.admin_class || '', b.admin_class || '');
+                });
+                thead.innerHTML = '<tr><th>虚拟班级</th><th>专业</th><th>实际班级</th><th class="text-end">人数</th><th class="text-end">总人数</th></tr>';
+                tbody.innerHTML = buildComparisonRows(data, 'virtual_class', 'admin_class');
+            }
+        })
+        .catch(function(error) {
+            showToast('班级对照表加载失败: ' + error.message, 'danger');
+        });
+}
+
+function buildComparisonRows(data, groupField, subField) {
+    var html = '';
+    var i = 0;
+    var groupIndex = 0;
+    while (i < data.length) {
+        var groupName = data[i][groupField] || '-';
+        var groupTotal = 0;
+        var groupStart = i;
+
+        while (i < data.length && (data[i][groupField] || '-') === groupName) {
+            groupTotal += data[i].count;
+            i++;
+        }
+        var spanCount = i - groupStart;
+
+        var majors = [];
+        for (var j = groupStart; j < i; j++) {
+            var m = data[j].major || '-';
+            if (majors.indexOf(m) === -1) {
+                majors.push(m);
+            }
+        }
+        var majorsHtml = majors.map(function(m) {
+            return '<span class="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle rounded-pill me-1 mb-1">' + escapeHtml(m) + '</span>';
+        }).join('');
+
+        for (var j = groupStart; j < i; j++) {
+            var row = data[j];
+            var subName = row[subField] || '-';
+            var rowClass = '';
+            if (j === groupStart && groupIndex > 0) {
+                rowClass = ' border-top border-2 border-secondary-subtle';
+            }
+            html += '<tr class="' + rowClass + '">';
+            if (j === groupStart) {
+                html += '<td rowspan="' + spanCount + '" class="align-middle fw-semibold bg-primary bg-opacity-10">' + escapeHtml(groupName) + '</td>';
+                html += '<td rowspan="' + spanCount + '" class="align-middle bg-body-tertiary" style="max-width:180px;">' + majorsHtml + '</td>';
+            }
+            html += '<td class="' + ((j - groupStart) % 2 === 0 ? '' : 'bg-body-tertiary') + '">' + escapeHtml(subName) + '</td>';
+            html += '<td class="text-end fw-medium' + ((j - groupStart) % 2 === 0 ? '' : ' bg-body-tertiary') + '">' + formatNumber(row.count) + '</td>';
+            if (j === groupStart) {
+                html += '<td rowspan="' + spanCount + '" class="align-middle text-end fw-bold bg-primary bg-opacity-10 text-primary">' + formatNumber(groupTotal) + '</td>';
+            }
+            html += '</tr>';
+        }
+        groupIndex++;
+    }
+    return html;
+}
+
+document.getElementById('schoolSelect').addEventListener('change', function() {
+    loadClassComparison();
+});
+
+document.querySelector('select[name="registration_status"]').addEventListener('change', function() {
+    loadClassComparison();
+});
+
+var _origToggleMode = toggleMode;
+toggleMode = function(mode) {
+    _origToggleMode(mode);
+    setTimeout(function() { loadClassComparison(); }, 200);
+};
+
+var _origUpdateFilterOptions = updateFilterOptions;
+updateFilterOptions = function() {
+    _origUpdateFilterOptions();
+};
+
+(function() {
+    var currentMode = document.getElementById('modeInput').value;
+    if (currentMode === 'inspect') {
+        toggleMode('inspect');
+    }
+})();
+
+loadClassComparison();
+
+function printClassComparison() {
+    window.print();
+}
+
+function printClassComparisonDetail() {
+    var school = document.getElementById('schoolSelect').value;
+    var mode = document.getElementById('modeInput').value;
+    var registrationStatus = document.querySelector('select[name="registration_status"]').value;
+
+    var params = new URLSearchParams();
+    if (school) params.append('school', school);
+    if (registrationStatus) params.append('registration_status', registrationStatus);
+
+    fetch('/api/class-comparison-detail?' + params.toString())
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+            if (!data.length) {
+                showToast('暂无数据可打印', 'warning');
+                return;
+            }
+
+            var groupField = mode === 'actual' ? 'admin_class' : 'virtual_class';
+            var subField = mode === 'actual' ? 'virtual_class' : 'admin_class';
+            var modeLabel = mode === 'actual' ? '实际班级' : '虚拟班级';
+
+            // 迎检模式按虚拟班级分组：数据需按 虚拟班级→专业→行政班级 重排，
+            // 否则同一虚拟班级（跨多个行政班级）会被连续扫描拆成多段
+            if (mode === 'inspect') {
+                data.sort(function(a, b) {
+                    return naturalCompare(a.virtual_class || '', b.virtual_class || '') ||
+                           naturalCompare(a.major || '', b.major || '') ||
+                           naturalCompare(a.admin_class || '', b.admin_class || '');
+                });
+            }
+
+            var html = '';
+            html += '<h2 style="text-align:center;">班级对照表 - 学生姓名明细</h2>';
+            html += '<p style="text-align:center;color:#666;">按' + modeLabel + '分组 | 共 ' + formatNumber(data.reduce(function(s,r){return s+r.count;},0)) + ' 人</p>';
+
+            var i = 0;
+            while (i < data.length) {
+                var groupName = data[i][groupField] || '-';
+                var groupTotal = 0;
+                var groupStart = i;
+                var groupMajors = [];
+
+                while (i < data.length && (data[i][groupField] || '-') === groupName) {
+                    groupTotal += data[i].count;
+                    var m = data[i].major || '-';
+                    if (groupMajors.indexOf(m) === -1) groupMajors.push(m);
+                    i++;
+                }
+
+                html += '<div class="detail-group">';
+                html += '<h3>' + escapeHtml(groupName) + '（' + modeLabel + '）</h3>';
+                html += '<p style="color:#555;">专业：' + escapeHtml(groupMajors.join('、')) + '　总计：<strong>' + groupTotal + '人</strong></p>';
+
+                for (var j = groupStart; j < i; j++) {
+                    var row = data[j];
+                    var subName = row[subField] || '-';
+                    var majorName = row.major || '-';
+                    var names = row.student_names || '';
+                    html += '<div class="detail-sub">';
+                    html += '<p><strong>' + escapeHtml(subName) + '</strong>　' + escapeHtml(majorName) + '　' + row.count + '人</p>';
+                    html += '<p style="padding-left:8px;word-break:break-all;">学生：' + escapeHtml(names) + '</p>';
+                    html += '</div>';
+                }
+                html += '</div>';
+            }
+
+            var printDiv = document.createElement('div');
+            printDiv.id = 'classComparisonDetailPrint';
+            printDiv.className = 'no-print';
+            printDiv.innerHTML = html;
+            document.body.appendChild(printDiv);
+
+            var card = document.getElementById('classComparisonCard');
+            var cardDisplay = card.style.display;
+            card.style.display = 'none';
+
+            setTimeout(function() {
+                window.print();
+                setTimeout(function() {
+                    card.style.display = cardDisplay;
+                    if (printDiv.parentNode) {
+                        printDiv.parentNode.removeChild(printDiv);
+                    }
+                }, 200);
+            }, 100);
+        })
+        .catch(function(error) {
+            showToast('加载明细失败', 'danger');
+        });
+}
+</script>
+{% endblock %}

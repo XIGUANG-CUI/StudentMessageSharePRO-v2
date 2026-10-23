@@ -1,0 +1,1226 @@
+{% extends "base.html" %}
+{% block title %}毕业管理 - 学生数据管理系统{% endblock %}
+{% block head %}
+<style>
+    :root {
+        --gr-primary: #d97706;
+        --gr-primary-dark: #92400e;
+        --gr-primary-light: #fff7ed;
+        --gr-success: #10b981;
+        --gr-success-light: #ecfdf5;
+        --gr-gray-50: #f9fafb;
+        --gr-gray-100: #f3f4f6;
+        --gr-gray-200: #e5e7eb;
+        --gr-gray-300: #d1d5db;
+        --gr-gray-500: #6b7280;
+        --gr-gray-700: #374151;
+        --gr-gray-900: #111827;
+        --gr-radius: 14px;
+        --gr-shadow: 0 4px 12px rgba(0,0,0,.06), 0 2px 4px rgba(0,0,0,.04);
+    }
+    .gr-header {
+        display: flex; align-items: center; justify-content: space-between;
+        margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;
+    }
+    .gr-title {
+        font-size: 1.5rem; font-weight: 700; color: var(--gr-gray-900);
+        display: flex; align-items: center; gap: .5rem;
+    }
+    .gr-title i { color: var(--gr-primary); font-size: 1.4rem; }
+    .gr-subtitle { font-size: .875rem; color: var(--gr-gray-500); margin-top: .25rem; }
+    .gr-card {
+        background: #fff; border: 1px solid var(--gr-gray-200);
+        border-radius: var(--gr-radius); box-shadow: var(--gr-shadow); overflow: hidden;
+    }
+    .gr-card-header {
+        padding: .875rem 1.25rem; font-weight: 600; font-size: .925rem;
+        display: flex; align-items: center; justify-content: space-between;
+        border-bottom: 1px solid var(--gr-gray-100);
+        background: linear-gradient(135deg, #1e293b, #334155); color: #fff;
+    }
+    .gr-card-body { padding: 0; }
+    .gr-table-wrap { overflow-x: auto; }
+    .gr-table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+    .gr-table thead { background: var(--gr-gray-50); position: sticky; top: 0; z-index: 1; }
+    .gr-table th {
+        white-space: nowrap; padding: .6rem .75rem; text-align: left;
+        font-size: .75rem; font-weight: 700; color: var(--gr-gray-700);
+        text-transform: uppercase; letter-spacing: .03em;
+        border-bottom: 2px solid var(--gr-gray-200);
+    }
+    .gr-table th:first-child { border-radius: 0; }
+    .gr-table td {
+        padding: .55rem .75rem; border-bottom: 1px solid var(--gr-gray-100);
+        color: var(--gr-gray-700); vertical-align: middle;
+    }
+    .gr-table tbody tr:hover { background: #fffbeb; }
+    .gr-name { font-weight: 600; color: var(--gr-gray-900); }
+    .gr-idcard { font-family: monospace; font-size: .78rem; color: var(--gr-gray-500); }
+    .gr-badge {
+        display: inline-flex; align-items: center; gap: .3rem;
+        padding: .25rem .65rem; border-radius: 20px; font-size: .75rem; font-weight: 600;
+        white-space: nowrap;
+    }
+    .gr-badge-graduated { background: var(--gr-primary-light); color: var(--gr-primary-dark); }
+    .gr-empty { text-align: center; padding: 3rem 1.5rem; }
+    .gr-empty-icon { font-size: 2.5rem; color: var(--gr-gray-300); margin-bottom: .75rem; }
+    .gr-empty-title { font-weight: 600; color: var(--gr-gray-500); }
+    .gr-btn-graduate {
+        background: var(--gr-primary); color: #fff; border: none; font-weight: 600;
+        padding: .55rem 1.2rem; border-radius: 8px; font-size: .9rem; transition: .2s;
+    }
+    .gr-btn-graduate:hover { background: var(--gr-primary-dark); color: #fff; }
+    .gr-btn-export {
+        background: #1e293b; color: #fff; border: none; font-weight: 600;
+        padding: .55rem 1.2rem; border-radius: 8px; font-size: .9rem; transition: .2s;
+    }
+    .gr-btn-export:hover { background: #334155; color: #fff; }
+
+    .gr-stats { display: flex; gap: .75rem; margin-left: auto; }
+    .gr-stat-badge {
+        display: flex; align-items: center; gap: .35rem; background: #fff;
+        padding: .35rem .75rem; border-radius: 8px; font-size: .8rem;
+        font-weight: 600; color: var(--gr-gray-700);
+    }
+    .gr-stat-badge .gr-stat-num { color: var(--gr-primary); font-size: 1.05rem; }
+
+    .modal-gr .modal-header { background: var(--gr-primary); color: #fff; }
+    .modal-gr .modal-header .btn-close { filter: invert(1); }
+    .gr-preview-table { width: 100%; font-size: .82rem; }
+    .gr-preview-table th {
+        background: var(--gr-gray-50); padding: .45rem .6rem;
+        font-size: .72rem; font-weight: 700; text-align: left;
+        border-bottom: 2px solid var(--gr-gray-200);
+    }
+    .gr-preview-table td { padding: .4rem .6rem; border-bottom: 1px solid var(--gr-gray-100); }
+    .gr-preview-table tbody tr:hover { background: var(--gr-primary-light); }
+    .gr-preview-wrap { max-height: 360px; overflow-y: auto; border: 1px solid var(--gr-gray-200); border-radius: 6px; }
+    .gr-preview-header {
+        padding: .6rem .75rem; background: var(--gr-primary-light); font-weight: 600;
+        font-size: .85rem; border-bottom: 1px solid var(--gr-gray-200);
+        display: flex; justify-content: space-between; align-items: center;
+    }
+    .gr-count-badge {
+        background: var(--gr-primary); color: #fff; padding: 2px 10px;
+        border-radius: 12px; font-size: .75rem; font-weight: 700;
+    }
+    .gr-sel-all { cursor: pointer; font-size: .8rem; color: var(--gr-primary); user-select: none; }
+    .gr-sel-all:hover { text-decoration: underline; }
+    .gr-filter-row { display: flex; gap: .75rem; align-items: end; padding: .75rem 1rem; }
+    .gr-filter-row label { font-size: .8rem; font-weight: 600; color: var(--gr-gray-700); margin-bottom: .25rem; }
+
+    @media (max-width: 768px) {
+        .gr-header { flex-direction: column; align-items: flex-start; }
+        .gr-stats { margin-left: 0; }
+    }
+</style>
+{% endblock %}
+{% block content %}
+<div class="gr-header">
+    <div>
+        <div class="gr-title"><i class="bi bi-mortarboard-fill"></i> 毕业管理</div>
+        <div class="gr-subtitle">管理已毕业学生信息，支持批量毕业处理与数据导出</div>
+    </div>
+    <div class="d-flex gap-2 align-items-center">
+        <button class="gr-btn-graduate" id="grOpenProcessBtn" onclick="openGraduationProcess()">
+            <i class="bi bi-award me-1"></i>毕业处理
+        </button>
+        <button class="gr-btn-graduate" id="grOpenInternBtn" onclick="openInternshipProcess()" style="background:#0d9488;">
+            <i class="bi bi-briefcase me-1"></i>实习学生处理
+        </button>
+        <button class="gr-btn-graduate" id="grOpenInternUndoBtn" onclick="openInternshipUndo()" style="background:#6366f1;">
+            <i class="bi bi-arrow-counterclockwise me-1"></i>撤销实习
+        </button>
+        <button class="gr-btn-export" onclick="exportGraduation()">
+            <i class="bi bi-file-earmark-spreadsheet me-1"></i>导出Excel
+        </button>
+    </div>
+</div>
+
+{% with _fh_type='export', _fh_title='毕业数据导出说明', _fh_icon='bi-mortarboard',
+    _fh_fields=['学生姓名','学生身份证号','行政班级','年级','专业','入学年份','学生电话','家长电话','学籍状态','在校状态','备注'],
+    _fh_note='导出数据范围：registration_status=\'毕业\'且未被删除的学生。支持批量毕业/撤销毕业操作后重新导出。' %}
+{% include '_field_help.html' %}
+{% endwith %}
+
+<div class="gr-card">
+    <div class="gr-card-header">
+        <span><i class="bi bi-list-ul me-2"></i>毕业学生列表</span>
+        <div class="d-flex align-items-center gap-2">
+            <select class="form-select form-select-sm" style="width:120px;background:rgba(255,255,255,0.15);color:#fff;border-color:rgba(255,255,255,0.3);" id="grListGrade" onchange="filterByGrade()">
+                <option value="">全部年级</option>
+                {% for g in list_grades %}
+                <option value="{{ g }}" {% if current_list_grade == g|string %}selected{% endif %}>{{ g }}级</option>
+                {% endfor %}
+            </select>
+            <button class="btn btn-sm btn-outline-light" id="grBatchUndoBtn" onclick="batchUndoGraduation()" disabled title="批量撤销毕业">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>批量撤销
+            </button>
+            <span class="gr-stat-badge">
+                <i class="bi bi-people-fill"></i> 共计
+                <span class="gr-stat-num" id="grTotalCount">{{ pagination.total if pagination else 0 }}</span>人
+            </span>
+        </div>
+    </div>
+    <div class="gr-card-body">
+        {% if students %}
+        <div class="gr-table-wrap">
+            <table class="gr-table">
+                <thead>
+                    <tr>
+                        <th>姓名</th>
+                        <th>学号</th>
+                        <th>身份证号</th>
+                        <th>班级</th>
+                        <th>年级</th>
+                        <th>专业</th>
+                        <th>学籍状态</th>
+                        <th>在校状态</th>
+                        <th>备注</th>
+                        <th style="width:60px;">
+                            <input type="checkbox" id="grUndoSelectAll" onchange="toggleUndoSelectAll(this)" title="全选">
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in students %}
+                    <tr>
+                        <td><span class="gr-name">{{ s.name or '-' }}</span></td>
+                        <td>{{ s.student_no or '-' }}</td>
+                        <td><span class="gr-idcard">{{ s.id_card or '-' }}</span></td>
+                        <td>{{ s.admin_class or '-' }}</td>
+                        <td>{{ s.grade or '-' }}</td>
+                        <td>{{ s.major or '-' }}</td>
+                        <td><span class="gr-badge gr-badge-graduated">{{ s.registration_status or '-' }}</span></td>
+                        <td>{{ s.attendance_status or '-' }}</td>
+                        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ s.remark or '' }}">{{ s.remark or '-' }}</td>
+                        <td>
+                            <input type="checkbox" class="gr-undo-cb" data-id="{{ s.id }}" data-name="{{ s.name|e }}" onchange="updateUndoCount()">
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="gr-empty">
+            <div class="gr-empty-icon"><i class="bi bi-mortarboard"></i></div>
+            <div class="gr-empty-title">暂无毕业学生记录</div>
+            <div class="text-muted small mt-1">通过「毕业处理」按钮可将学生标记为毕业状态</div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if pagination and pagination.pages > 1 %}
+<nav class="mt-3">
+    <ul class="pagination justify-content-center pagination-sm">
+        <li class="page-item {{ 'disabled' if pagination.page <= 1 }}">
+            <a class="page-link" href="?page={{ pagination.page - 1 }}{% if current_list_grade %}&grade={{ current_list_grade }}{% endif %}">&laquo; 上一页</a>
+        </li>
+        {% set pg = pagination.page %}{% set total = pagination.pages %}
+        {% for p in range(1, total + 1) %}
+        {% if p == 1 or p == total or (p >= pg - 2 and p <= pg + 2) %}
+        <li class="page-item {{ 'active' if p == pg }}">
+            <a class="page-link" href="?page={{ p }}{% if current_list_grade %}&grade={{ current_list_grade }}{% endif %}">{{ p }}</a>
+        </li>
+        {% elif p == 2 and pg - 2 > 2 or p == total - 1 and pg + 2 < total - 1 %}
+        <li class="page-item disabled"><span class="page-link">...</span></li>
+        {% endif %}
+        {% endfor %}
+        <li class="page-item {{ 'disabled' if pagination.page >= pagination.pages }}">
+            <a class="page-link" href="?page={{ pagination.page + 1 }}{% if current_list_grade %}&grade={{ current_list_grade }}{% endif %}">下一页 &raquo;</a>
+        </li>
+    </ul>
+</nav>
+{% endif %}
+
+<!-- ========== 毕业处理弹窗 ========== -->
+<div class="modal fade modal-gr" id="grProcessModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-award me-2"></i>毕业处理</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="gr-filter-row">
+                    <div>
+                        <label for="grProcessGrade">筛选年级</label>
+                        <select id="grProcessGrade" class="form-select form-select-sm" style="width:140px;">
+                            <option value="">-- 请选择年级 --</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="grProcessClass">筛选班级</label>
+                        <select id="grProcessClass" class="form-select form-select-sm" style="width:160px;" disabled>
+                            <option value="">-- 全部班级 --</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="grProcessSearch">搜索学生</label>
+                        <input type="text" id="grProcessSearch" class="form-control form-control-sm" placeholder="姓名 / 拼音" style="width:180px;" disabled oninput="filterPreviewTable()">
+                    </div>
+                    <div>
+                        <button type="button" class="btn btn-sm btn-primary" id="grPreviewBtn" onclick="previewGraduation()" disabled>
+                            <i class="bi bi-search me-1"></i>预览学生
+                        </button>
+                    </div>
+                </div>
+                <div id="grPreviewSection" class="d-none">
+                    <div class="gr-preview-header" id="grPreviewHeader">
+                        <span>待毕业学生</span>
+                        <span class="gr-count-badge" id="grPreviewCount">0人</span>
+                    </div>
+                    <div class="gr-preview-wrap">
+                        <table class="gr-preview-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:40px;">
+                                        <input type="checkbox" id="grSelectAll" onchange="toggleSelectAll(this)">
+                                    </th>
+                                    <th>姓名</th>
+                                    <th>学号</th>
+                                    <th>身份证号</th>
+                                    <th>班级</th>
+                                    <th>专业</th>
+                                    <th>当前学籍状态</th>
+                                    <th>当前在校状态</th>
+                                    <th>备注</th>
+                                </tr>
+                            </thead>
+                            <tbody id="grPreviewBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="text-end mt-3">
+                        <span class="text-muted small me-2">已选 <strong id="grSelectedCount">0</strong> 人</span>
+                        <button type="button" class="btn btn-outline-secondary btn-sm me-2" data-bs-dismiss="modal">取消</button>
+                        <button type="button" class="btn btn-warning btn-sm" id="grExecuteBtn" onclick="executeGraduation()" disabled>
+                            <i class="bi bi-award me-1"></i>确认毕业处理
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== 确认弹窗 ========== -->
+<div class="modal fade" id="grConfirmModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header" style="background:var(--gr-primary);color:#fff;">
+                <h5 class="modal-title"><i class="bi bi-exclamation-triangle me-2"></i>确认毕业处理</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+                <div class="mb-2 fw-bold" id="grConfirmMsg"></div>
+                <div class="text-muted small">学籍状态将变为「毕业」，在校状态将变为「非在校」</div>
+                <div class="text-muted small">原始在校状态将备份至「备注」字段</div>
+                <div class="text-warning small mt-1"><i class="bi bi-exclamation-triangle-fill"></i> 此操作不可撤销</div>
+            </div>
+            <div class="modal-footer justify-content-center">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-warning btn-sm" id="grConfirmBtn" onclick="doExecuteGraduation()">
+                    <i class="bi bi-check-circle"></i> 确认
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== 实习处理弹窗 ========== -->
+<div class="modal fade modal-gr" id="grInternModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header" style="background:#0d9488;">
+                <h5 class="modal-title"><i class="bi bi-briefcase me-2"></i>实习学生处理</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="gr-filter-row">
+                    <div>
+                        <label for="grInternGrade">筛选年级</label>
+                        <select id="grInternGrade" class="form-select form-select-sm" style="width:140px;">
+                            <option value="">-- 请选择年级 --</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="grInternClass">筛选班级</label>
+                        <select id="grInternClass" class="form-select form-select-sm" style="width:160px;" disabled>
+                            <option value="">-- 全部班级 --</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="grInternSearch">搜索学生</label>
+                        <input type="text" id="grInternSearch" class="form-control form-control-sm" placeholder="姓名 / 拼音" style="width:180px;" disabled oninput="filterInternTable()">
+                    </div>
+                    <div>
+                        <button type="button" class="btn btn-sm btn-primary" id="grInternPreviewBtn" onclick="previewInternship()" disabled>
+                            <i class="bi bi-search me-1"></i>预览学生
+                        </button>
+                    </div>
+                </div>
+                <div id="grInternPreviewSection" class="d-none">
+                    <div class="gr-preview-header">
+                        <span>待处理学生</span>
+                        <span class="gr-count-badge" id="grInternPreviewCount">0人</span>
+                    </div>
+                    <div class="gr-preview-wrap">
+                        <table class="gr-preview-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:40px;">
+                                        <input type="checkbox" id="grInternSelectAll" onchange="toggleInternSelectAll(this)">
+                                    </th>
+                                    <th>姓名</th>
+                                    <th>学号</th>
+                                    <th>身份证号</th>
+                                    <th>班级</th>
+                                    <th>专业</th>
+                                    <th>学籍状态</th>
+                                    <th>当前在校状态</th>
+                                    <th>备注</th>
+                                </tr>
+                            </thead>
+                            <tbody id="grInternPreviewBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="text-end mt-3">
+                        <span class="text-muted small me-2">已选 <strong id="grInternSelectedCount">0</strong> 人</span>
+                        <button type="button" class="btn btn-outline-secondary btn-sm me-2" data-bs-dismiss="modal">取消</button>
+                        <button type="button" class="btn btn-success btn-sm" id="grInternExecuteBtn" onclick="executeInternship()" disabled>
+                            <i class="bi bi-briefcase me-1"></i>确认实习处理
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== 实习处理确认弹窗 ========== -->
+<div class="modal fade" id="grInternConfirmModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header" style="background:#0d9488;color:#fff;">
+                <h5 class="modal-title"><i class="bi bi-exclamation-triangle me-2"></i>确认实习处理</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+                <div class="mb-2 fw-bold" id="grInternConfirmMsg"></div>
+                <div class="text-muted small">在校状态将变为「非在校」，备注将追加「实习」标记</div>
+                <div class="text-muted small">原始在校状态将备份至「备注」字段</div>
+            </div>
+            <div class="modal-footer justify-content-center">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-success btn-sm" id="grInternConfirmBtn" onclick="doExecuteInternship()">
+                    <i class="bi bi-check-circle"></i> 确认
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== 撤销实习弹窗 ========== -->
+<div class="modal fade modal-gr" id="grInternUndoModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header" style="background:#6366f1;">
+                <h5 class="modal-title"><i class="bi bi-arrow-counterclockwise me-2"></i>撤销实习处理</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="gr-filter-row">
+                    <div>
+                        <label for="grInternUndoGrade">筛选年级</label>
+                        <select id="grInternUndoGrade" class="form-select form-select-sm" style="width:140px;">
+                            <option value="">-- 请选择年级 --</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="grInternUndoSearch">搜索学生</label>
+                        <input type="text" id="grInternUndoSearch" class="form-control form-control-sm" placeholder="姓名 / 拼音" style="width:180px;" disabled oninput="filterInternUndoTable()">
+                    </div>
+                    <div>
+                        <button type="button" class="btn btn-sm btn-primary" id="grInternUndoPreviewBtn" onclick="previewInternshipUndo()" disabled>
+                            <i class="bi bi-search me-1"></i>预览学生
+                        </button>
+                    </div>
+                </div>
+                <div id="grInternUndoPreviewSection" class="d-none">
+                    <div class="gr-preview-header">
+                        <span>已实习处理学生</span>
+                        <span class="gr-count-badge" id="grInternUndoPreviewCount">0人</span>
+                    </div>
+                    <div class="gr-preview-wrap">
+                        <table class="gr-preview-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:40px;">
+                                        <input type="checkbox" id="grInternUndoSelectAll" onchange="toggleInternUndoSelectAll(this)">
+                                    </th>
+                                    <th>姓名</th>
+                                    <th>学号</th>
+                                    <th>身份证号</th>
+                                    <th>班级</th>
+                                    <th>专业</th>
+                                    <th>学籍状态</th>
+                                    <th>当前在校状态</th>
+                                    <th>备注</th>
+                                </tr>
+                            </thead>
+                            <tbody id="grInternUndoPreviewBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="text-end mt-3">
+                        <span class="text-muted small me-2">已选 <strong id="grInternUndoSelectedCount">0</strong> 人</span>
+                        <button type="button" class="btn btn-outline-secondary btn-sm me-2" data-bs-dismiss="modal">取消</button>
+                        <button type="button" class="btn btn-indigo btn-sm" style="background:#6366f1;color:#fff;" id="grInternUndoExecuteBtn" onclick="executeInternshipUndo()" disabled>
+                            <i class="bi bi-arrow-counterclockwise me-1"></i>确认撤销
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== 撤销实习确认弹窗 ========== -->
+<div class="modal fade" id="grInternUndoConfirmModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header" style="background:#6366f1;color:#fff;">
+                <h5 class="modal-title"><i class="bi bi-exclamation-triangle me-2"></i>确认撤销实习</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+                <div class="mb-2 fw-bold" id="grInternUndoConfirmMsg"></div>
+                <div class="text-muted small">将恢复至实习前的在校状态，并清除备注中的实习标记</div>
+            </div>
+            <div class="modal-footer justify-content-center">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-indigo btn-sm" style="background:#6366f1;color:#fff;" id="grInternUndoConfirmBtn" onclick="doExecuteInternshipUndo()">
+                    <i class="bi bi-check-circle"></i> 确认
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function filterByGrade() {
+    var grade = document.getElementById('grListGrade').value;
+    var url = '?page=1';
+    if (grade) url += '&grade=' + encodeURIComponent(grade);
+    window.location.href = url;
+}
+
+function exportGraduation() {
+    var grade = document.getElementById('grListGrade').value;
+    var url = '{{ url_for('lifecycle.admin_graduation_export') }}';
+    if (grade) url += '?grade=' + encodeURIComponent(grade);
+    window.location.href = url;
+}
+
+(function() {
+    var processModal = null;
+    var confirmModal = null;
+    var pendingStudentIds = [];
+    var _prevAbortController = null;
+    var _previewStudents = [];
+
+    document.addEventListener('DOMContentLoaded', function() {
+        processModal = new bootstrap.Modal(document.getElementById('grProcessModal'));
+        confirmModal = new bootstrap.Modal(document.getElementById('grConfirmModal'));
+
+        document.getElementById('grProcessGrade').addEventListener('change', function() {
+            document.getElementById('grPreviewBtn').disabled = !this.value;
+            document.getElementById('grPreviewSection').classList.add('d-none');
+            document.getElementById('grProcessSearch').value = '';
+            document.getElementById('grProcessSearch').disabled = true;
+            // 加载该年级的班级列表
+            var classSelect = document.getElementById('grProcessClass');
+            classSelect.innerHTML = '<option value="">-- 全部班级 --</option>';
+            classSelect.disabled = true;
+            var grade = this.value;
+            if (grade) {
+                fetch('/api/admin/graduation/classes/' + encodeURIComponent(grade))
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        (data.classes || []).forEach(function(c) {
+                            var opt = document.createElement('option');
+                            opt.value = c;
+                            opt.textContent = c;
+                            classSelect.appendChild(opt);
+                        });
+                        classSelect.disabled = false;
+                    });
+            }
+        });
+    });
+
+    window.openGraduationProcess = function() {
+        var gradeSelect = document.getElementById('grProcessGrade');
+        gradeSelect.innerHTML = '<option value="">-- 请选择年级 --</option>';
+
+        fetch('/api/admin/graduation/grades')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                (data.grades || []).forEach(function(g) {
+                    var opt = document.createElement('option');
+                    opt.value = g;
+                    opt.textContent = g + '级';
+                    gradeSelect.appendChild(opt);
+                });
+                processModal.show();
+            })
+            .catch(function() { processModal.show(); });
+    };
+
+    window.previewGraduation = function() {
+        var grade = document.getElementById('grProcessGrade').value;
+        if (!grade) return;
+
+        if (_prevAbortController) _prevAbortController.abort();
+        _prevAbortController = new AbortController();
+
+        var btn = document.getElementById('grPreviewBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>加载中...';
+
+        var classFilter = document.getElementById('grProcessClass').value;
+        var url = '/api/admin/graduation/preview/' + encodeURIComponent(grade);
+        if (classFilter) url += '?admin_class=' + encodeURIComponent(classFilter);
+
+        fetch(url, {
+            signal: _prevAbortController.signal
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var students = data.students || [];
+                _previewStudents = students;
+                document.getElementById('grPreviewCount').textContent = students.length + '人';
+
+                document.getElementById('grProcessSearch').disabled = false;
+                document.getElementById('grProcessSearch').value = '';
+
+                var tbody = document.getElementById('grPreviewBody');
+                if (!students.length) {
+                    tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">该年级无可毕业处理的学生</td></tr>';
+                } else {
+                    tbody.innerHTML = students.map(function(s, i) {
+                        var pinyin = (s.name_pinyin || '').toLowerCase();
+                        var idCard = s.id_card || '';
+                        return '<tr data-search="' + (s.name || '') + ' ' + pinyin + ' ' + idCard + '">' +
+                            '<td><input type="checkbox" class="gr-student-cb" data-id="' + s.id + '" onchange="updateSelectedCount()"></td>' +
+                            '<td><span style="font-weight:600">' + (s.name || '-') + '</span></td>' +
+                            '<td>' + (s.student_no || '-') + '</td>' +
+                            '<td><span style="font-family:monospace;font-size:.78rem;">' + (s.id_card || '-') + '</span></td>' +
+                            '<td>' + (s.admin_class || '-') + '</td>' +
+                            '<td>' + (s.major || '-') + '</td>' +
+                            '<td>' + (s.registration_status || '-') + '</td>' +
+                            '<td><span class="gr-badge" style="background:#e0f2fe;color:#0369a1;">' + (s.attendance_status || '-') + '</span></td>' +
+                            '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + (s.remark || '') + '">' + (s.remark || '-') + '</td>' +
+                            '</tr>';
+                    }).join('');
+                }
+                document.getElementById('grSelectAll').checked = false;
+                document.getElementById('grPreviewSection').classList.remove('d-none');
+                updateSelectedCount();
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-search me-1"></i>预览学生';
+            })
+            .catch(function(err) {
+                if (err.name !== 'AbortError') {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="bi bi-search me-1"></i>预览学生';
+                }
+            });
+    };
+
+    window.toggleSelectAll = function(cb) {
+        var rows = document.querySelectorAll('#grPreviewBody tr');
+        rows.forEach(function(row) {
+            if (row.style.display !== 'none') {
+                var checkbox = row.querySelector('.gr-student-cb');
+                if (checkbox) checkbox.checked = cb.checked;
+            }
+        });
+        updateSelectedCount();
+    };
+
+    window.updateSelectedCount = function() {
+        var rows = document.querySelectorAll('#grPreviewBody tr');
+        var count = 0;
+        rows.forEach(function(row) {
+            if (row.style.display !== 'none') {
+                var cb = row.querySelector('.gr-student-cb');
+                if (cb && cb.checked) count++;
+            }
+        });
+        document.getElementById('grSelectedCount').textContent = count;
+        document.getElementById('grExecuteBtn').disabled = (count === 0);
+        // 同步全选框状态：当所有可见行都被选中时，勾选全选框
+        syncSelectAllCheckbox();
+    };
+
+    function syncSelectAllCheckbox() {
+        var rows = document.querySelectorAll('#grPreviewBody tr');
+        var visibleCbs = [];
+        rows.forEach(function(row) {
+            if (row.style.display !== 'none') {
+                var cb = row.querySelector('.gr-student-cb');
+                if (cb) visibleCbs.push(cb);
+            }
+        });
+        var selectAll = document.getElementById('grSelectAll');
+        if (visibleCbs.length === 0) {
+            selectAll.checked = false;
+        } else {
+            selectAll.checked = visibleCbs.every(function(cb) { return cb.checked; });
+        }
+    }
+
+    window.filterPreviewTable = function() {
+        var keyword = (document.getElementById('grProcessSearch').value || '').trim().toLowerCase();
+        var rows = document.querySelectorAll('#grPreviewBody tr');
+        var visibleCount = 0;
+        rows.forEach(function(row) {
+            if (!keyword) {
+                row.style.display = '';
+                visibleCount++;
+            } else {
+                var searchText = (row.dataset.search || '').toLowerCase();
+                if (searchText.indexOf(keyword) >= 0) {
+                    row.style.display = '';
+                    visibleCount++;
+                } else {
+                    row.style.display = 'none';
+                }
+            }
+        });
+        document.getElementById('grPreviewCount').textContent = visibleCount + '人';
+        syncSelectAllCheckbox();
+    };
+
+    window.executeGraduation = function() {
+        var cbs = document.querySelectorAll('.gr-student-cb:checked');
+        pendingStudentIds = Array.from(cbs).map(function(cb) { return parseInt(cb.dataset.id); });
+        if (!pendingStudentIds.length) return;
+
+        document.getElementById('grConfirmMsg').textContent =
+            '确定将 ' + pendingStudentIds.length + ' 名学生标记为「毕业」吗？';
+
+        confirmModal.show();
+    };
+
+    window.doExecuteGraduation = function() {
+        var btn = document.getElementById('grConfirmBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>处理中...';
+
+        fetch('/api/admin/graduation/process', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({student_ids: pendingStudentIds})
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                confirmModal.hide();
+                if (data.success) {
+                    processModal.hide();
+                    showToast(data.message || '毕业处理成功', 'success');
+                    setTimeout(function() { window.location.reload(); }, 1200);
+                } else {
+                    showToast(data.message || '毕业处理失败', 'danger');
+                }
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-check-circle"></i> 确认';
+            })
+            .catch(function() {
+                confirmModal.hide();
+                showToast('请求失败，请重试', 'danger');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-check-circle"></i> 确认';
+            });
+    };
+
+    // ========== 实习处理 JS ==========
+    var internModal = null;
+    var internConfirmModal = null;
+    var internPendingIds = [];
+    var _internAbortController = null;
+    var _internPreviewStudents = [];
+
+    window.openInternshipProcess = function() {
+        var gradeSelect = document.getElementById('grInternGrade');
+        gradeSelect.innerHTML = '<option value="">-- 请选择年级 --</option>';
+
+        fetch('/api/admin/internship/grades')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                (data.grades || []).forEach(function(g) {
+                    var opt = document.createElement('option');
+                    opt.value = g;
+                    opt.textContent = g + '级';
+                    gradeSelect.appendChild(opt);
+                });
+                if (!internModal) internModal = new bootstrap.Modal(document.getElementById('grInternModal'));
+                internModal.show();
+            })
+            .catch(function() { if (!internModal) internModal = new bootstrap.Modal(document.getElementById('grInternModal')); internModal.show(); });
+    };
+
+    window.previewInternship = function() {
+        var grade = document.getElementById('grInternGrade').value;
+        if (!grade) return;
+
+        if (_internAbortController) _internAbortController.abort();
+        _internAbortController = new AbortController();
+
+        var btn = document.getElementById('grInternPreviewBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>加载中...';
+
+        var classFilter = document.getElementById('grInternClass').value;
+        var url = '/api/admin/internship/preview/' + encodeURIComponent(grade);
+        if (classFilter) url += '?admin_class=' + encodeURIComponent(classFilter);
+
+        fetch(url, {
+            signal: _internAbortController.signal
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var students = data.students || [];
+                _internPreviewStudents = students;
+                document.getElementById('grInternPreviewCount').textContent = students.length + '人';
+                document.getElementById('grInternSearch').disabled = false;
+                document.getElementById('grInternSearch').value = '';
+
+                var tbody = document.getElementById('grInternPreviewBody');
+                if (!students.length) {
+                    tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">该年级无待处理的学生</td></tr>';
+                } else {
+                    tbody.innerHTML = students.map(function(s) {
+                        var pinyin = (s.name_pinyin || '').toLowerCase();
+                        var idCard = s.id_card || '';
+                        return '<tr data-search="' + (s.name || '') + ' ' + pinyin + ' ' + idCard + '">' +
+                            '<td><input type="checkbox" class="gr-intern-cb" data-id="' + s.id + '" onchange="updateInternSelectedCount()"></td>' +
+                            '<td><span style="font-weight:600">' + (s.name || '-') + '</span></td>' +
+                            '<td>' + (s.student_no || '-') + '</td>' +
+                            '<td><span style="font-family:monospace;font-size:.78rem;">' + (s.id_card || '-') + '</span></td>' +
+                            '<td>' + (s.admin_class || '-') + '</td>' +
+                            '<td>' + (s.major || '-') + '</td>' +
+                            '<td>' + (s.registration_status || '-') + '</td>' +
+                            '<td><span class="gr-badge" style="background:#e0f2fe;color:#0369a1;">' + (s.attendance_status || '-') + '</span></td>' +
+                            '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + (s.remark || '') + '">' + (s.remark || '-') + '</td>' +
+                            '</tr>';
+                    }).join('');
+                }
+                document.getElementById('grInternSelectAll').checked = false;
+                document.getElementById('grInternPreviewSection').classList.remove('d-none');
+                updateInternSelectedCount();
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-search me-1"></i>预览学生';
+            })
+            .catch(function(err) {
+                if (err.name !== 'AbortError') {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="bi bi-search me-1"></i>预览学生';
+                }
+            });
+    };
+
+    window.toggleInternSelectAll = function(cb) {
+        var rows = document.querySelectorAll('#grInternPreviewBody tr');
+        rows.forEach(function(row) {
+            if (row.style.display !== 'none') {
+                var checkbox = row.querySelector('.gr-intern-cb');
+                if (checkbox) checkbox.checked = cb.checked;
+            }
+        });
+        updateInternSelectedCount();
+    };
+
+    window.updateInternSelectedCount = function() {
+        var rows = document.querySelectorAll('#grInternPreviewBody tr');
+        var count = 0;
+        rows.forEach(function(row) {
+            if (row.style.display !== 'none') {
+                var cb = row.querySelector('.gr-intern-cb');
+                if (cb && cb.checked) count++;
+            }
+        });
+        document.getElementById('grInternSelectedCount').textContent = count;
+        document.getElementById('grInternExecuteBtn').disabled = (count === 0);
+        syncInternSelectAllCheckbox();
+    };
+
+    function syncInternSelectAllCheckbox() {
+        var rows = document.querySelectorAll('#grInternPreviewBody tr');
+        var visibleCbs = [];
+        rows.forEach(function(row) {
+            if (row.style.display !== 'none') {
+                var cb = row.querySelector('.gr-intern-cb');
+                if (cb) visibleCbs.push(cb);
+            }
+        });
+        var selectAll = document.getElementById('grInternSelectAll');
+        if (visibleCbs.length === 0) {
+            selectAll.checked = false;
+        } else {
+            selectAll.checked = visibleCbs.every(function(cb) { return cb.checked; });
+        }
+    }
+
+    window.filterInternTable = function() {
+        var keyword = (document.getElementById('grInternSearch').value || '').trim().toLowerCase();
+        var rows = document.querySelectorAll('#grInternPreviewBody tr');
+        var visibleCount = 0;
+        rows.forEach(function(row) {
+            if (!keyword) {
+                row.style.display = '';
+                visibleCount++;
+            } else {
+                var searchText = (row.dataset.search || '').toLowerCase();
+                if (searchText.indexOf(keyword) >= 0) {
+                    row.style.display = '';
+                    visibleCount++;
+                } else {
+                    row.style.display = 'none';
+                }
+            }
+        });
+        document.getElementById('grInternPreviewCount').textContent = visibleCount + '人';
+        syncInternSelectAllCheckbox();
+    };
+
+    window.executeInternship = function() {
+        var cbs = document.querySelectorAll('.gr-intern-cb:checked');
+        internPendingIds = Array.from(cbs).map(function(cb) { return parseInt(cb.dataset.id); });
+        if (!internPendingIds.length) return;
+
+        document.getElementById('grInternConfirmMsg').textContent =
+            '确定将 ' + internPendingIds.length + ' 名学生标记为「实习」吗？';
+
+        if (!internConfirmModal) internConfirmModal = new bootstrap.Modal(document.getElementById('grInternConfirmModal'));
+        internConfirmModal.show();
+    };
+
+    window.doExecuteInternship = function() {
+        var btn = document.getElementById('grInternConfirmBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>处理中...';
+
+        fetch('/api/admin/internship/process', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({student_ids: internPendingIds})
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (internConfirmModal) internConfirmModal.hide();
+                if (data.success) {
+                    if (internModal) internModal.hide();
+                    showToast(data.message || '实习处理成功', 'success');
+                    setTimeout(function() { window.location.reload(); }, 1200);
+                } else {
+                    showToast(data.message || '实习处理失败', 'danger');
+                }
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-check-circle"></i> 确认';
+            })
+            .catch(function() {
+                if (internConfirmModal) internConfirmModal.hide();
+                showToast('请求失败，请重试', 'danger');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-check-circle"></i> 确认';
+            });
+    };
+
+    // 年级切换时清空
+    (function() {
+        var gradeEl = document.getElementById('grInternGrade');
+        if (gradeEl) {
+            gradeEl.addEventListener('change', function() {
+                document.getElementById('grInternPreviewBtn').disabled = !this.value;
+                document.getElementById('grInternPreviewSection').classList.add('d-none');
+                document.getElementById('grInternSearch').value = '';
+                document.getElementById('grInternSearch').disabled = true;
+                // 加载该年级的班级列表
+                var classSelect = document.getElementById('grInternClass');
+                classSelect.innerHTML = '<option value="">-- 全部班级 --</option>';
+                classSelect.disabled = true;
+                var grade = this.value;
+                if (grade) {
+                    fetch('/api/admin/internship/classes/' + encodeURIComponent(grade))
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            (data.classes || []).forEach(function(c) {
+                                var opt = document.createElement('option');
+                                opt.value = c;
+                                opt.textContent = c;
+                                classSelect.appendChild(opt);
+                            });
+                            classSelect.disabled = false;
+                        });
+                }
+            });
+        }
+    })();
+
+    // ========== 撤销实习 JS ==========
+    var internUndoModal = null;
+    var internUndoConfirmModal = null;
+    var internUndoPendingIds = [];
+    var _internUndoAbortController = null;
+
+    window.openInternshipUndo = function() {
+        var gradeSelect = document.getElementById('grInternUndoGrade');
+        gradeSelect.innerHTML = '<option value="">-- 请选择年级 --</option>';
+
+        fetch('/api/admin/internship/processed/grades')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                (data.grades || []).forEach(function(g) {
+                    var opt = document.createElement('option');
+                    opt.value = g;
+                    opt.textContent = g + '级';
+                    gradeSelect.appendChild(opt);
+                });
+                if (!internUndoModal) internUndoModal = new bootstrap.Modal(document.getElementById('grInternUndoModal'));
+                internUndoModal.show();
+            })
+            .catch(function() { if (!internUndoModal) internUndoModal = new bootstrap.Modal(document.getElementById('grInternUndoModal')); internUndoModal.show(); });
+    };
+
+    window.previewInternshipUndo = function() {
+        var grade = document.getElementById('grInternUndoGrade').value;
+        if (!grade) return;
+
+        if (_internUndoAbortController) _internUndoAbortController.abort();
+        _internUndoAbortController = new AbortController();
+
+        var btn = document.getElementById('grInternUndoPreviewBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>加载中...';
+
+        fetch('/api/admin/internship/processed/' + encodeURIComponent(grade), {
+            signal: _internUndoAbortController.signal
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var students = data.students || [];
+                document.getElementById('grInternUndoPreviewCount').textContent = students.length + '人';
+                document.getElementById('grInternUndoSearch').disabled = false;
+                document.getElementById('grInternUndoSearch').value = '';
+
+                var tbody = document.getElementById('grInternUndoPreviewBody');
+                if (!students.length) {
+                    tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">该年级无已实习处理的学生</td></tr>';
+                } else {
+                    tbody.innerHTML = students.map(function(s) {
+                        var pinyin = (s.name_pinyin || '').toLowerCase();
+                        var idCard = s.id_card || '';
+                        return '<tr data-search="' + (s.name || '') + ' ' + pinyin + ' ' + idCard + '">' +
+                            '<td><input type="checkbox" class="gr-intern-undo-cb" data-id="' + s.id + '" onchange="updateInternUndoSelectedCount()"></td>' +
+                            '<td><span style="font-weight:600">' + (s.name || '-') + '</span></td>' +
+                            '<td>' + (s.student_no || '-') + '</td>' +
+                            '<td><span style="font-family:monospace;font-size:.78rem;">' + (s.id_card || '-') + '</span></td>' +
+                            '<td>' + (s.admin_class || '-') + '</td>' +
+                            '<td>' + (s.major || '-') + '</td>' +
+                            '<td>' + (s.registration_status || '-') + '</td>' +
+                            '<td><span class="gr-badge" style="background:#fee2e2;color:#dc2626;">' + (s.attendance_status || '-') + '</span></td>' +
+                            '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + (s.remark || '') + '">' + (s.remark || '-') + '</td>' +
+                            '</tr>';
+                    }).join('');
+                }
+                document.getElementById('grInternUndoSelectAll').checked = false;
+                document.getElementById('grInternUndoPreviewSection').classList.remove('d-none');
+                updateInternUndoSelectedCount();
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-search me-1"></i>预览学生';
+            })
+            .catch(function(err) {
+                if (err.name !== 'AbortError') {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="bi bi-search me-1"></i>预览学生';
+                }
+            });
+    };
+
+    window.toggleInternUndoSelectAll = function(cb) {
+        var rows = document.querySelectorAll('#grInternUndoPreviewBody tr');
+        rows.forEach(function(row) {
+            if (row.style.display !== 'none') {
+                var checkbox = row.querySelector('.gr-intern-undo-cb');
+                if (checkbox) checkbox.checked = cb.checked;
+            }
+        });
+        updateInternUndoSelectedCount();
+    };
+
+    window.updateInternUndoSelectedCount = function() {
+        var rows = document.querySelectorAll('#grInternUndoPreviewBody tr');
+        var count = 0;
+        rows.forEach(function(row) {
+            if (row.style.display !== 'none') {
+                var cb = row.querySelector('.gr-intern-undo-cb');
+                if (cb && cb.checked) count++;
+            }
+        });
+        document.getElementById('grInternUndoSelectedCount').textContent = count;
+        document.getElementById('grInternUndoExecuteBtn').disabled = (count === 0);
+        syncInternUndoSelectAllCheckbox();
+    };
+
+    function syncInternUndoSelectAllCheckbox() {
+        var rows = document.querySelectorAll('#grInternUndoPreviewBody tr');
+        var visibleCbs = [];
+        rows.forEach(function(row) {
+            if (row.style.display !== 'none') {
+                var cb = row.querySelector('.gr-intern-undo-cb');
+                if (cb) visibleCbs.push(cb);
+            }
+        });
+        var selectAll = document.getElementById('grInternUndoSelectAll');
+        if (visibleCbs.length === 0) {
+            selectAll.checked = false;
+        } else {
+            selectAll.checked = visibleCbs.every(function(cb) { return cb.checked; });
+        }
+    }
+
+    window.filterInternUndoTable = function() {
+        var keyword = (document.getElementById('grInternUndoSearch').value || '').trim().toLowerCase();
+        var rows = document.querySelectorAll('#grInternUndoPreviewBody tr');
+        var visibleCount = 0;
+        rows.forEach(function(row) {
+            if (!keyword) {
+                row.style.display = '';
+                visibleCount++;
+            } else {
+                var searchText = (row.dataset.search || '').toLowerCase();
+                if (searchText.indexOf(keyword) >= 0) {
+                    row.style.display = '';
+                    visibleCount++;
+                } else {
+                    row.style.display = 'none';
+                }
+            }
+        });
+        document.getElementById('grInternUndoPreviewCount').textContent = visibleCount + '人';
+        syncInternUndoSelectAllCheckbox();
+    };
+
+    window.executeInternshipUndo = function() {
+        var cbs = document.querySelectorAll('.gr-intern-undo-cb:checked');
+        internUndoPendingIds = Array.from(cbs).map(function(cb) { return parseInt(cb.dataset.id); });
+        if (!internUndoPendingIds.length) return;
+
+        document.getElementById('grInternUndoConfirmMsg').textContent =
+            '确定撤销 ' + internUndoPendingIds.length + ' 名学生的实习处理吗？';
+
+        if (!internUndoConfirmModal) internUndoConfirmModal = new bootstrap.Modal(document.getElementById('grInternUndoConfirmModal'));
+        internUndoConfirmModal.show();
+    };
+
+    window.doExecuteInternshipUndo = function() {
+        var btn = document.getElementById('grInternUndoConfirmBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>处理中...';
+
+        fetch('/api/admin/internship/undo', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({student_ids: internUndoPendingIds})
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (internUndoConfirmModal) internUndoConfirmModal.hide();
+                if (data.success) {
+                    if (internUndoModal) internUndoModal.hide();
+                    showToast(data.message || '撤销成功', 'success');
+                    setTimeout(function() { window.location.reload(); }, 1200);
+                } else {
+                    showToast(data.message || '撤销失败', 'danger');
+                }
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-check-circle"></i> 确认';
+            })
+            .catch(function() {
+                if (internUndoConfirmModal) internUndoConfirmModal.hide();
+                showToast('请求失败，请重试', 'danger');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-check-circle"></i> 确认';
+            });
+    };
+
+    (function() {
+        var gradeEl = document.getElementById('grInternUndoGrade');
+        if (gradeEl) {
+            gradeEl.addEventListener('change', function() {
+                document.getElementById('grInternUndoPreviewBtn').disabled = !this.value;
+                document.getElementById('grInternUndoPreviewSection').classList.add('d-none');
+                document.getElementById('grInternUndoSearch').value = '';
+                document.getElementById('grInternUndoSearch').disabled = true;
+            });
+        }
+    })();
+
+    window.toggleUndoSelectAll = function(cb) {
+        var cbs = document.querySelectorAll('.gr-undo-cb');
+        cbs.forEach(function(c) { c.checked = cb.checked; });
+        updateUndoCount();
+    };
+
+    window.updateUndoCount = function() {
+        var cbs = document.querySelectorAll('.gr-undo-cb:checked');
+        var count = cbs.length;
+        document.getElementById('grBatchUndoBtn').disabled = (count === 0);
+        document.getElementById('grBatchUndoBtn').innerHTML =
+            '<i class="bi bi-arrow-counterclockwise me-1"></i>批量撤销' + (count > 0 ? '（' + count + '）' : '');
+    };
+
+    window.batchUndoGraduation = function() {
+        var cbs = document.querySelectorAll('.gr-undo-cb:checked');
+        if (!cbs.length) return;
+
+        var names = Array.from(cbs).map(function(cb) { return cb.dataset.name; });
+        showConfirm('确定要撤销 <strong>' + cbs.length + '</strong> 名学生的毕业状态吗？<br><small class="text-muted">' + names.slice(0, 3).join('、') + (names.length > 3 ? ' 等' : '') + ' 将恢复至毕业前的学籍状态和在校状态</small>', 'warning')
+            .then(function(result) {
+                if (!result) return;
+
+                var ids = Array.from(cbs).map(function(cb) { return parseInt(cb.dataset.id); });
+                var btn = document.getElementById('grBatchUndoBtn');
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>撤销中...';
+
+                fetch('/api/admin/graduation/undo', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({student_ids: ids})
+                })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.success) {
+                            showToast(data.message, 'success');
+                            setTimeout(function() { window.location.reload(); }, 800);
+                        } else {
+                            showToast(data.message || '撤销失败', 'danger');
+                            btn.disabled = false;
+                            updateUndoCount();
+                        }
+                    })
+                    .catch(function() {
+                        showToast('请求失败，请重试', 'danger');
+                        btn.disabled = false;
+                        updateUndoCount();
+                    });
+            });
+    };
+})();
+</script>
+{% endblock %}

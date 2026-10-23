@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>{{ grade }}级 - 出勤点名</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .header .back {
+            color: #fff;
+            text-decoration: none;
+            font-size: 24px;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+        }
+        .header .back:active { background: rgba(255,255,255,0.2); }
+        .header .title { font-size: 20px; font-weight: 700; flex: 1; }
+        .header .progress { font-size: 14px; opacity: 0.9; font-weight: 600; }
+        .container {
+            padding: 20px;
+            max-width: 480px;
+            margin: 0 auto;
+        }
+        .summary {
+            background: #fff;
+            border-radius: 14px;
+            padding: 18px 20px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            box-shadow: 0 3px 12px rgba(0,0,0,0.06);
+        }
+        .summary .item { text-align: center; flex: 1; }
+        .summary .item .num { font-size: 32px; font-weight: 800; }
+        .summary .item .label { font-size: 13px; color: #999; margin-top: 4px; }
+        .summary .num.total { color: #667eea; }
+        .summary .num.done { color: #27ae60; }
+        .summary .num.remain { color: #e67e22; }
+        .class-btn {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            min-height: 64px;
+            border: none;
+            border-radius: 14px;
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            cursor: pointer;
+            padding: 0 20px;
+            box-shadow: 0 3px 12px rgba(0,0,0,0.06);
+            transition: transform 0.1s;
+            text-decoration: none;
+        }
+        .class-btn.confirmed {
+            background: #e8f5e9;
+            color: #27ae60;
+        }
+        .class-btn.pending {
+            background: #fff;
+            color: #333;
+        }
+        .class-btn:active { transform: scale(0.97); }
+        .class-btn .badge {
+            font-size: 14px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+        .class-btn.confirmed .badge { background: #a5d6a7; color: #1b5e20; }
+        .class-btn.pending .badge { background: #fff3e0; color: #e65100; }
+        .flash-msg {
+            text-align: center;
+            padding: 16px 48px 16px 20px;
+            font-size: 15px;
+            position: relative;
+            font-weight: 500;
+        }
+        .flash-msg.success { background: #d4edda; color: #155724; }
+        .flash-msg.danger { background: #f8d7da; color: #721c24; }
+        .flash-msg.warning { background: #fff3cd; color: #856404; }
+        .flash-msg .close-flash {
+            position: absolute;
+            right: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 22px;
+            line-height: 1;
+            cursor: pointer;
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a href="{{ url_for('mobile.mobile_grades') }}" class="back">←</a>
+        <div class="title">{{ grade }}级 · 班级列表</div>
+        <div class="progress">{{ confirmed }}/{{ total }}</div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    {% for category, message in messages %}
+    <div class="flash-msg {{ category }}" onclick="this.remove()">{{ message }}<span class="close-flash">×</span></div>
+    {% endfor %}
+    {% endif %}
+    {% endwith %}
+
+    <div class="container">
+        <div class="summary">
+            <div class="item">
+                <div class="num total">{{ total }}</div>
+                <div class="label">班级数</div>
+            </div>
+            <div class="item">
+                <div class="num done">{{ confirmed }}</div>
+                <div class="label">已完成</div>
+            </div>
+            <div class="item">
+                <div class="num remain">{{ total - confirmed }}</div>
+                <div class="label">待点名</div>
+            </div>
+        </div>
+
+        {% for cls in classes %}
+        <a href="{{ url_for('mobile.mobile_attendance', grade=grade, admin_class=cls.name) }}"
+           class="class-btn {{ 'confirmed' if cls.confirmed else 'pending' }}">
+            <span>{{ cls.name }}</span>
+            <span class="badge">{{ cls.count }}人 · {{ '已完成' if cls.confirmed else '待点名' }}</span>
+        </a>
+        {% endfor %}
+    </div>
+</body>
+</html>

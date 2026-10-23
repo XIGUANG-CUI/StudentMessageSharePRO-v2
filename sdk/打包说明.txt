@@ -1,0 +1,1 @@
+pyinstaller --clean --noconfirm run_with_tray.spec

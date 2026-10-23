@@ -1,0 +1,74 @@
+
+{% if _fh_type == 'import' %}
+{% set fields = _fh_fields if _fh_fields else field_help.import_fields %}
+<div class="fh-panel">
+    <div class="fh-trigger" onclick="this.parentElement.classList.toggle('open')">
+        <span class="fh-icon">&#9654;</span>
+        <span><i class="bi {{ _fh_icon }} me-1"></i>{{ _fh_title }}</span>
+    </div>
+    <div class="fh-body">
+        <div class="mb-2 fw-bold small text-muted">支持导入的字段（共 {{ fields|length }} 个）：</div>
+        <div class="fh-tags">
+            {% for f in fields %}
+            <span class="fh-tag
+                {% if not _fh_fields and f in field_help.required_fields %}req{% elif not _fh_fields and f in field_help.auto_fields %}auto{% elif not _fh_fields and f in field_help.insurance_fields %}ins{% endif %}
+            ">{{ f }}</span>
+            {% endfor %}
+        </div>
+        <div class="fh-note">
+            {% if not _fh_fields %}
+            <span class="fh-tag req" style="margin-right:4px;">必填</span> 为必须填写的字段，缺少将无法导入<br>
+            <span class="fh-tag auto" style="margin-right:4px;">自动</span> 由系统自动计算生成，无需手动填写<br>
+            {% if field_help.is_admin %}
+            <span class="fh-tag ins" style="margin-right:4px;">保险</span> 为保险管理相关字段，需相应角色权限才能修改<br>
+            {% endif %}
+            <strong>所有字段均为可选项</strong>（除必填项外），空列将被跳过。
+            {% endif %}
+            <a href="{{ _fh_template_url }}" class="ms-1">下载模板</a> 中包含完整表头，建议参照模板格式填写。
+            {% if _fh_note %}<br><strong>注意：</strong>{{ _fh_note }}{% endif %}
+        </div>
+    </div>
+</div>
+{% elif _fh_type == 'export' %}
+{% set is_admin = field_help.is_admin %}
+{% set vis_set = field_help.visible_fields_set %}
+{% set fmap_keys = field_help.field_mapping_keys %}
+{% set ns = namespace(visible_count=0, hidden_count=0) %}
+{% if _fh_fields %}
+  {% for f in _fh_fields %}
+    {% if is_admin or not vis_set or f not in fmap_keys or f in vis_set %}
+      {% set ns.visible_count = ns.visible_count + 1 %}
+    {% else %}
+      {% set ns.hidden_count = ns.hidden_count + 1 %}
+    {% endif %}
+  {% endfor %}
+{% endif %}
+<div class="fh-panel">
+    <div class="fh-trigger" onclick="this.parentElement.classList.toggle('open')">
+        <span class="fh-icon">&#9654;</span>
+        <span><i class="bi {{ _fh_icon }} me-1"></i>{{ _fh_title }}</span>
+    </div>
+    <div class="fh-body">
+        {% if _fh_fields %}
+        <div class="mb-2 fw-bold small text-muted">
+            导出数据字段（共 {{ _fh_fields|length }} 列{% if ns.hidden_count > 0 %}，其中 <span class="text-muted">灰色标记</span> 的 {{ ns.hidden_count }} 列因字段权限限制不可导出{% endif %}）：
+        </div>
+        <div class="fh-tags">
+            {% for f in _fh_fields %}
+            {% if is_admin or not vis_set or f not in fmap_keys or f in vis_set %}
+            <span class="fh-tag">{{ f }}</span>
+            {% else %}
+            <span class="fh-tag fh-tag-dimmed" title="此字段不在您当前角色的可见范围内，不会被导出">{{ f }}</span>
+            {% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
+        <div class="fh-note">
+            {% if _fh_note %}{{ _fh_note }}{% endif %}
+            <strong>数据范围：</strong>当前页面筛选条件对应的数据。<br>
+            <strong>权限：</strong>实际导出列受当前角色字段权限限制{% if is_admin %}（管理员不受限制）{% endif %}，上方灰色字段标记了不可导出的列。<br>
+            <strong>格式：</strong>Excel (.xlsx) 格式，支持在 Microsoft Excel / WPS 中打开编辑。
+        </div>
+    </div>
+</div>
+{% endif %}

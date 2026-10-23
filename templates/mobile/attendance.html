@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>{{ admin_class }} - 出勤点名</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+            padding-bottom: 90px;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .header .back {
+            color: #fff;
+            text-decoration: none;
+            font-size: 24px;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+        }
+        .header .back:active { background: rgba(255,255,255,0.2); }
+        .header .title { font-size: 20px; font-weight: 700; flex: 1; }
+        .header .count { font-size: 14px; opacity: 0.9; font-weight: 600; }
+        .quick-actions {
+            display: flex;
+            gap: 10px;
+            padding: 14px 20px;
+            max-width: 480px;
+            margin: 0 auto;
+        }
+        .quick-actions button {
+            flex: 1;
+            padding: 12px 0;
+            border: none;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            color: #fff;
+            min-height: 44px;
+        }
+        .quick-actions button:active { opacity: 0.85; }
+        .btn-all-present { background: #27ae60; }
+        .btn-all-absent { background: #e74c3c; }
+        .btn-all-reset { background: #95a5a6; }
+        .container {
+            padding: 0 20px 20px;
+            max-width: 480px;
+            margin: 0 auto;
+        }
+        .student-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #fff;
+            border-radius: 12px;
+            padding: 14px 18px;
+            margin-bottom: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            min-height: 56px;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .student-row:active { background: #f0f0f0; }
+        .student-row .name {
+            font-size: 17px;
+            font-weight: 600;
+            color: #333;
+        }
+        .student-row .name-pinyin {
+            font-size: 13px;
+            font-weight: 400;
+            color: #999;
+            text-align: center;
+            flex: 1;
+            padding: 0 8px;
+        }
+        .status-pill {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 80px;
+            height: 34px;
+            border-radius: 17px;
+            font-size: 14px;
+            font-weight: 700;
+            color: #fff;
+            transition: background-color 0.2s, transform 0.1s;
+            pointer-events: none;
+        }
+        .status-pill:active { transform: scale(0.95); }
+        .status-none { background: #bdc3c7; }
+        .status-present { background: #27ae60; }
+        .status-absent { background: #e74c3c; }
+        .btn-submit {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 68px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border: none;
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+            z-index: 100;
+        }
+        .btn-submit:active { opacity: 0.9; }
+        .btn-submit.warn {
+            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+        }
+        .btn-submit .counter { font-size: 14px; font-weight: 400; opacity: 0.85; display: block; }
+        .tuoguan-tag {
+            display: inline-block;
+            font-size: 10px;
+            background: #e0e7ff;
+            color: #4f46e5;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+            margin-left: 6px;
+            vertical-align: middle;
+        }
+        .student-row.tuoguan { opacity: 0.7; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a href="{{ url_for('mobile.mobile_grades') }}" class="back">←</a>
+        <div class="title">{{ admin_class }}</div>
+        <div class="count" id="statusCount">{{ students | length }}人</div>
+    </div>
+
+    <div class="quick-actions">
+        <button class="btn-all-present" onclick="setAll(1)">全部出勤</button>
+        <button class="btn-all-absent" onclick="setAll(0)">全部缺勤</button>
+        <button class="btn-all-reset" onclick="setAll(-1)">全部重置</button>
+    </div>
+
+    <div class="container">
+        <form method="POST" id="attendanceForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            {% for s in students %}
+            <div class="student-row{% if s.is_tuoguan %} tuoguan{% endif %}">
+                <span class="name">{{ s.name }}{% if s.is_tuoguan %}<span class="tuoguan-tag">托管</span>{% endif %}</span>
+                <span class="name-pinyin">{{ s.name_pinyin or '' }}</span>
+                {% if s.status == 1 or s.status == '出勤' %}
+                <span class="status-pill status-present">出勤 ✓</span>
+                <input type="hidden" name="status_{{ s.id_card }}" value="1">
+                {% elif s.status == 0 or s.status == '缺勤' %}
+                <span class="status-pill status-absent">缺勤 ✗</span>
+                <input type="hidden" name="status_{{ s.id_card }}" value="0">
+                {% else %}
+                <span class="status-pill status-none">未操作</span>
+                <input type="hidden" name="status_{{ s.id_card }}" value="-1">
+                {% endif %}
+            </div>
+            {% endfor %}
+        </form>
+    </div>
+
+    <button type="button" class="btn-submit" id="submitBtn" onclick="submitForm()">
+        ✅ 确认提交
+        <span class="counter" id="submitCounter">已操作 0 / {{ students | length }} 人</span>
+    </button>
+
+    <script>
+    var totalStudents = {{ students | length }};
+    var operatedCount = 0;
+    var touchStartX = 0, touchStartY = 0;
+    var touchTarget = null;
+    var TAP_THRESHOLD = 12;
+
+    document.addEventListener('touchstart', function(e) {
+        var row = e.target.closest('.student-row');
+        if (!row) return;
+        var touch = e.touches[0];
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+        touchTarget = row;
+    }, { passive: true });
+
+    document.addEventListener('touchend', function(e) {
+        if (!touchTarget) return;
+        var touch = e.changedTouches[0];
+        var dx = touch.clientX - touchStartX;
+        var dy = touch.clientY - touchStartY;
+        if (Math.abs(dx) < TAP_THRESHOLD && Math.abs(dy) < TAP_THRESHOLD) {
+            var input = touchTarget.querySelector('input');
+            if (input) {
+                cycleStatus(touchTarget, input.name.replace('status_', ''));
+            }
+        }
+        touchTarget = null;
+    });
+
+    function countOperated() {
+        var count = 0;
+        var rows = document.querySelectorAll('.student-row');
+        rows.forEach(function(row) {
+            var input = row.querySelector('input');
+            if (input && input.value !== '-1') {
+                count++;
+            }
+        });
+        return count;
+    }
+
+    function updateCounter() {
+        operatedCount = countOperated();
+        var counter = document.getElementById('submitCounter');
+        var btn = document.getElementById('submitBtn');
+        counter.textContent = '已操作 ' + operatedCount + ' / ' + totalStudents + ' 人';
+        if (operatedCount < totalStudents && operatedCount > 0) {
+            btn.classList.add('warn');
+        } else {
+            btn.classList.remove('warn');
+        }
+    }
+
+    function cycleStatus(row, studentNo) {
+        var input = row.querySelector('input');
+        var pill = row.querySelector('.status-pill');
+        var current = parseInt(input.value);
+        var next;
+        if (current === -1) next = 1;
+        else if (current === 1) next = 0;
+        else next = -1;
+
+        input.value = next;
+        pill.className = 'status-pill';
+        if (next === -1) {
+            pill.classList.add('status-none');
+            pill.textContent = '未操作';
+        } else if (next === 1) {
+            pill.classList.add('status-present');
+            pill.textContent = '出勤 ✓';
+        } else {
+            pill.classList.add('status-absent');
+            pill.textContent = '缺勤 ✗';
+        }
+        updateCounter();
+    }
+
+    function setAll(status) {
+        var rows = document.querySelectorAll('.student-row');
+        rows.forEach(function(row) {
+            var input = row.querySelector('input');
+            var pill = row.querySelector('.status-pill');
+            input.value = status;
+            pill.className = 'status-pill';
+            if (status === -1) {
+                pill.classList.add('status-none');
+                pill.textContent = '未操作';
+            } else if (status === 1) {
+                pill.classList.add('status-present');
+                pill.textContent = '出勤 ✓';
+            } else {
+                pill.classList.add('status-absent');
+                pill.textContent = '缺勤 ✗';
+            }
+        });
+        updateCounter();
+    }
+
+    function submitForm() {
+        var btn = document.getElementById('submitBtn');
+        var rows = document.querySelectorAll('.student-row');
+        var hasAny = false;
+        rows.forEach(function(row) {
+            var input = row.querySelector('input');
+            if (input && input.value !== '-1') {
+                hasAny = true;
+            }
+        });
+        btn.disabled = true;
+        btn.innerHTML = '⏳ 提交中...';
+        document.getElementById('attendanceForm').submit();
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        updateCounter();
+    });
+    </script>
+</body>
+</html>

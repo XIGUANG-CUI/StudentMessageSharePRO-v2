@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}学生数据管理系统{% endblock %}</title>
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+    <link href="{{ url_for('static', filename='vendor/bootstrap.min.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='vendor/bootstrap-icons.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}?v={{ css_version }}" rel="stylesheet">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    {% if session.user_id %}
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="bi bi-mortarboard-fill"></i> 学生数据管理系统
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    {% if session.role == 'admin' %}
+                    {% if is_student_list_page %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#yearSelectModal" title="切换入学年份" style="cursor:pointer">
+                            <i class="bi bi-calendar-check"></i> {{ enrollment_year_label }}
+                        </a>
+                    </li>
+                    {% else %}
+                    <li class="nav-item">
+                        <span class="nav-link disabled"><i class="bi bi-calendar-check"></i> {{ enrollment_year_label }}</span>
+                    </li>
+                    {% endif %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('admin.admin_dashboard') }}">
+                            <i class="bi bi-speedometer2"></i> 控制台
+                        </a>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+                            <i class="bi bi-people-fill"></i> 学生数据管理
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="{{ url_for('admin.admin_students') }}">
+                                <i class="bi bi-list-ul"></i> 学生列表
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('leave_cancel.admin_leave_cancel') }}">
+                                <i class="bi bi-check2-circle"></i> 销假处理
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('lifecycle.admin_student_change') }}">
+                                <i class="bi bi-arrow-left-right"></i> 学籍异动处理
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('lifecycle.admin_student_dropout') }}">
+                                <i class="bi bi-box-arrow-right"></i> 退学学生处理
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('lifecycle.admin_graduation') }}">
+                                <i class="bi bi-mortarboard-fill"></i> 毕业管理
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('lifecycle.admin_graduation_query') }}">
+                                <i class="bi bi-search"></i> 毕业生查询
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{{ url_for('admin.admin_import') }}">
+                                <i class="bi bi-file-earmark-plus"></i> 批量新增
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('admin.admin_batch_update') }}">
+                                <i class="bi bi-pencil-square"></i> 批量更新
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{{ url_for('export.admin_export_engine') }}">
+                                <i class="bi bi-file-earmark-arrow-up"></i> 模板导出引擎
+                            </a></li>
+                        </ul>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+                            <i class="bi bi-shield-fill-check"></i> 保险管理
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="{{ url_for('insurance.insurance_init') }}">
+                                <i class="bi bi-cloud-upload"></i> 保险初始化导入
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('insurance.insurance_register') }}">
+                                <i class="bi bi-shield-check"></i> 保险缴费登记
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('insurance.insurance_approve') }}">
+                                <i class="bi bi-check2-all"></i> 保险审批
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('insurance.insurance_todo') }}">
+                                <i class="bi bi-list-check"></i> 保险待办
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{{ url_for('insurance.admin_insurance_query') }}">
+                                <i class="bi bi-search"></i> 保单查询
+                            </a></li>
+                        </ul>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('admin.admin_users') }}">
+                            <i class="bi bi-person-gear"></i> 用户管理
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('admin.admin_dicts') }}">
+                            <i class="bi bi-book"></i> 字典管理
+                        </a>
+                    </li>
+                    {% else %}
+                    {% if session.role in ('finance_chief', 'finance_staff') %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('insurance.insurance_register') }}">
+                            <i class="bi bi-shield-check"></i> 保险缴费登记
+                        </a>
+                    </li>
+                    {% endif %}
+                    {% if session.role == 'finance_chief' %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('insurance.insurance_approve') }}">
+                            <i class="bi bi-check2-all"></i> 保险审批
+                        </a>
+                    </li>
+                    {% endif %}
+                    {% if session.role == 'insurance_officer' %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('insurance.insurance_todo') }}">
+                            <i class="bi bi-list-check"></i> 保险待办
+                        </a>
+                    </li>
+                    {% endif %}
+                    {% if session.role in ('finance_chief', 'finance_staff', 'insurance_officer') %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('insurance.admin_insurance_query') }}">
+                            <i class="bi bi-search"></i> 保单查询
+                        </a>
+                    </li>
+                    {% endif %}
+                    {% if session.role not in ('finance_chief', 'finance_staff', 'insurance_officer') %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('user.user_query') }}">
+                            <i class="bi bi-search"></i> 多维查询
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('insurance.admin_insurance_query') }}">
+                            <i class="bi bi-shield-check"></i> 保单查询
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('user.user_stats') }}">
+                            <i class="bi bi-bar-chart-fill"></i> 统计面板
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('lifecycle.admin_graduation_query') }}">
+                            <i class="bi bi-mortarboard-fill"></i> 毕业生查询
+                        </a>
+                    </li>
+                    {% endif %}
+                    {% endif %}
+                </ul>
+                <span class="navbar-text me-3 d-none d-md-inline">
+                    <span class="badge bg-info bg-opacity-25 text-warning fs-6">
+                        <i class="bi bi-clock-history me-1"></i>数据同步时间: {{ last_update_time }}
+                    </span>
+                </span>
+                <ul class="navbar-nav">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+                            <i class="bi bi-person-circle"></i> {{ session.display_name }}
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="{{ url_for('logout') }}">
+                                <i class="bi bi-box-arrow-right"></i> 退出登录
+                            </a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+    {% endif %}
+
+    <main class="container-fluid mt-4">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            <script id="flashMessagesData" type="application/json">{{ messages | list | tojson | safe }}</script>
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer mt-auto py-3 bg-light">
+        <div class="container text-center">
+            <span class="text-muted">&copy; 2026 By.CxG</span>
+        </div>
+    </footer>
+
+    <script src="{{ url_for('static', filename='vendor/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/chartjs-plugin-datalabels.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {% block scripts %}{% endblock %}
+
+    {% if session.role == 'admin' %}
+    <div class="modal fade" id="yearSelectModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content shadow-lg">
+                <div class="modal-header bg-primary text-white py-3">
+                    <h5 class="modal-title">
+                        <i class="bi bi-calendar-date"></i> 选择入学年份
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="text-muted text-center mb-3">
+                        <small>选择后将只显示该年份的学生数据</small>
+                    </p>
+                    <div class="mb-3">
+                        <select class="form-select form-select-lg" id="yearModalSelect">
+                            <option value="">请选择年份</option>
+                            {% for year in existing_years %}
+                            <option value="{{ year }}">{{ year }} 年</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="d-grid gap-2">
+                        <button type="button" class="btn btn-primary btn-lg" id="yearModalConfirmBtn">
+                            <i class="bi bi-check-circle"></i> 确认进入
+                        </button>
+                        <a href="{{ url_for('admin.admin_year_clear') }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-globe"></i> 全校数据（不限年份）
+                        </a>
+                    </div>
+                    <hr class="my-4">
+                    <div class="text-center">
+                        <p class="text-muted mb-2"><small>或创建新年份</small></p>
+                        <button type="button" class="btn btn-outline-success" id="yearModalCreateBtn">
+                            <i class="bi bi-plus-circle"></i> 创建新年份
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="createYearModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-calendar-plus"></i> 创建新年份
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="newYearInput" class="form-label">请输入年份</label>
+                        <input type="number" class="form-control form-control-lg" id="newYearInput"
+                               min="2000" max="2100" placeholder="如：2027" required>
+                        <div class="form-text">请输入4位数字的年份（如：2027），创建后将作为可选的入学年份。</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-success" id="confirmCreateYearBtn">
+                        <i class="bi bi-check"></i> 确认创建
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        var yearModal = document.getElementById('yearSelectModal');
+        if (!yearModal) return;
+
+        var bsYearModal = new bootstrap.Modal(yearModal, { backdrop: 'static', keyboard: false });
+
+        {% if show_year_modal %}
+        setTimeout(function() { bsYearModal.show(); }, 300);
+        {% endif %}
+
+        document.getElementById('yearModalConfirmBtn').addEventListener('click', function() {
+            var year = document.getElementById('yearModalSelect').value;
+            if (!year) {
+                showToast('请选择入学年份', 'warning');
+                return;
+            }
+            var btn = this;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 处理中...';
+            fetch('{{ url_for('admin.api_year_select') }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ year: parseInt(year) })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    bsYearModal.hide();
+                    if (window.yearSwitchCallback) {
+                        window.yearSwitchCallback();
+                        window.yearSwitchCallback = null;
+                    } else {
+                        window.location.reload();
+                    }
+                } else {
+                    showToast(data.message, 'danger');
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="bi bi-check-circle"></i> 确认进入';
+                }
+            })
+            .catch(function() {
+                showToast('选择年份失败，请重试', 'danger');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-check-circle"></i> 确认进入';
+            });
+        });
+
+        document.getElementById('yearModalCreateBtn').addEventListener('click', function() {
+            document.getElementById('newYearInput').value = new Date().getFullYear();
+            var modal = new bootstrap.Modal(document.getElementById('createYearModal'));
+            modal.show();
+        });
+
+        document.getElementById('confirmCreateYearBtn').addEventListener('click', function() {
+            var year = document.getElementById('newYearInput').value;
+            if (!year || year < 2000 || year > 2100) {
+                showToast('请输入有效的年份（2000-2100）', 'warning');
+                return;
+            }
+            var btn = this;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 创建中...';
+            fetch('{{ url_for('admin.api_year_create') }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ year: parseInt(year) })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    var createModal = bootstrap.Modal.getInstance(document.getElementById('createYearModal'));
+                    createModal.hide();
+                    showToast(data.message, 'success');
+                    bsYearModal.hide();
+                    if (window.yearSwitchCallback) {
+                        window.yearSwitchCallback();
+                        window.yearSwitchCallback = null;
+                    } else {
+                        window.location.reload();
+                    }
+                } else {
+                    showToast(data.message, 'danger');
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="bi bi-check"></i> 确认创建';
+                }
+            })
+            .catch(function() {
+                showToast('创建年份失败，请重试', 'danger');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-check"></i> 确认创建';
+            });
+        });
+    })();
+    </script>
+    {% endif %}
+    {# CSRF Token 注入：所有 AJAX POST 自动携带 #}
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <script>
+    (function() {
+        var csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+        if (!csrfToken) return;
+        var _fetch = window.fetch;
+        window.fetch = function(url, options) {
+            options = options || {};
+            if (options.method && options.method.toUpperCase() !== 'GET') {
+                options.headers = options.headers || {};
+                if (options.headers instanceof Headers) {
+                    options.headers.set('X-CSRF-Token', csrfToken);
+                } else {
+                    options.headers['X-CSRF-Token'] = csrfToken;
+                }
+            }
+            return _fetch.call(window, url, options);
+        };
+    })();
+    </script>
+</body>
+</html>

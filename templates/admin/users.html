@@ -1,0 +1,1440 @@
+{% extends "base.html" %}
+
+{% block title %}用户管理 - 学生数据管理系统{% endblock %}
+
+{% block head %}
+<style>
+:root {
+  --bp-primary: #4f46e5;
+  --bp-primary-light: #6366f1;
+  --bp-success: #10b981;
+  --bp-success-light: #d1fae5;
+  --bp-danger: #ef4444;
+  --bp-danger-light: #fee2e2;
+  --bp-warning: #f59e0b;
+  --bp-warning-light: #fef3c7;
+  --bp-info: #3b82f6;
+  --bp-surface: #ffffff;
+  --bp-bg: #f1f5f9;
+  --bp-border: #e2e8f0;
+  --bp-text: #1e293b;
+  --bp-text-muted: #64748b;
+  --bp-radius: 16px;
+  --bp-radius-sm: 10px;
+  --bp-shadow: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.05);
+  --bp-shadow-lg: 0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.06);
+  --bp-shadow-xl: 0 20px 40px -10px rgba(0,0,0,0.12);
+  --bp-transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.um-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.75rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.um-page-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--bp-text);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0;
+}
+
+.um-page-title .icon-wrapper {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 1.25rem;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.35);
+}
+
+/* ── 备份状态面板 ── */
+.bp-card {
+  background: var(--bp-surface);
+  border-radius: var(--bp-radius);
+  border: 1px solid var(--bp-border);
+  box-shadow: var(--bp-shadow);
+  overflow: hidden;
+  transition: box-shadow var(--bp-transition);
+}
+
+.bp-card:hover {
+  box-shadow: var(--bp-shadow-lg);
+}
+
+.bp-card-header {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--bp-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.bp-card-header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--bp-text);
+}
+
+.bp-card-header-title .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.dot-ok { background: #10b981; box-shadow: 0 0 8px rgba(16,185,129,0.5); }
+.dot-err { background: #ef4444; box-shadow: 0 0 8px rgba(239,68,68,0.5); }
+.dot-idle { background: #94a3b8; }
+
+.bp-poll-badge {
+  font-size: 0.72rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 20px;
+  background: #eef2ff;
+  color: #4f46e5;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+
+@keyframes bpPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.bp-poll-badge .live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  animation: bpPulse 1.5s ease-in-out infinite;
+}
+
+.bp-card-body {
+  padding: 1.25rem;
+}
+
+.bp-section-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--bp-text-muted);
+  font-weight: 600;
+  margin-bottom: 0.6rem;
+}
+
+/* 完整性检查条 */
+.bp-integrity-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-radius: var(--bp-radius-sm);
+  font-weight: 600;
+  font-size: 0.875rem;
+  transition: all var(--bp-transition);
+  position: relative;
+  overflow: hidden;
+}
+
+.bp-integrity-bar.pass {
+  background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.bp-integrity-bar.fail {
+  background: linear-gradient(135deg, #fef2f2, #fee2e2);
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.bp-integrity-bar.unknown {
+  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+
+.bp-integrity-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.pass .bp-integrity-icon {
+  background: #10b981;
+  color: white;
+}
+
+.fail .bp-integrity-icon {
+  background: #ef4444;
+  color: white;
+}
+
+.unknown .bp-integrity-icon {
+  background: #94a3b8;
+  color: white;
+}
+
+/* 表详情 */
+.bp-table-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  max-height: 120px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scroll-behavior: smooth;
+}
+
+.bp-table-chips::-webkit-scrollbar {
+  width: 4px;
+}
+
+.bp-table-chips::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.bp-table-chips::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.bp-table-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  transition: all var(--bp-transition);
+  border: 1px solid transparent;
+}
+
+.bp-table-chip .chip-name {
+  color: var(--bp-text);
+}
+
+.bp-table-chip .chip-count {
+  background: rgba(0,0,0,0.06);
+  padding: 0.1rem 0.45rem;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--bp-text-muted);
+  min-width: 28px;
+  text-align: center;
+}
+
+.bp-table-chip:nth-child(1) { background: #ede9fe; border-color: #ddd6fe; }
+.bp-table-chip:nth-child(2) { background: #dbeafe; border-color: #bfdbfe; }
+.bp-table-chip:nth-child(3) { background: #fef3c7; border-color: #fde68a; }
+.bp-table-chip:nth-child(4) { background: #e0e7ff; border-color: #c7d2fe; }
+.bp-table-chip:nth-child(5) { background: #fce7f3; border-color: #fbcfe8; }
+.bp-table-chip:nth-child(6) { background: #ccfbf1; border-color: #99f6e4; }
+.bp-table-chip:nth-child(7) { background: #ffe4e6; border-color: #fecdd3; }
+.bp-table-chip:nth-child(8) { background: #f3e8ff; border-color: #e9d5ff; }
+
+/* 备份文件信息 */
+.bp-files-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+}
+
+.bp-file-card {
+  background: #f8fafc;
+  border: 1px solid var(--bp-border);
+  border-radius: var(--bp-radius-sm);
+  padding: 0.75rem 0.85rem;
+  text-align: center;
+  transition: all var(--bp-transition);
+}
+
+.bp-file-card.active {
+  border-color: #a5b4fc;
+  background: linear-gradient(135deg, #eef2ff, #e0e7ff);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+.bp-file-card .file-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--bp-text-muted);
+  margin-bottom: 0.2rem;
+}
+
+.bp-file-card .file-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--bp-text);
+  margin-bottom: 0.15rem;
+}
+
+.bp-file-card .file-meta {
+  font-size: 0.7rem;
+  color: var(--bp-text-muted);
+}
+
+.bp-file-card .file-status {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+/* 刷新过渡动画 */
+@keyframes bpFadeIn {
+  from { opacity: 0.6; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.bp-fade-in {
+  animation: bpFadeIn 0.35s ease-out;
+}
+
+/* ── 用户表格美化 ── */
+.um-table-card {
+  background: var(--bp-surface);
+  border-radius: var(--bp-radius);
+  border: 1px solid var(--bp-border);
+  box-shadow: var(--bp-shadow);
+  overflow: hidden;
+}
+
+.um-table-card .table {
+  margin-bottom: 0;
+}
+
+.um-table-card .table thead th {
+  background: #f8fafc;
+  border-bottom: 2px solid var(--bp-border);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bp-text-muted);
+  padding: 0.85rem 1rem;
+  white-space: nowrap;
+}
+
+.um-table-card .table tbody td {
+  padding: 0.8rem 1rem;
+  font-size: 0.875rem;
+  vertical-align: middle;
+  border-color: #f1f5f9;
+}
+
+.um-table-card .table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+.um-table-card .table tbody tr:hover {
+  background-color: #f8fafc;
+}
+
+.um-role-badge {
+  font-size: 0.75rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 20px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.um-role-badge.admin {
+  background: linear-gradient(135deg, #ede9fe, #ddd6fe);
+  color: #5b21b6;
+}
+
+.um-role-badge.attendance {
+  background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+  color: #1d4ed8;
+}
+
+.um-role-badge.user {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.um-role-badge.finance_chief {
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+  color: #92400e;
+}
+
+.um-role-badge.finance_staff {
+  background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+  color: #065f46;
+}
+
+.um-role-badge.insurance_officer {
+  background: linear-gradient(135deg, #fce7f3, #fbcfe8);
+  color: #9d174d;
+}
+
+/* 角色切换标签 */
+.um-role-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--bp-border);
+  background: #f8fafc;
+}
+
+.um-role-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.8rem;
+  border-radius: 20px;
+  border: 1px solid var(--bp-border);
+  background: #fff;
+  color: var(--bp-text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.um-role-tab:hover {
+  border-color: #a5b4fc;
+  color: #4f46e5;
+}
+
+.um-role-tab.active {
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(79, 70, 229, 0.3);
+}
+
+.um-role-tab .tab-count {
+  background: rgba(0,0,0,0.08);
+  border-radius: 10px;
+  padding: 0 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  min-width: 20px;
+  text-align: center;
+}
+
+.um-role-tab.active .tab-count {
+  background: rgba(255,255,255,0.28);
+}
+
+.um-status-badge {
+  font-size: 0.72rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 14px;
+  font-weight: 600;
+}
+
+.um-status-badge.active {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.um-status-badge.inactive {
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+
+.um-action-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--bp-border);
+  background: white;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.15s ease;
+  margin: 0 2px;
+  color: var(--bp-text-muted);
+}
+
+.um-action-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+
+.um-action-btn.btn-edit:hover { background: #eef2ff; color: #4f46e5; border-color: #c7d2fe; }
+.um-action-btn.btn-toggle:hover { background: #fef3c7; color: #d97706; border-color: #fde68a; }
+.um-action-btn.btn-reset:hover { background: #f1f5f9; color: #475569; border-color: #cbd5e1; }
+
+/* 新增按钮 */
+.um-add-btn {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  border: none;
+  color: white;
+  padding: 0.6rem 1.3rem;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
+  transition: all var(--bp-transition);
+}
+
+.um-add-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(79, 70, 229, 0.45);
+  color: white;
+}
+
+/* 模态窗美化 */
+.um-modal .modal-content {
+  border: none;
+  border-radius: var(--bp-radius);
+  box-shadow: var(--bp-shadow-xl);
+  overflow: hidden;
+}
+
+.um-modal .modal-header {
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  color: white;
+  border: none;
+  padding: 1rem 1.25rem;
+}
+
+.um-modal .modal-header .modal-title {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.um-modal .btn-close {
+  filter: brightness(0) invert(1);
+  opacity: 0.8;
+}
+
+.um-modal .modal-footer {
+  border-top: 1px solid var(--bp-border);
+  padding: 1rem 1.25rem;
+  background: #f8fafc;
+}
+
+.um-modal .modal-body {
+  padding: 1.25rem;
+}
+
+/* 响应式 */
+@media (max-width: 992px) {
+  .bp-files-row {
+    grid-template-columns: 1fr;
+  }
+
+  .um-page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .um-action-btn {
+    width: 30px;
+    height: 30px;
+    font-size: 0.78rem;
+  }
+
+  .bp-card { margin-bottom: 1.5rem; }
+}
+
+.bp-preset-btn {
+  font-size: 0.68rem;
+  padding: 0.18rem 0.5rem;
+  border-radius: 12px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.bp-preset-btn:hover {
+  border-color: #818cf8;
+  color: #4f46e5;
+  background: #eef2ff;
+}
+
+@media (max-width: 576px) {
+  .bp-table-chips {
+    max-height: 160px;
+  }
+
+  .um-table-card .table thead th,
+  .um-table-card .table tbody td {
+    padding: 0.55rem 0.5rem;
+    font-size: 0.75rem;
+  }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="um-page-header">
+  <h2 class="um-page-title">
+    <span class="icon-wrapper"><i class="bi bi-people-fill"></i></span>
+    用户管理
+  </h2>
+  <button class="um-add-btn" data-bs-toggle="modal" data-bs-target="#addUserModal">
+    <i class="bi bi-plus-lg"></i> 新增用户
+  </button>
+</div>
+
+<div class="row g-4">
+  <!-- 左侧：数据库备份状态面板 -->
+  <div class="col-lg-5">
+    <div class="bp-card" id="backupPanel">
+      <div class="bp-card-header">
+        <div class="bp-card-header-title">
+          <i class="bi bi-shield-check" style="color:#4f46e5;font-size:1.15rem;"></i>
+          数据库备份状态
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <button id="bpIntervalBtn" class="btn p-0 border-0 text-muted" title="调整备份间隔"
+                  style="font-size:0.8rem;line-height:1;opacity:0.5;transition:opacity 0.2s;"
+                  onclick="toggleBpIntervalPanel()"
+                  onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='0.5'">
+            <i class="bi bi-gear"></i>
+          </button>
+          <span class="bp-poll-badge">
+            <span class="live-dot"></span> 实时监控
+          </span>
+        </div>
+      </div>
+      <div class="bp-card-body" id="bpContent">
+        <div class="text-center py-4 text-muted">
+          <div class="spinner-border spinner-border-sm text-secondary mb-2" role="status"></div>
+          <div style="font-size:0.85rem;">正在获取备份状态...</div>
+        </div>
+      </div>
+      <div id="bpIntervalPanel" style="display:none;padding:0 1.25rem 1rem 1.25rem;font-size:0.75rem;">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <span class="fw-semibold text-muted" style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em;">备份间隔</span>
+          <span id="bpIntervalLabel" class="fw-bold" style="color:#4f46e5;">30分钟</span>
+        </div>
+        <div class="d-flex flex-wrap gap-1 mb-2" id="bpPresetBtns"></div>
+        <div class="d-flex align-items-center gap-2">
+          <input type="range" id="bpIntervalSlider" class="form-range flex-grow-1" style="height:6px;" min="60" max="14400" step="60" value="1800">
+          <button id="bpIntervalApplyBtn" class="btn btn-sm text-white flex-shrink-0" style="background:linear-gradient(135deg,#4f46e5,#6366f1);font-size:0.7rem;padding:0.2rem 0.6rem;border-radius:6px;display:none;">
+            <i class="bi bi-check-lg"></i> 应用
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右侧：用户列表 -->
+  <div class="col-lg-7">
+    <div class="um-table-card">
+      <div class="um-role-tabs" id="umRoleTabs">
+        <button type="button" class="um-role-tab" data-role="admin">管理员 <span class="tab-count">0</span></button>
+        <button type="button" class="um-role-tab" data-role="attendance">出勤员 <span class="tab-count">0</span></button>
+        <button type="button" class="um-role-tab" data-role="finance_staff">财务人员 <span class="tab-count">0</span></button>
+        <button type="button" class="um-role-tab" data-role="finance_chief">财务主管 <span class="tab-count">0</span></button>
+        <button type="button" class="um-role-tab" data-role="insurance_officer">保险员 <span class="tab-count">0</span></button>
+        <button type="button" class="um-role-tab" data-role="user">普通用户 <span class="tab-count">0</span></button>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-borderless" id="umUserTable">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>用户名</th>
+              <th>显示名称</th>
+              <th>角色</th>
+              <th>状态</th>
+              <th class="text-center">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for user in users %}
+            <tr data-role="{{ user.role }}">
+              <td><span style="color:var(--bp-text-muted);font-weight:500;">#{{ user.id }}</span></td>
+              <td>
+                <span style="font-weight:600;color:var(--bp-text);">{{ user.username }}</span>
+                {% if user.username == 'admin' %}
+                <span style="font-size:0.65rem;background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:8px;margin-left:4px;">SU</span>
+                {% endif %}
+              </td>
+              <td><span style="color:var(--bp-text-muted);">{{ user.display_name or '-' }}</span></td>
+              <td>
+                <span class="um-role-badge {{ user.role }}">
+                  {% if user.role == 'admin' %}管理员
+                  {% elif user.role == 'attendance' %}出勤员
+                  {% elif user.role == 'finance_chief' %}财务主管
+                  {% elif user.role == 'finance_staff' %}财务人员
+                  {% elif user.role == 'insurance_officer' %}保险员
+                  {% else %}普通用户{% endif %}
+                </span>
+              </td>
+              <td>
+                <span class="um-status-badge {{ 'active' if user.is_active else 'inactive' }}">
+                  {{ '启用' if user.is_active else '禁用' }}
+                </span>
+              </td>
+              <td class="text-center">
+                <button class="um-action-btn btn-edit" title="编辑" onclick="editUser({{ user.id }})">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                <button class="um-action-btn btn-toggle" title="{{ '禁用' if user.is_active else '启用' }}" onclick="toggleUser({{ user.id }})">
+                  <i class="bi bi-{{ 'pause-circle' if user.is_active else 'play-circle' }}"></i>
+                </button>
+                <button class="um-action-btn btn-reset" title="重置密码" onclick="resetPassword({{ user.id }})">
+                  <i class="bi bi-key"></i>
+                </button>
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="6" class="text-center py-5 text-muted">
+                <i class="bi bi-inbox" style="font-size:2rem;display:block;margin-bottom:0.5rem;"></i>
+                暂无用户数据
+              </td>
+            </tr>
+            {% endfor %}
+            <tr id="umRoleEmptyRow" style="display:none;">
+              <td colspan="6" class="text-center py-5 text-muted">
+                <i class="bi bi-funnel" style="font-size:2rem;display:block;margin-bottom:0.5rem;"></i>
+                该角色下暂无用户
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 新增用户模态窗 -->
+<div class="modal fade um-modal" id="addUserModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-person-plus me-2"></i>新增用户</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST">
+        <div class="modal-body">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="add">
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">用户名 <span class="text-danger">*</span></label>
+            <input type="text" name="username" class="form-control" required placeholder="请输入用户名">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">密码 <span class="text-danger">*</span></label>
+            <input type="password" name="password" class="form-control" required minlength="6" placeholder="至少6位字符">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">显示名称（部门名称）</label>
+            <input type="text" name="display_name" class="form-control" placeholder="如：教务处">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">角色</label>
+            <select name="role" class="form-select">
+              <option value="user">普通用户</option>
+              <option value="attendance">出勤员</option>
+              <option value="finance_staff">财务人员</option>
+              <option value="finance_chief">财务主管</option>
+              <option value="insurance_officer">保险员</option>
+              <option value="admin">管理员</option>
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">可见学校类型</label>
+            <div class="d-flex gap-3">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="school_visible" value="1" id="addSchool1" checked>
+                <label class="form-check-label" for="addSchool1">中职</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="school_visible" value="2" id="addSchool2" checked>
+                <label class="form-check-label" for="addSchool2">技工</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">可见年级</label>
+            <input type="hidden" name="grade_visible" id="addGradeVisible" value='*'>
+            <div class="row g-2" id="addGradeCheckboxes">
+              <div class="col-6">
+                <div class="form-check">
+                  <input class="form-check-input grade-checkbox" type="checkbox" data-grade="*" data-target="add" checked>
+                  <label class="form-check-label">全部年级</label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">可见字段</label>
+            <input type="hidden" name="fields_visible" id="addFieldsVisible" value='[]'>
+            <div class="row g-2" id="addFieldsCheckboxes">
+              <div class="col-6">
+                <div class="form-check">
+                  <input class="form-check-input field-checkbox" type="checkbox" data-field="*" data-target="add">
+                  <label class="form-check-label">全部字段</label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">取消</button>
+          <button type="submit" class="btn btn-primary" style="background:linear-gradient(135deg,#4f46e5,#6366f1);border:none;font-weight:600;">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- 编辑用户模态窗 -->
+<div class="modal fade um-modal" id="editUserModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>编辑用户</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST">
+        <div class="modal-body">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="edit">
+          <input type="hidden" name="user_id" id="editUserId">
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">显示名称（部门名称）</label>
+            <input type="text" name="display_name" id="editDisplayName" class="form-control">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">角色</label>
+            <select name="role" id="editRole" class="form-select">
+              <option value="user">普通用户</option>
+              <option value="attendance">出勤员</option>
+              <option value="finance_staff">财务人员</option>
+              <option value="finance_chief">财务主管</option>
+              <option value="insurance_officer">保险员</option>
+              <option value="admin">管理员</option>
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">可见学校类型</label>
+            <div class="d-flex gap-3">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="school_visible" value="1" id="editSchool1">
+                <label class="form-check-label" for="editSchool1">中职</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="school_visible" value="2" id="editSchool2">
+                <label class="form-check-label" for="editSchool2">技工</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">可见年级</label>
+            <input type="hidden" name="grade_visible" id="editGradeVisible" value='*'>
+            <div class="row g-2" id="editGradeCheckboxes">
+              <div class="col-6">
+                <div class="form-check">
+                  <input class="form-check-input grade-checkbox" type="checkbox" data-grade="*" data-target="edit">
+                  <label class="form-check-label">全部年级</label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">可见字段</label>
+            <input type="hidden" name="fields_visible" id="editFieldsVisible" value='[]'>
+            <div class="row g-2" id="editFieldsCheckboxes">
+              <div class="col-6">
+                <div class="form-check">
+                  <input class="form-check-input field-checkbox" type="checkbox" data-field="*" data-target="edit">
+                  <label class="form-check-label">全部字段</label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">取消</button>
+          <button type="submit" class="btn btn-primary" style="background:linear-gradient(135deg,#4f46e5,#6366f1);border:none;font-weight:600;">更新</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<form id="actionForm" method="POST" style="display:none;">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="action" id="formAction">
+  <input type="hidden" name="user_id" id="formUserId">
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+  /* ====== 备份状态面板 ====== */
+  var bpPollTimer = null;
+  var bpPollInterval = 5000;
+
+  function buildBackupHTML(data) {
+    var verify = data.verify || {};
+    var last = data.last_result || {};
+
+    var integrityClass = verify.ok ? 'pass' : (verify.error ? 'fail' : 'unknown');
+    var integrityIcon = verify.ok ? 'bi-shield-check' : (verify.error ? 'bi-shield-exclamation' : 'bi-shield');
+    var integrityText = verify.ok
+      ? '完整性检查：' + verify.table_count + '个表通过 PRAGMA integrity_check'
+      : (verify.error || '正在检查...');
+
+    var tablesHTML = '';
+    if (verify.tables && verify.tables.length > 0) {
+      tablesHTML = verify.tables.map(function(t) {
+        return '<span class="bp-table-chip">'
+          + '<span class="chip-name">' + escapeHTML(t.name) + '</span>'
+          + '<span class="chip-count">' + t.rows + '</span>'
+          + '</span>';
+      }).join('');
+    } else {
+      tablesHTML = '<span style="color:#94a3b8;font-size:0.8rem;">暂无数据</span>';
+    }
+
+    var fileADisplay = data.file_a_exists
+      ? '<span class="file-status ' + (last.file === 'student_A.db' && last.success ? 'dot-ok' : 'dot-idle') + '"></span>'
+      + data.file_a_size_mb + ' MB &middot; ' + (data.file_a_mtime || '').substring(11, 16)
+      : '<span style="color:#94a3b8;">尚未生成</span>';
+
+    var fileBDisplay = data.file_b_exists
+      ? '<span class="file-status ' + (last.file === 'student_B.db' && last.success ? 'dot-ok' : 'dot-idle') + '"></span>'
+      + data.file_b_size_mb + ' MB &middot; ' + (data.file_b_mtime || '').substring(11, 16)
+      : '<span style="color:#94a3b8;">尚未生成</span>';
+
+    var lastBackupHTML = '';
+    if (last.success != null) {
+      var lastIcon = last.success ? '<i class="bi bi-check-circle-fill" style="color:#10b981;"></i>' : '<i class="bi bi-x-circle-fill" style="color:#ef4444;"></i>';
+      var lastTime = last.time ? last.time.substring(11, 19) : '';
+      lastBackupHTML = '<div style="font-size:0.75rem;color:var(--bp-text-muted);margin-top:0.65rem;text-align:center;">'
+        + lastIcon + ' 上次备份：' + lastTime
+        + (last.file ? ' → ' + escapeHTML(last.file) : '')
+        + '</div>';
+    }
+
+    return '' +
+      '<div class="bp-fade-in">' +
+        '<div class="bp-section-label">完整性检查</div>' +
+        '<div class="bp-integrity-bar ' + integrityClass + '">' +
+          '<div class="bp-integrity-icon"><i class="bi ' + integrityIcon + '"></i></div>' +
+          '<span>' + integrityText + '</span>' +
+        '</div>' +
+
+        '<div class="bp-section-label mt-3">表详情</div>' +
+        '<div class="bp-table-chips">' + tablesHTML + '</div>' +
+
+        '<div class="bp-section-label mt-3">备份文件</div>' +
+        '<div class="bp-files-row">' +
+          '<div class="bp-file-card ' + (last.file === 'student_A.db' && last.success ? 'active' : '') + '">' +
+            '<div class="file-label">A 轮备份</div>' +
+            '<div class="file-name">student_A.db</div>' +
+            '<div class="file-meta">' + fileADisplay + '</div>' +
+          '</div>' +
+          '<div class="bp-file-card ' + (last.file === 'student_B.db' && last.success ? 'active' : '') + '">' +
+            '<div class="file-label">B 轮备份</div>' +
+            '<div class="file-name">student_B.db</div>' +
+            '<div class="file-meta">' + fileBDisplay + '</div>' +
+          '</div>' +
+        '</div>' +
+        lastBackupHTML +
+      '</div>';
+  }
+
+  function pollBackupStatus() {
+    fetch('/api/backup/status')
+      .then(function(resp) {
+        if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+        return resp.json();
+      })
+      .then(function(data) {
+        var container = document.getElementById('bpContent');
+        if (container) {
+          container.innerHTML = buildBackupHTML(data);
+        }
+        if (data.interval_info) {
+          initBpIntervalPanel(data.interval_info, data.interval_info.presets);
+        }
+      })
+      .catch(function(err) {
+        console.error('[备份面板] 轮询失败:', err);
+        var container = document.getElementById('bpContent');
+        if (container) {
+          container.innerHTML = '<div class="text-center py-4" style="color:#ef4444;font-size:0.85rem;">'
+            + '<i class="bi bi-exclamation-triangle" style="font-size:1.5rem;display:block;margin-bottom:0.5rem;"></i>'
+            + '无法获取备份状态</div>';
+        }
+      });
+  }
+
+  function startBackupPolling() {
+    pollBackupStatus();
+    bpPollTimer = setInterval(pollBackupStatus, bpPollInterval);
+  }
+
+  function stopBackupPolling() {
+    if (bpPollTimer) {
+      clearInterval(bpPollTimer);
+      bpPollTimer = null;
+    }
+  }
+
+  function escapeHTML(str) {
+    var div = document.createElement('div');
+    div.appendChild(document.createTextNode(str));
+    return div.innerHTML;
+  }
+
+  /* ── 备份间隔调节面板 ── */
+  var bpCurrentInterval = 1800;
+
+  function initBpIntervalPanel(intervalInfo, presets) {
+    var slider = document.getElementById('bpIntervalSlider');
+    var label = document.getElementById('bpIntervalLabel');
+    var applyBtn = document.getElementById('bpIntervalApplyBtn');
+    var presetContainer = document.getElementById('bpPresetBtns');
+
+    if (intervalInfo) {
+      bpCurrentInterval = intervalInfo.interval_seconds || 1800;
+    }
+    slider.value = bpCurrentInterval;
+    label.textContent = formatBpIntervalLabel(bpCurrentInterval);
+
+    if (slider._initDone) return;
+    slider._initDone = true;
+
+    slider.addEventListener('input', function() {
+      var val = parseInt(slider.value);
+      label.textContent = formatBpIntervalLabel(val);
+      applyBtn.style.display = (val !== bpCurrentInterval) ? '' : 'none';
+    });
+
+    applyBtn.addEventListener('click', function() {
+      applyBpInterval(parseInt(slider.value));
+    });
+
+    if (presets && presets.length > 0) {
+      presetContainer.innerHTML = presets.map(function(p) {
+        var active = (p.value === bpCurrentInterval) ? 'style="background:#4f46e5;color:#fff;border-color:#4f46e5;"' : '';
+        return '<button class="bp-preset-btn" ' + active + ' data-val="' + p.value + '">' + p.label + '</button>';
+      }).join('');
+
+      presetContainer.querySelectorAll('.bp-preset-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var val = parseInt(btn.dataset.val);
+          slider.value = val;
+          label.textContent = formatBpIntervalLabel(val);
+          applyBpInterval(val);
+          updateBpPresetActive(val);
+        });
+      });
+    }
+  }
+
+  function updateBpPresetActive(val) {
+    document.querySelectorAll('.bp-preset-btn').forEach(function(btn) {
+      if (parseInt(btn.dataset.val) === val) {
+        btn.style.background = '#4f46e5';
+        btn.style.color = '#fff';
+        btn.style.borderColor = '#4f46e5';
+      } else {
+        btn.style.background = '';
+        btn.style.color = '';
+        btn.style.borderColor = '';
+      }
+    });
+  }
+
+  function applyBpInterval(seconds) {
+    var btn = document.getElementById('bpIntervalApplyBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:0.6rem;height:0.6rem;"></span>';
+
+    fetch('/api/backup/interval', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({interval_seconds: seconds})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        bpCurrentInterval = seconds;
+        btn.innerHTML = '<i class="bi bi-check-lg"></i> 应用';
+        btn.style.display = 'none';
+        updateBpPresetActive(seconds);
+        document.getElementById('bpIntervalLabel').textContent = formatBpIntervalLabel(seconds);
+        if (typeof showToast === 'function') {
+          showToast('备份间隔已更新为 ' + formatBpIntervalLabel(seconds), 'success');
+        }
+        pollBackupStatus();
+      } else {
+        btn.innerHTML = '<i class="bi bi-check-lg"></i> 应用';
+        btn.disabled = false;
+        if (typeof showToast === 'function') {
+          showToast(data.message || '设置失败', 'danger');
+        }
+      }
+    })
+    .catch(function() {
+      btn.innerHTML = '<i class="bi bi-check-lg"></i> 应用';
+      btn.disabled = false;
+      if (typeof showToast === 'function') {
+        showToast('网络错误，请重试', 'danger');
+      }
+    });
+  }
+
+  function formatBpIntervalLabel(sec) {
+    if (sec < 60) return sec + '秒';
+    if (sec < 3600) return (sec / 60) + '分钟';
+    var h = Math.floor(sec / 3600);
+    var m = Math.round((sec % 3600) / 60);
+    return m > 0 ? h + '小时' + m + '分钟' : h + '小时';
+  }
+
+  function toggleBpIntervalPanel() {
+    var panel = document.getElementById('bpIntervalPanel');
+    if (panel.style.display === 'none') {
+      panel.style.display = 'block';
+    } else {
+      panel.style.display = 'none';
+    }
+  }
+
+  window.toggleBpIntervalPanel = toggleBpIntervalPanel;
+
+  /* ====== 用户管理功能 ====== */
+  var users = {{ users | tojson }};
+
+  function editUser(userId) {
+    var user = users.find(function(u) { return u.id === userId; });
+    if (!user) return;
+
+    document.getElementById('editUserId').value = userId;
+    document.getElementById('editDisplayName').value = user.display_name || '';
+    document.getElementById('editRole').value = user.role;
+    document.getElementById('editGradeVisible').value = user.grade_visible;
+    document.getElementById('editFieldsVisible').value = user.fields_visible;
+
+    var schools = user.school_visible.split(',');
+    document.getElementById('editSchool1').checked = schools.indexOf('1') !== -1;
+    document.getElementById('editSchool2').checked = schools.indexOf('2') !== -1;
+
+    updateEditFieldCheckboxes();
+    updateEditGradeCheckboxes();
+    new bootstrap.Modal(document.getElementById('editUserModal')).show();
+  }
+
+  window.editUser = editUser;
+
+  function toggleUser(userId) {
+    showConfirm('确定要切换用户状态吗？', 'warn').then(function(result) {
+      if (result) {
+        document.getElementById('formAction').value = 'toggle';
+        document.getElementById('formUserId').value = userId;
+        document.getElementById('actionForm').submit();
+      }
+    });
+  }
+
+  window.toggleUser = toggleUser;
+
+  function resetPassword(userId) {
+    showConfirm('确定要重置该用户的密码吗？新密码将在成功后显示。', 'warn').then(function(result) {
+      if (result) {
+        document.getElementById('formAction').value = 'reset_password';
+        document.getElementById('formUserId').value = userId;
+        document.getElementById('actionForm').submit();
+      }
+    });
+  }
+
+  window.resetPassword = resetPassword;
+
+  var allFields = {{ all_student_fields | tojson }};
+
+  function initFieldCheckboxes() {
+    var addContainer = document.getElementById('addFieldsCheckboxes');
+    var editContainer = document.getElementById('editFieldsCheckboxes');
+
+    allFields.forEach(function(field) {
+      var col = document.createElement('div');
+      col.className = 'col-6';
+      col.innerHTML = '<div class="form-check">'
+        + '<input class="form-check-input field-checkbox" type="checkbox" data-field="' + field + '" data-target="add">'
+        + '<label class="form-check-label">' + field + '</label>'
+        + '</div>';
+      addContainer.appendChild(col);
+
+      var col2 = document.createElement('div');
+      col2.className = 'col-6';
+      col2.innerHTML = '<div class="form-check">'
+        + '<input class="form-check-input field-checkbox" type="checkbox" data-field="' + field + '" data-target="edit">'
+        + '<label class="form-check-label">' + field + '</label>'
+        + '</div>';
+      editContainer.appendChild(col2);
+    });
+
+    document.querySelectorAll('.field-checkbox').forEach(function(checkbox) {
+      checkbox.addEventListener('change', function() {
+        updateFieldsVisible(this.dataset.target);
+      });
+    });
+  }
+
+  function updateFieldsVisible(target) {
+    var selectAllCheckbox = document.querySelector('.field-checkbox[data-field="*"][data-target="' + target + '"]');
+    var fieldCheckboxes = document.querySelectorAll('.field-checkbox:not([data-field="*"])[data-target="' + target + '"]');
+    var hiddenInput = document.getElementById(target + 'FieldsVisible');
+
+    if (selectAllCheckbox.checked) {
+      hiddenInput.value = '["*"]';
+      fieldCheckboxes.forEach(function(cb) { cb.checked = false; cb.disabled = true; });
+    } else {
+      var selected = [];
+      fieldCheckboxes.forEach(function(cb) {
+        if (cb.checked) selected.push(cb.dataset.field);
+        cb.disabled = false;
+      });
+      hiddenInput.value = JSON.stringify(selected);
+    }
+  }
+
+  function updateEditFieldCheckboxes() {
+    var hiddenInput = document.getElementById('editFieldsVisible');
+    var selectAll = document.querySelector('.field-checkbox[data-field="*"][data-target="edit"]');
+    var checkboxes = document.querySelectorAll('.field-checkbox:not([data-field="*"])[data-target="edit"]');
+    var val = hiddenInput.value;
+
+    if (!val || val === '[]') {
+      selectAll.checked = false;
+      checkboxes.forEach(function(cb) { cb.checked = false; cb.disabled = false; });
+    } else if (val === '["*"]' || val === '*') {
+      selectAll.checked = true;
+      checkboxes.forEach(function(cb) { cb.checked = false; cb.disabled = true; });
+    } else {
+      try {
+        var fields = JSON.parse(val);
+        selectAll.checked = false;
+        checkboxes.forEach(function(cb) {
+          cb.checked = fields.indexOf(cb.dataset.field) !== -1;
+          cb.disabled = false;
+        });
+      } catch (e) {
+        console.error('Failed to parse fields_visible:', e);
+      }
+    }
+  }
+
+  var availableGrades = [];
+
+  function initGradeCheckboxes() {
+    fetch('/api/grades')
+      .then(function(response) { return response.json(); })
+      .then(function(data) {
+        availableGrades = data.grades || [];
+        renderGradeCheckboxes('add');
+        renderGradeCheckboxes('edit');
+      })
+      .catch(function(err) {
+        console.error('Failed to load grades:', err);
+      });
+  }
+
+  function renderGradeCheckboxes(target) {
+    var container = document.getElementById(target + 'GradeCheckboxes');
+    container.innerHTML = '';
+
+    var allCol = document.createElement('div');
+    allCol.className = 'col-6';
+    allCol.innerHTML = '<div class="form-check">'
+      + '<input class="form-check-input grade-checkbox" type="checkbox" data-grade="*" data-target="' + target + '">'
+      + '<label class="form-check-label">全部年级</label>'
+      + '</div>';
+    container.appendChild(allCol);
+
+    availableGrades.forEach(function(grade) {
+      var col = document.createElement('div');
+      col.className = 'col-6';
+      col.innerHTML = '<div class="form-check">'
+        + '<input class="form-check-input grade-checkbox" type="checkbox" data-grade="' + grade + '" data-target="' + target + '">'
+        + '<label class="form-check-label">' + grade + '</label>'
+        + '</div>';
+      container.appendChild(col);
+    });
+
+    container.querySelectorAll('.grade-checkbox').forEach(function(checkbox) {
+      checkbox.addEventListener('change', function() {
+        updateGradeVisible(target);
+      });
+    });
+  }
+
+  function updateGradeVisible(target) {
+    var selectAll = document.querySelector('.grade-checkbox[data-grade="*"][data-target="' + target + '"]');
+    var checkboxes = document.querySelectorAll('.grade-checkbox:not([data-grade="*"])[data-target="' + target + '"]');
+    var hiddenInput = document.getElementById(target + 'GradeVisible');
+
+    if (selectAll.checked) {
+      hiddenInput.value = '*';
+      checkboxes.forEach(function(cb) { cb.checked = false; cb.disabled = true; });
+    } else {
+      var selected = [];
+      checkboxes.forEach(function(cb) {
+        if (cb.checked) selected.push(cb.dataset.grade);
+        cb.disabled = false;
+      });
+      hiddenInput.value = selected.length > 0 ? selected.join(',') : '*';
+    }
+  }
+
+  function updateEditGradeCheckboxes() {
+    var hiddenInput = document.getElementById('editGradeVisible');
+    var selectAll = document.querySelector('.grade-checkbox[data-grade="*"][data-target="edit"]');
+    var checkboxes = document.querySelectorAll('.grade-checkbox:not([data-grade="*"])[data-target="edit"]');
+    var val = hiddenInput.value;
+
+    if (!val || val === '*') {
+      selectAll.checked = true;
+      checkboxes.forEach(function(cb) { cb.checked = false; cb.disabled = true; });
+    } else {
+      selectAll.checked = false;
+      var grades = val.split(',');
+      checkboxes.forEach(function(cb) {
+        cb.checked = grades.indexOf(cb.dataset.grade) !== -1;
+        cb.disabled = false;
+      });
+    }
+  }
+
+  /* ── 按角色切换用户列表 ── */
+  function initRoleTabs() {
+    var tabsContainer = document.getElementById('umRoleTabs');
+    var table = document.getElementById('umUserTable');
+    if (!tabsContainer || !table) return;
+
+    var rows = table.querySelectorAll('tbody tr[data-role]');
+    var emptyRow = document.getElementById('umRoleEmptyRow');
+    var tabs = tabsContainer.querySelectorAll('.um-role-tab');
+
+    var counts = {};
+    rows.forEach(function(row) {
+      var role = row.dataset.role;
+      counts[role] = (counts[role] || 0) + 1;
+    });
+
+    function applyRole(role, activeTab) {
+      tabs.forEach(function(t) {
+        t.classList.toggle('active', t === activeTab);
+      });
+
+      var visible = 0;
+      rows.forEach(function(row) {
+        var show = (row.dataset.role === role);
+        row.style.display = show ? '' : 'none';
+        if (show) visible++;
+      });
+
+      if (emptyRow) emptyRow.style.display = (visible === 0 && rows.length > 0) ? '' : 'none';
+    }
+
+    tabs.forEach(function(tab) {
+      var role = tab.dataset.role;
+      var badge = tab.querySelector('.tab-count');
+      if (badge) badge.textContent = counts[role] || 0;
+
+      tab.addEventListener('click', function() {
+        applyRole(role, tab);
+      });
+    });
+
+    /* 默认选中第一个有用户的角色标签 */
+    var defaultTab = null;
+    tabs.forEach(function(tab) {
+      if (!defaultTab && (counts[tab.dataset.role] || 0) > 0) defaultTab = tab;
+    });
+    if (!defaultTab && tabs.length > 0) defaultTab = tabs[0];
+    if (defaultTab) applyRole(defaultTab.dataset.role, defaultTab);
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    /* 初始化备份面板轮询 */
+    startBackupPolling();
+
+    /* 初始化功能组件 */
+    initFieldCheckboxes();
+    initGradeCheckboxes();
+    initRoleTabs();
+
+    document.getElementById('addUserModal').addEventListener('shown.bs.modal', function() {
+      updateFieldsVisible('add');
+      updateGradeVisible('add');
+    });
+
+    /* 页面隐藏时暂停轮询，节省资源 */
+    document.addEventListener('visibilitychange', function() {
+      if (document.hidden) {
+        stopBackupPolling();
+      } else {
+        startBackupPolling();
+      }
+    });
+  });
+
+  /* 窗口卸载时清理定时器 */
+  window.addEventListener('beforeunload', function() {
+    stopBackupPolling();
+  });
+})();
+</script>
+{% endblock %}

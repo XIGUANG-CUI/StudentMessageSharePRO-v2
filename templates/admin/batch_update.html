@@ -1,0 +1,369 @@
+{% extends "base.html" %}
+
+{% block title %}批量更新 - 学生数据管理系统{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-pencil-square"></i> 批量更新</h2>
+    <a href="{{ url_for('admin.admin_students') }}" class="btn btn-secondary">
+        <i class="bi bi-arrow-left"></i> 返回列表
+    </a>
+</div>
+
+{% with _fh_type='import', _fh_title='Excel 批量更新字段说明', _fh_icon='bi-info-circle', _fh_template_url=url_for('admin.admin_batch_update_template'), _fh_note='更新以学号或身份证号为匹配依据。模板中包含当前所有学生数据及指定日期的出勤状态，请在模板中修改需更新的字段后上传。' %}
+{% include '_field_help.html' %}
+{% endwith %}
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="bi bi-download"></i> 1. 设置日期并下载模板</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">下载包含所有学生数据的模板（含指定日期出勤状态），编辑需要更新的字段后上传。</p>
+                <div class="mb-3">
+                    <label for="templateDate" class="form-label">点名日期</label>
+                    <select id="templateDate" class="form-select" style="max-width: 240px;">
+                        <option value="">加载中...</option>
+                    </select>
+                </div>
+                <a href="javascript:void(0)" class="btn btn-primary" id="downloadBtn" onclick="downloadTemplate()">
+                    <i class="bi bi-download"></i> 下载更新模板
+                </a>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="bi bi-upload"></i> 2. 上传文件</h5>
+            </div>
+            <div class="card-body">
+                <form id="uploadForm" method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <div class="mb-3">
+                        <label for="file" class="form-label">选择Excel文件</label>
+                        <input type="file" class="form-control" id="file" name="file" 
+                               accept=".xlsx,.xls" required>
+                        <div class="form-text">支持 .xlsx 和 .xls 格式，文件大小不超过10MB</div>
+                    </div>
+                    <input type="hidden" name="attendance_date" id="attendanceDateInput">
+                    <button type="submit" class="btn btn-success" id="uploadBtn">
+                        <i class="bi bi-upload"></i> 上传并预览
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        {% if validation_results %}
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="bi bi-eye"></i> 3. 预览变更</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <span class="badge bg-primary">待更新: {{ validation_results | selectattr('status', 'equalto', 'pending') | list | length }}</span>
+                    <span class="badge bg-success">待新增: {{ validation_results | selectattr('status', 'equalto', 'new_record') | list | length }}</span>
+                    <span class="badge bg-warning">无变更: {{ validation_results | selectattr('status', 'equalto', 'no_change') | list | length }}</span>
+                    <span class="badge bg-danger">未匹配: {{ validation_results | selectattr('status', 'equalto', 'not_found') | list | length }}</span>
+                </div>
+                
+                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                    <table class="table table-sm table-striped">
+                        <thead class="sticky-top bg-white">
+                            <tr>
+                                <th>身份证号</th>
+                                <th>姓名</th>
+                                <th>变更字段</th>
+                                <th>原值</th>
+                                <th>新值</th>
+                                <th>状态</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for result in validation_results %}
+                            {% for change in result.changes %}
+                            <tr class="{{ 'table-success' if result.status == 'new_record' else 'table-primary' }}">
+                                <td>{{ result.data.get('身份证号', '-') }}</td>
+                                <td>{{ result.name }}</td>
+                                <td>{{ change.field }}</td>
+                                <td>{{ change.old_value or '-' }}</td>
+                                <td>{{ change.new_value }}</td>
+                                <td><i class="bi {{ 'bi-plus-circle-fill' if result.status == 'new_record' else 'bi-check-circle-fill' }}"></i> {{ '新增' if result.status == 'new_record' else '待更新' }}</td>
+                            </tr>
+                            {% endfor %}
+                            
+                            {% if result.status == 'no_change' %}
+                            <tr class="table-warning">
+                                <td>{{ result.data.get('身份证号', '-') }}</td>
+                                <td>{{ result.name }}</td>
+                                <td colspan="3">-</td>
+                                <td><i class="bi bi-dash-circle-fill"></i> 无变更</td>
+                            </tr>
+                            {% elif result.status == 'not_found' %}
+                            <tr class="table-danger">
+                                <td>{{ result.data.get('身份证号', '-') }}</td>
+                                <td>{{ result.name }}</td>
+                                <td colspan="3">-</td>
+                                <td><i class="bi bi-x-circle-fill"></i> 未匹配</td>
+                            </tr>
+                            {% endif %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                
+                {% if (validation_results | selectattr('status', 'equalto', 'pending') | list | length) + (validation_results | selectattr('status', 'equalto', 'new_record') | list | length) > 0 %}
+                <button id="batchUpdateBtn" class="btn btn-primary w-100 mt-3">
+                    <i class="bi bi-check-circle"></i> 确认更新
+                </button>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="modal fade" id="batchUpdateProgressModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-labelledby="batchUpdateProgressModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="batchUpdateProgressModalLabel">批量更新进度</h5>
+                <button type="button" class="btn-close" id="closeModalBtn" aria-label="Close" style="display: none;"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>总进度</span>
+                        <span id="progressPercent">0%</span>
+                    </div>
+                    <div class="progress">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" id="progressBar" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <span>状态:</span>
+                    <span id="updateStatus" class="text-primary">准备更新...</span>
+                </div>
+                <div class="mb-2">
+                    <span>已处理:</span>
+                    <span id="processedCount">0</span> / <span id="totalCount">0</span> 条
+                </div>
+                <div class="mb-2">
+                    <span>成功:</span>
+                    <span id="successCount" class="text-success">0</span> 条
+                </div>
+                <div class="mb-2">
+                    <span>无变更:</span>
+                    <span id="noChangeCount" class="text-warning">0</span> 条
+                </div>
+                <div class="mb-2">
+                    <span>未匹配:</span>
+                    <span id="notFoundCount" class="text-danger">0</span> 条
+                </div>
+                <div class="mb-2">
+                    <span>新增:</span>
+                    <span id="newRecordCount" class="text-info">0</span> 条
+                </div>
+                <div id="errorMessages" class="mt-3" style="max-height: 150px; overflow-y: auto; display: none;">
+                    <h6>错误详情:</h6>
+                    <ul id="errorList" class="list-unstyled text-sm text-danger"></ul>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="cancelBtn">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function downloadTemplate() {
+    var dateSelect = document.getElementById('templateDate');
+    var date = dateSelect.value;
+    var url = '{{ url_for('admin.admin_batch_update_template') }}';
+    url += '?attendance_date=' + encodeURIComponent(date);
+    window.location.href = url;
+}
+
+function loadAttendanceDates() {
+    var select = document.getElementById('templateDate');
+    var today = new Date().toISOString().split('T')[0];
+    fetch('{{ url_for('api.api_attendance_dates') }}')
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+            select.innerHTML = '';
+            if (data.dates && data.dates.length > 0) {
+                data.dates.forEach(function(d) {
+                    var option = document.createElement('option');
+                    option.value = d;
+                    option.textContent = d;
+                    select.appendChild(option);
+                });
+                var attendanceDateInput = document.getElementById('attendanceDateInput');
+                if (attendanceDateInput) {
+                    attendanceDateInput.value = data.dates[0];
+                }
+            } else {
+                var option = document.createElement('option');
+                option.value = today;
+                option.textContent = today + ' (暂无出勤记录)';
+                select.appendChild(option);
+                var attendanceDateInput = document.getElementById('attendanceDateInput');
+                if (attendanceDateInput) {
+                    attendanceDateInput.value = today;
+                }
+            }
+        })
+        .catch(function() {
+            select.innerHTML = '<option value="' + today + '">' + today + '</option>';
+        });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadAttendanceDates();
+    var attendanceDateInput = document.getElementById('attendanceDateInput');
+
+    var templateDate = document.getElementById('templateDate');
+    templateDate.addEventListener('change', function() {
+        if (attendanceDateInput) {
+            attendanceDateInput.value = templateDate.value;
+        }
+    });
+    
+    const batchUpdateBtn = document.getElementById('batchUpdateBtn');
+    if (batchUpdateBtn) {
+        batchUpdateBtn.addEventListener('click', function() {
+            showConfirm('确认执行批量更新？', 'warn').then(function(result) {
+                if (!result) {
+                    return;
+                }
+            
+            const modalElement = document.getElementById('batchUpdateProgressModal');
+            const modal = new bootstrap.Modal(modalElement, {
+                backdrop: 'static',
+                keyboard: false
+            });
+            modal.show();
+            
+            const progressBar = document.getElementById('progressBar');
+            const progressPercent = document.getElementById('progressPercent');
+            const updateStatus = document.getElementById('updateStatus');
+            const processedCount = document.getElementById('processedCount');
+            const totalCount = document.getElementById('totalCount');
+            const successCount = document.getElementById('successCount');
+            const noChangeCount = document.getElementById('noChangeCount');
+            const notFoundCount = document.getElementById('notFoundCount');
+            const newRecordCount = document.getElementById('newRecordCount');
+            const errorList = document.getElementById('errorList');
+            const errorMessages = document.getElementById('errorMessages');
+            const closeModalBtn = document.getElementById('closeModalBtn');
+            const cancelBtn = document.getElementById('cancelBtn');
+            
+            let progressId = null;
+            let pollInterval = null;
+            let isUpdating = true;
+            
+            cancelBtn.onclick = function() {
+                if (isUpdating) {
+                    return;
+                }
+                if (pollInterval) {
+                    clearInterval(pollInterval);
+                }
+                modal.hide();
+            };
+            
+            updateStatus.textContent = '正在初始化...';
+            progressBar.style.width = '5%';
+            progressPercent.textContent = '5%';
+            cancelBtn.textContent = '禁止操作';
+            
+            fetch('{{ url_for('admin.admin_batch_update_confirm') }}', {
+                method: 'POST'
+            })
+            .then(function(response) { return safeJSON(response); })
+            .then(data => {
+                if (!data.success) {
+                    isUpdating = false;
+                    updateStatus.textContent = '更新失败: ' + data.message;
+                    updateStatus.className = 'text-danger';
+                    closeModalBtn.style.display = 'block';
+                    cancelBtn.textContent = '关闭';
+                    return;
+                }
+                
+                progressId = data.progress_id;
+                
+                pollInterval = setInterval(function() {
+                    fetch('/admin/batch-update/progress/' + progressId)
+                        .then(function(response) { return safeJSON(response); })
+                        .then(progress => {
+                            const percent = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+                            progressBar.style.width = percent + '%';
+                            progressPercent.textContent = percent + '%';
+                            
+                            totalCount.textContent = progress.total;
+                            processedCount.textContent = progress.current;
+                            successCount.textContent = progress.success || 0;
+                            noChangeCount.textContent = progress.no_change || 0;
+                            notFoundCount.textContent = progress.not_found || 0;
+                            newRecordCount.textContent = progress.new_record || 0;
+                            updateStatus.textContent = progress.message;
+                            
+                            if (progress.errors && progress.errors.length > 0) {
+                                errorMessages.style.display = 'block';
+                                errorList.innerHTML = '';
+                                progress.errors.forEach(function(err) {
+                                    const li = document.createElement('li');
+                                    li.textContent = err;
+                                    errorList.appendChild(li);
+                                });
+                            }
+                            
+                            if (progress.status === 'completed') {
+                                clearInterval(pollInterval);
+                                isUpdating = false;
+                                updateStatus.textContent = '批量更新完成！';
+                                updateStatus.className = 'text-success';
+                                progressBar.classList.remove('progress-bar-animated');
+                                
+                                closeModalBtn.style.display = 'block';
+                                cancelBtn.textContent = '完成';
+                                
+                                setTimeout(function() {
+                                    window.location.href = '{{ url_for('admin.admin_students') }}';
+                                }, 2000);
+                            }
+                            
+                            if (progress.status === 'error') {
+                                clearInterval(pollInterval);
+                                isUpdating = false;
+                                updateStatus.className = 'text-danger';
+                                progressBar.classList.remove('progress-bar-animated');
+                                progressBar.classList.add('bg-danger');
+                                
+                                closeModalBtn.style.display = 'block';
+                                cancelBtn.textContent = '关闭';
+                            }
+                        })
+                        .catch(function(error) {
+                            console.error('轮询错误:', error);
+                        });
+                }, 500);
+            })
+            .catch(function(error) {
+                isUpdating = false;
+                updateStatus.textContent = '更新失败: ' + error.message;
+                updateStatus.className = 'text-danger';
+                closeModalBtn.style.display = 'block';
+                cancelBtn.textContent = '关闭';
+            });
+        });
+    });
+    }
+});
+</script>
+{% endblock %}

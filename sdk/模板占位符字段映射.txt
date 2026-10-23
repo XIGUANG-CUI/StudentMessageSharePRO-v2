@@ -1,0 +1,45 @@
+${学号}              → student_no
+${学生姓名}          → name
+${性别}              → gender
+${年龄}              → age（计算字段）
+${民族}              → ethnicity
+${国网学籍号}        → national_no
+
+${学生身份证号}      → id_card
+${出生日期}          → birth_date（age 由此计算）
+${签发机关}          → issue_authority
+${有效期开始}        → valid_start
+${有效期结束}        → valid_end
+${住址}              → address
+
+${年级}              → grade
+${专业}              → major
+${专业方向}          → major_direction
+${行政班级}          → admin_class
+${虚拟班级}          → virtual_class
+${入学年份}          → enrollment_year
+${学籍状态}          → registration_status
+${在校状态}          → attendance_status
+${入学形式}          → admission_type
+
+${家长姓名}          → parent_name
+${家长身份证号}      → parent_id_card
+${家长电话}          → parent_phone
+${学生电话}          → student_phone
+
+${姓名拼音}          → name_pinyin
+${户口性质}          → household_type
+${初中毕业学校}      → junior_school
+${初中毕业时间}      → junior_graduation_time
+${异动信息}          → change_info
+${备注}              → remark
+
+${学平险保单号}      → student_insurance_no
+${学平险缴费日期}    → student_insurance_pay_date
+${学平险到期时间}    → student_insurance_expiry
+${学平险保费金额}    → insurance_premium
+${实习险缴费日期}    → internship_insurance_pay_date
+${主管标记}          → supervisor_flag
+${申报日期}          → declaration_date
+${保单更新日期}      → insurance_update_date
+${学费总体情况}      → tuition_status

@@ -1,0 +1,1099 @@
+{% extends "base.html" %}
+{% block title %}模板导出引擎 - 学生数据管理系统{% endblock %}
+
+{% block head %}
+<style>
+    :root {
+        --ee-primary: #4361EE;
+        --ee-border: #D1D5DB;
+        --ee-bg: #F9FAFB;
+    }
+    .ee-card {
+        border: 1px solid var(--ee-border);
+        border-radius: 10px;
+        background: #fff;
+        margin-bottom: 20px;
+    }
+    .ee-card-header {
+        padding: 14px 20px;
+        border-bottom: 1px solid var(--ee-border);
+        font-weight: 600;
+        font-size: 15px;
+        background: var(--ee-bg);
+        border-radius: 10px 10px 0 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .ee-card-body {
+        padding: 20px;
+    }
+    .ee-step-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: var(--ee-primary);
+        color: #fff;
+        font-size: 13px;
+        font-weight: 700;
+        margin-right: 4px;
+    }
+    .ee-upload-zone {
+        border: 2px dashed var(--ee-border);
+        border-radius: 8px;
+        padding: 30px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.2s;
+        background: var(--ee-bg);
+    }
+    .ee-upload-zone:hover {
+        border-color: var(--ee-primary);
+        background: #EEF0FF;
+    }
+    .ee-upload-zone.dragover {
+        border-color: var(--ee-primary);
+        background: #DEE2FF;
+    }
+    .ee-template-list {
+        max-height: 200px;
+        overflow-y: auto;
+    }
+    .ee-template-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 12px;
+        border: 1px solid var(--ee-border);
+        border-radius: 6px;
+        margin-bottom: 6px;
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+    .ee-template-item:hover {
+        border-color: var(--ee-primary);
+        background: #F0F3FF;
+    }
+    .ee-template-item.active {
+        border-color: var(--ee-primary);
+        background: #E8ECFF;
+        box-shadow: 0 0 0 2px rgba(67, 97, 238, 0.2);
+    }
+    .ee-mapping-table {
+        font-size: 14px;
+    }
+    .ee-mapping-table th {
+        background: var(--ee-bg);
+        font-weight: 600;
+        font-size: 13px;
+        color: #6B7280;
+        white-space: nowrap;
+    }
+    .ee-mapping-table td {
+        vertical-align: middle;
+    }
+    .ee-placeholder-tag {
+        display: inline-block;
+        padding: 2px 8px;
+        background: #EEF2FF;
+        color: var(--ee-primary);
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 13px;
+    }
+    .ee-preview-table {
+        font-size: 13px;
+    }
+    .ee-preview-table th {
+        background: var(--ee-bg);
+        font-weight: 600;
+        font-size: 12px;
+        white-space: nowrap;
+        position: sticky;
+        top: 0;
+    }
+    .ee-preview-wrap {
+        max-height: 300px;
+        overflow: auto;
+    }
+    .ee-match-badge {
+        display: inline-block;
+        padding: 1px 6px;
+        border-radius: 3px;
+        font-size: 11px;
+        background: #D1FAE5;
+        color: #059669;
+    }
+    .ee-no-match {
+        color: #9CA3AF;
+    }
+    .ee-filter-tag {
+        display: inline-block;
+        padding: 2px 8px;
+        background: #F3F4F6;
+        border-radius: 4px;
+        font-size: 12px;
+        margin: 2px 4px 2px 0;
+    }
+    .ee-empty-state {
+        text-align: center;
+        padding: 40px 20px;
+        color: #9CA3AF;
+    }
+    .ee-empty-state i {
+        font-size: 40px;
+        display: block;
+        margin-bottom: 10px;
+    }
+    .ee-auto-match-row {
+        background: #F0FDF4;
+    }
+    .ee-section-divider {
+        border-top: 1px solid var(--ee-border);
+        margin: 16px 0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+    <h5 class="mb-3">
+        <i class="bi bi-file-earmark-arrow-up"></i> 模板驱动数据导出引擎
+    </h5>
+
+    <!-- ===== 步骤一：选择/上传模板 ===== -->
+    <div class="ee-card">
+        <div class="ee-card-header">
+            <span class="ee-step-badge">1</span> 选择或上传导出模板
+        </div>
+        <div class="ee-card-body">
+            <div class="row">
+                <!-- 上传新模板 -->
+                <div class="col-md-5">
+                    <div class="ee-upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+                        <i class="bi bi-cloud-upload" style="font-size: 32px; color: var(--ee-primary);"></i>
+                        <p class="mt-2 mb-1 fw-semibold">点击上传或拖拽文件到此处</p>
+                        <p class="text-muted small mb-0">支持 .xlsx / .xls / .docx 格式</p>
+                        <p class="text-muted small">占位符格式：<code>${字段名}</code></p>
+                    </div>
+                    <input type="file" id="fileInput" accept=".xlsx,.xls,.docx" style="display:none" onchange="handleFileUpload(this)">
+                    <div id="uploadStatus" class="mt-2"></div>
+                </div>
+
+                <!-- 已保存的模板列表 -->
+                <div class="col-md-7">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="fw-semibold small text-muted">已保存的模板</span>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="loadTemplates()" title="刷新">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                    </div>
+                    <div class="ee-template-list" id="templateList">
+                        <div class="ee-empty-state">
+                            <i class="bi bi-inbox"></i>
+                            <p>暂无模板，请上传</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== 步骤二：筛选条件 + 字段映射 ===== -->
+    <div class="ee-card" id="mappingSection" style="display:none;">
+        <div class="ee-card-header">
+            <span class="ee-step-badge">2</span> 配置筛选条件与字段映射
+        </div>
+        <div class="ee-card-body">
+            <!-- 筛选条件状态 -->
+            <div class="mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="fw-semibold small text-muted">
+                        <i class="bi bi-funnel"></i> 当前筛选条件
+                    </span>
+                    <div>
+                        <span class="badge bg-primary me-2" id="totalCountBadge">-- 条记录</span>
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#filterPanel">
+                            <i class="bi bi-sliders"></i> 修改筛选
+                        </button>
+                    </div>
+                </div>
+                <div id="filterTags" class="mb-2">
+                    <span class="text-muted small">未设置筛选条件（将导出全部未删除且非毕业的学生数据）</span>
+                </div>
+
+                <!-- 筛选条件编辑面板 -->
+                <div class="collapse" id="filterPanel">
+                    <div class="card card-body bg-light">
+                        <div class="row g-2">
+                            <div class="col-md-3">
+                                <label class="form-label small">学校类别</label>
+                                <select class="form-select form-select-sm" id="fSchool">
+                                    <option value="">全部</option>
+                                    <option value="1">中职</option>
+                                    <option value="2">技工</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small">年级</label>
+                                <select class="form-select form-select-sm" id="fGrade">
+                                    <option value="">全部</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small">专业</label>
+                                <select class="form-select form-select-sm" id="fMajor">
+                                    <option value="">全部</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small">行政班级</label>
+                                <select class="form-select form-select-sm" id="fAdminClass">
+                                    <option value="">全部</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small">学籍状态</label>
+                                <select class="form-select form-select-sm" id="fRegStatus">
+                                    <option value="">全部</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small">在校状态</label>
+                                <select class="form-select form-select-sm" id="fAttStatus">
+                                    <option value="">全部</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small">姓名</label>
+                                <input type="text" class="form-control form-control-sm" id="fName" placeholder="中文姓名/拼音">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small">关键字搜索</label>
+                                <input type="text" class="form-control form-control-sm" id="fSearch" placeholder="姓名/学号/身份证">
+                            </div>
+                            <div class="col-md-3 d-flex align-items-end">
+                                <button class="btn btn-sm btn-primary me-2" onclick="updateFilter()">
+                                    <i class="bi bi-check"></i> 应用筛选
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="clearFilter()">
+                                    <i class="bi bi-x"></i> 清除
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <hr class="ee-section-divider">
+
+            <!-- 智能匹配按钮 -->
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="fw-semibold small text-muted">
+                    <i class="bi bi-link-45deg"></i> 字段映射配置
+                </span>
+                <div>
+                    <button class="btn btn-sm btn-outline-info me-1" onclick="autoMatch()">
+                        <i class="bi bi-magic"></i> 智能匹配
+                    </button>
+                    <button class="btn btn-sm btn-outline-success" onclick="showSaveSchemeModal()">
+                        <i class="bi bi-save"></i> 保存方案
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary ms-1" onclick="showSavedSchemes()">
+                        <i class="bi bi-folder2-open"></i> 加载方案
+                    </button>
+                </div>
+            </div>
+
+            <!-- 映射表格 -->
+            <div class="table-responsive">
+                <table class="table table-bordered ee-mapping-table" id="mappingTable">
+                    <thead>
+                        <tr>
+                            <th style="width:25%">模板占位符</th>
+                            <th style="width:30%">数据源字段</th>
+                            <th style="width:20%">默认值</th>
+                            <th style="width:10%">匹配状态</th>
+                            <th style="width:15%">预览</th>
+                        </tr>
+                    </thead>
+                    <tbody id="mappingTableBody">
+                        <tr>
+                            <td colspan="5" class="text-center text-muted py-4">请先选择或上传模板</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== 步骤三：预览 + 导出 ===== -->
+    <div class="ee-card" id="exportSection" style="display:none;">
+        <div class="ee-card-header">
+            <span class="ee-step-badge">3</span> 预览与导出
+        </div>
+        <div class="ee-card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <span class="fw-semibold small text-muted">
+                    <i class="bi bi-eye"></i> 填充效果预览（前5条）
+                    <span id="previewCount" class="badge bg-secondary ms-1">0条</span>
+                </span>
+                <div>
+                    <button class="btn btn-sm btn-outline-secondary me-1" onclick="loadPreview()">
+                        <i class="bi bi-arrow-clockwise"></i> 刷新预览
+                    </button>
+                    <button class="btn btn-success" id="btnExport" onclick="executeExport()">
+                        <i class="bi bi-download"></i> 确认导出
+                    </button>
+                </div>
+            </div>
+
+            <div class="ee-preview-wrap" id="previewArea">
+                <div class="ee-empty-state">
+                    <i class="bi bi-table"></i>
+                    <p>点击「刷新预览」查看填充效果</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== 导出历史 ===== -->
+    <div class="ee-card" id="historySection">
+        <div class="ee-card-header" data-bs-toggle="collapse" data-bs-target="#historyBody" style="cursor:pointer;">
+            <i class="bi bi-clock-history"></i> 导出历史记录
+            <div class="ms-auto d-flex align-items-center gap-2" onclick="event.stopPropagation()">
+                <button class="btn btn-sm btn-outline-danger" onclick="clearHistory()" title="清空所有记录">
+                    <i class="bi bi-trash"></i> 清空记录
+                </button>
+                <i class="bi bi-chevron-down"></i>
+            </div>
+        </div>
+        <div class="collapse" id="historyBody">
+            <div class="ee-card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm" id="historyTable">
+                        <thead>
+                            <tr>
+                                <th>时间</th>
+                                <th>模板名称</th>
+                                <th>方案名称</th>
+                                <th>导出条数</th>
+                                <th>操作人</th>
+                                <th>状态</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyTableBody">
+                            <tr><td colspan="6" class="text-center text-muted py-3">点击标题加载历史记录</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== 保存方案弹窗 ===== -->
+<div class="modal fade" id="saveSchemeModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title">保存映射方案</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label">方案名称</label>
+                <input type="text" class="form-control" id="schemeNameInput" placeholder="如：学籍信息导出方案">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-sm btn-primary" onclick="saveScheme()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== 加载方案弹窗 ===== -->
+<div class="modal fade" id="loadSchemeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title">加载已保存的方案</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="savedSchemesList">
+                    <p class="text-muted text-center py-3">加载中...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // ---- 全局状态 ----
+    let currentTemplate = null;
+    let currentMappings = [];  // [{placeholder, source_field, default_value}]
+    let availableFields = [];
+    let filterInfo = {};
+
+    // ---- 初始化 ----
+    document.addEventListener('DOMContentLoaded', () => {
+        loadTemplates();
+        loadAvailableFields();
+        setupDragDrop();
+    });
+
+    // ---- 拖拽上传 ----
+    function setupDragDrop() {
+        const zone = document.getElementById('uploadZone');
+        zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+        zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+        zone.addEventListener('drop', e => {
+            e.preventDefault();
+            zone.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) uploadFile(files[0]);
+        });
+    }
+
+    // ---- 文件上传 ----
+    function handleFileUpload(input) {
+        if (input.files.length > 0) uploadFile(input.files[0]);
+    }
+
+    async function uploadFile(file) {
+        const status = document.getElementById('uploadStatus');
+        status.innerHTML = '<div class="text-info small"><i class="bi bi-hourglass-split"></i> 正在解析模板...</div>';
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('csrf_token', '{{ csrf_token }}');
+
+        try {
+            const resp = await fetch('/api/export/upload-template', {
+                method: 'POST',
+                headers: { 'X-CSRF-Token': '{{ csrf_token }}' },
+                body: formData
+            });
+            const data = await resp.json();
+
+            if (data.success) {
+                status.innerHTML = '<div class="text-success small"><i class="bi bi-check-circle"></i> 模板解析成功！发现 ' + data.template.placeholders.length + ' 个占位符</div>';
+                currentTemplate = data.template;
+                buildMappingTable(data.template.placeholders);
+                loadTemplates();
+                document.getElementById('mappingSection').style.display = '';
+                document.getElementById('exportSection').style.display = '';
+                document.getElementById('mappingSection').scrollIntoView({ behavior: 'smooth' });
+            } else {
+                status.innerHTML = '<div class="text-danger small"><i class="bi bi-exclamation-circle"></i> ' + escapeHtml(data.message) + '</div>';
+            }
+        } catch (err) {
+            status.innerHTML = '<div class="text-danger small">上传失败: ' + escapeHtml(err.message) + '</div>';
+        }
+    }
+
+    // ---- 模板列表 ----
+    async function loadTemplates() {
+        try {
+            const resp = await fetch('/api/export/templates');
+            const data = await resp.json();
+            const list = document.getElementById('templateList');
+
+            if (!data.templates || data.templates.length === 0) {
+                list.innerHTML = '<div class="ee-empty-state"><i class="bi bi-inbox"></i><p>暂无模板，请上传</p></div>';
+                return;
+            }
+
+            list.innerHTML = data.templates.map(t => {
+                const isActive = currentTemplate && currentTemplate.id === t.id;
+                const icon = t.file_type === 'xlsx' ? 'bi-file-earmark-spreadsheet' : 'bi-file-earmark-word';
+                return `
+                    <div class="ee-template-item ${isActive ? 'active' : ''}" onclick="selectTemplate(${t.id})">
+                        <div>
+                            <i class="bi ${icon} me-2"></i>
+                            <span>${escapeHtml(t.name)}</span>
+                            <span class="badge bg-light text-dark ms-2">${t.placeholders.length} 占位符</span>
+                        </div>
+                        <button class="btn btn-sm btn-outline-danger" onclick="event.stopPropagation(); deleteTemplate(${t.id})" title="删除">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                `;
+            }).join('');
+        } catch (err) {
+            console.error('加载模板列表失败:', err);
+        }
+    }
+
+    async function selectTemplate(id) {
+        try {
+            const resp = await fetch('/api/export/templates');
+            const data = await resp.json();
+            const tpl = data.templates.find(t => t.id === id);
+            if (tpl) {
+                currentTemplate = tpl;
+                buildMappingTable(tpl.placeholders);
+                document.getElementById('mappingSection').style.display = '';
+                document.getElementById('exportSection').style.display = '';
+                loadTemplates();
+            }
+        } catch (err) {
+            console.error('选择模板失败:', err);
+        }
+    }
+
+    async function deleteTemplate(id) {
+        if (!confirm('确定要删除此模板吗？关联的映射方案也会被删除。')) return;
+        try {
+            await fetch('/api/export/template/' + id, {
+                method: 'DELETE',
+                headers: { 'X-CSRF-Token': '{{ csrf_token }}' }
+            });
+            if (currentTemplate && currentTemplate.id === id) {
+                currentTemplate = null;
+                document.getElementById('mappingSection').style.display = 'none';
+                document.getElementById('exportSection').style.display = 'none';
+            }
+            loadTemplates();
+        } catch (err) {
+            console.error('删除模板失败:', err);
+        }
+    }
+
+    // ---- 筛选条件 ----
+    async function loadAvailableFields() {
+        try {
+            const resp = await fetch('/api/export/available-fields');
+            const data = await resp.json();
+            availableFields = data.fields;
+            filterInfo = data.filter || {};
+            updateTotalCount(data.total_count);
+            populateFilterOptions(data.filter_values || {});
+            renderFilterTags(data.filter || {});
+            populateFilterForm(data.filter || {});
+        } catch (err) {
+            console.error('加载字段失败:', err);
+        }
+    }
+
+    // 按数据库实际存在的类别填充下拉选项
+    // （学籍状态 / 在校状态 / 年级 / 专业 / 行政班级）
+    function populateFilterOptions(filterValues) {
+        fillSelect('fRegStatus', filterValues.registration_statuses);
+        fillSelect('fAttStatus', filterValues.attendance_statuses);
+        fillSelect('fGrade', filterValues.grades);
+        fillSelect('fMajor', filterValues.majors);
+        fillSelect('fAdminClass', filterValues.classes);
+    }
+
+    function fillSelect(id, values) {
+        const sel = document.getElementById(id);
+        if (!sel) return;
+        const current = sel.value;
+        sel.innerHTML = '<option value="">全部</option>' +
+            (values || []).map(v =>
+                `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`
+            ).join('');
+        if (current) sel.value = current;
+    }
+
+    function updateTotalCount(count) {
+        document.getElementById('totalCountBadge').textContent = (count || 0) + ' 条记录';
+        if (count > 10000) {
+            document.getElementById('totalCountBadge').classList.add('bg-warning', 'text-dark');
+        } else {
+            document.getElementById('totalCountBadge').classList.remove('bg-warning', 'text-dark');
+        }
+    }
+
+    function renderFilterTags(filter) {
+        const container = document.getElementById('filterTags');
+        const nameMap = {
+            school: '学校类别', grade: '年级', major: '专业',
+            admin_class: '行政班级', registration_status: '学籍状态',
+            attendance_status: '在校状态', name: '姓名', search: '搜索'
+        };
+        const valueMap = { school: { '1': '中职', '2': '技工' } };
+
+        const keys = Object.keys(filter).filter(k => filter[k]);
+        if (keys.length === 0) {
+            container.innerHTML = '<span class="text-muted small">未设置筛选条件（将导出全部未删除且非毕业的学生数据）</span>';
+            return;
+        }
+
+        container.innerHTML = keys.map(k => {
+            let val = filter[k];
+            if (valueMap[k] && valueMap[k][val]) val = valueMap[k][val];
+            return `<span class="ee-filter-tag">${nameMap[k] || k}: <strong>${escapeHtml(String(val))}</strong></span>`;
+        }).join('');
+    }
+
+    function populateFilterForm(filter) {
+        document.getElementById('fSchool').value = filter.school || '';
+        document.getElementById('fGrade').value = filter.grade || '';
+        document.getElementById('fMajor').value = filter.major || '';
+        document.getElementById('fAdminClass').value = filter.admin_class || '';
+        document.getElementById('fRegStatus').value = filter.registration_status || '';
+        document.getElementById('fAttStatus').value = filter.attendance_status || '';
+        document.getElementById('fName').value = filter.name || '';
+        document.getElementById('fSearch').value = filter.search || '';
+    }
+
+    async function updateFilter() {
+        const filter = {
+            school: document.getElementById('fSchool').value,
+            grade: document.getElementById('fGrade').value,
+            major: document.getElementById('fMajor').value,
+            admin_class: document.getElementById('fAdminClass').value,
+            registration_status: document.getElementById('fRegStatus').value,
+            attendance_status: document.getElementById('fAttStatus').value,
+            name: document.getElementById('fName').value,
+            search: document.getElementById('fSearch').value
+        };
+
+        const resp = await fetch('/api/export/update-filter', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': '{{ csrf_token }}'
+            },
+            body: JSON.stringify(filter)
+        });
+        const data = await resp.json();
+        if (data.success) {
+            filterInfo = data.filter;
+            updateTotalCount(data.total_count);
+            renderFilterTags(data.filter);
+            bootstrap.Collapse.getInstance(document.getElementById('filterPanel')).hide();
+        }
+    }
+
+    async function clearFilter() {
+        document.getElementById('fSchool').value = '';
+        document.getElementById('fGrade').value = '';
+        document.getElementById('fMajor').value = '';
+        document.getElementById('fAdminClass').value = '';
+        document.getElementById('fRegStatus').value = '';
+        document.getElementById('fAttStatus').value = '';
+        document.getElementById('fName').value = '';
+        document.getElementById('fSearch').value = '';
+        await updateFilter();
+    }
+
+    // ---- 映射表格 ----
+    function buildMappingTable(placeholders) {
+        currentMappings = placeholders.map(ph => ({
+            placeholder: '${' + ph + '}',
+            source_field: '',
+            default_value: ''
+        }));
+
+        const tbody = document.getElementById('mappingTableBody');
+        tbody.innerHTML = currentMappings.map((m, i) => `
+            <tr>
+                <td><span class="ee-placeholder-tag">${escapeHtml(m.placeholder)}</span></td>
+                <td>
+                    <select class="form-select form-select-sm source-field-select" data-index="${i}" onchange="onMappingChange(${i}, 'source_field', this.value)">
+                        <option value="">-- 请选择 --</option>
+                        ${availableFields.map(f => `
+                            <option value="${escapeHtml(f.db_field)}" ${m.source_field === f.db_field ? 'selected' : ''}>
+                                ${escapeHtml(f.chinese_name)} (${escapeHtml(f.db_field)})
+                            </option>
+                        `).join('')}
+                    </select>
+                </td>
+                <td>
+                    <input type="text" class="form-control form-control-sm" value="${escapeHtml(m.default_value)}"
+                           placeholder="无数据时使用" onchange="onMappingChange(${i}, 'default_value', this.value)">
+                </td>
+                <td id="matchStatus${i}">
+                    ${m.source_field ? '<span class="ee-match-badge">已匹配</span>' : '<span class="ee-no-match">未匹配</span>'}
+                </td>
+                <td id="previewCell${i}" class="text-muted small">--</td>
+            </tr>
+        `).join('');
+    }
+
+    function onMappingChange(index, field, value) {
+        currentMappings[index][field] = value;
+        // 更新匹配状态
+        const statusCell = document.getElementById('matchStatus' + index);
+        if (field === 'source_field') {
+            statusCell.innerHTML = value
+                ? '<span class="ee-match-badge">已匹配</span>'
+                : '<span class="ee-no-match">未匹配</span>';
+        }
+    }
+
+    // ---- 智能匹配 ----
+    function autoMatch() {
+        if (!currentMappings.length || !availableFields.length) return;
+
+        let matchCount = 0;
+        currentMappings.forEach((m, i) => {
+            if (m.source_field) return; // 已有映射，跳过
+
+            const pureKey = m.placeholder.replace(/^\$\{|\}$/g, '').toLowerCase();
+
+            // 精确匹配：占位符名 == 中文名 或 占位符名 == DB字段名
+            let bestMatch = null;
+            let bestScore = 0;
+
+            for (const f of availableFields) {
+                // 精确匹配中文名
+                if (pureKey === f.chinese_name.toLowerCase()) {
+                    bestMatch = f;
+                    bestScore = 100;
+                    break;
+                }
+                // 精确匹配DB字段名
+                if (pureKey === f.db_field.toLowerCase() || pureKey.replace(/_/g, '') === f.db_field.toLowerCase()) {
+                    bestMatch = f;
+                    bestScore = 90;
+                    break;
+                }
+                // 包含匹配
+                if (f.chinese_name.toLowerCase().includes(pureKey) || pureKey.includes(f.chinese_name.toLowerCase())) {
+                    if (80 > bestScore) { bestMatch = f; bestScore = 80; }
+                }
+                if (f.db_field.toLowerCase().includes(pureKey) || pureKey.includes(f.db_field.toLowerCase())) {
+                    if (70 > bestScore) { bestMatch = f; bestScore = 70; }
+                }
+            }
+
+            if (bestMatch && bestScore >= 70) {
+                currentMappings[i].source_field = bestMatch.db_field;
+                matchCount++;
+            }
+        });
+
+        // 重建表格
+        const placeholders = currentMappings.map(m => m.placeholder.replace(/^\$\{|\}$/g, ''));
+        buildMappingTableFromCurrent();
+        if (matchCount > 0) {
+            showToast('智能匹配完成，共匹配 ' + matchCount + ' 个字段', 'success');
+        } else {
+            showToast('未找到可自动匹配的字段', 'warning');
+        }
+    }
+
+    function buildMappingTableFromCurrent() {
+        const tbody = document.getElementById('mappingTableBody');
+        tbody.innerHTML = currentMappings.map((m, i) => `
+            <tr>
+                <td><span class="ee-placeholder-tag">${escapeHtml(m.placeholder)}</span></td>
+                <td>
+                    <select class="form-select form-select-sm" data-index="${i}" onchange="onMappingChange(${i}, 'source_field', this.value)">
+                        <option value="">-- 请选择 --</option>
+                        ${availableFields.map(f => `
+                            <option value="${escapeHtml(f.db_field)}" ${m.source_field === f.db_field ? 'selected' : ''}>
+                                ${escapeHtml(f.chinese_name)} (${escapeHtml(f.db_field)})
+                            </option>
+                        `).join('')}
+                    </select>
+                </td>
+                <td>
+                    <input type="text" class="form-control form-control-sm" value="${escapeHtml(m.default_value)}"
+                           placeholder="无数据时使用" onchange="onMappingChange(${i}, 'default_value', this.value)">
+                </td>
+                <td>
+                    ${m.source_field ? '<span class="ee-match-badge">已匹配</span>' : '<span class="ee-no-match">未匹配</span>'}
+                </td>
+                <td class="text-muted small">--</td>
+            </tr>
+        `).join('');
+    }
+
+    // ---- 预览 ----
+    async function loadPreview() {
+        if (!currentTemplate) {
+            showToast('请先选择模板', 'warning');
+            return;
+        }
+
+        const resp = await fetch('/api/export/preview', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': '{{ csrf_token }}'
+            },
+            body: JSON.stringify({ mappings: currentMappings })
+        });
+        const data = await resp.json();
+
+        if (!data.success) {
+            document.getElementById('previewArea').innerHTML = '<div class="alert alert-warning m-3">' + escapeHtml(data.message) + '</div>';
+            return;
+        }
+
+        document.getElementById('previewCount').textContent = data.total_count + '条';
+
+        if (!data.preview_rows || data.preview_rows.length === 0) {
+            document.getElementById('previewArea').innerHTML = '<div class="ee-empty-state"><i class="bi bi-inbox"></i><p>无数据可预览</p></div>';
+            return;
+        }
+
+        const headers = currentMappings.map(m => m.placeholder);
+        let html = '<table class="table table-sm table-bordered ee-preview-table"><thead><tr>';
+        html += '<th>#</th>';
+        headers.forEach(h => { html += '<th>' + escapeHtml(h) + '</th>'; });
+        html += '</tr></thead><tbody>';
+
+        data.preview_rows.forEach((row, ri) => {
+            html += '<tr><td>' + (ri + 1) + '</td>';
+            headers.forEach(h => {
+                html += '<td>' + escapeHtml(row[h] || '') + '</td>';
+            });
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        document.getElementById('previewArea').innerHTML = html;
+
+        // 同时更新映射表的预览列
+        if (data.preview_rows.length > 0) {
+            const firstRow = data.preview_rows[0];
+            currentMappings.forEach((m, i) => {
+                const cell = document.getElementById('previewCell' + i);
+                if (cell) {
+                    const val = firstRow[m.placeholder] || '';
+                    cell.textContent = val.length > 20 ? val.substring(0, 20) + '...' : val;
+                    cell.title = val;
+                }
+            });
+        }
+    }
+
+    // ---- 导出 ----
+    async function executeExport() {
+        if (!currentTemplate) {
+            showToast('请先选择模板', 'warning');
+            return;
+        }
+
+        const unmapped = currentMappings.filter(m => !m.source_field);
+        if (unmapped.length > 0) {
+            if (!confirm('有 ' + unmapped.length + ' 个占位符未映射字段，这些位置将保留原占位符文本或使用默认值。\n\n确定继续导出吗？')) {
+                return;
+            }
+        }
+
+        const btn = document.getElementById('btnExport');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 导出中...';
+
+        try {
+            const resp = await fetch('/api/export/execute', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': '{{ csrf_token }}'
+                },
+                body: JSON.stringify({
+                    template_id: currentTemplate.id,
+                    mappings: currentMappings,
+                    scheme_name: ''
+                })
+            });
+
+            if (!resp.ok) {
+                const data = await resp.json();
+                throw new Error(data.message || '导出失败');
+            }
+
+            // 下载文件
+            const blob = await resp.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            const disposition = resp.headers.get('Content-Disposition') || '';
+            const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+            a.download = match ? match[1].replace(/['"]/g, '') : 'export.xlsx';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            // 延迟释放：立即 revoke 可能在浏览器真正写盘前使 blob 失效，导致下载被静默取消
+            setTimeout(function() { window.URL.revokeObjectURL(url); }, 60000);
+
+            const totalCount = (document.getElementById('previewCount').textContent || '').replace('条', '') || 'N';
+            showToast('导出成功！共 ' + totalCount + ' 条记录', 'success');
+        } catch (err) {
+            showToast('导出失败: ' + err.message, 'danger');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-download"></i> 确认导出';
+        }
+    }
+
+    // ---- 方案保存/加载 ----
+    function showSaveSchemeModal() {
+        if (!currentTemplate) {
+            showToast('请先选择模板', 'warning');
+            return;
+        }
+        const modal = new bootstrap.Modal(document.getElementById('saveSchemeModal'));
+        modal.show();
+    }
+
+    async function saveScheme() {
+        const name = document.getElementById('schemeNameInput').value.trim();
+        if (!name) { showToast('请输入方案名称', 'warning'); return; }
+
+        const resp = await fetch('/api/export/save-mapping', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': '{{ csrf_token }}'
+            },
+            body: JSON.stringify({
+                template_id: currentTemplate.id,
+                scheme_name: name,
+                mappings: currentMappings
+            })
+        });
+        const data = await resp.json();
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('saveSchemeModal')).hide();
+            document.getElementById('schemeNameInput').value = '';
+            showToast('方案「' + name + '」已保存', 'success');
+        } else {
+            showToast(data.message, 'danger');
+        }
+    }
+
+    async function showSavedSchemes() {
+        if (!currentTemplate) {
+            showToast('请先选择模板', 'warning');
+            return;
+        }
+        const modal = new bootstrap.Modal(document.getElementById('loadSchemeModal'));
+        modal.show();
+
+        const list = document.getElementById('savedSchemesList');
+        list.innerHTML = '<p class="text-muted text-center py-3">加载中...</p>';
+
+        try {
+            const resp = await fetch('/api/export/mappings/' + currentTemplate.id);
+            const data = await resp.json();
+            if (!data.mappings || data.mappings.length === 0) {
+                list.innerHTML = '<p class="text-muted text-center py-3">暂无已保存的方案</p>';
+                return;
+            }
+            list.innerHTML = data.mappings.map(m => `
+                <div class="ee-template-item" onclick="loadScheme(${m.id})" style="cursor:pointer;">
+                    <div>
+                        <i class="bi bi-bookmark me-2"></i>
+                        <strong>${escapeHtml(m.scheme_name)}</strong>
+                        <span class="text-muted ms-2 small">${m.mappings.length} 个映射</span>
+                    </div>
+                    <button class="btn btn-sm btn-outline-danger" onclick="event.stopPropagation(); deleteScheme(${m.id})" title="删除">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            `).join('');
+        } catch (err) {
+            list.innerHTML = '<p class="text-danger text-center py-3">加载失败</p>';
+        }
+    }
+
+    async function loadScheme(mappingId) {
+        try {
+            // 方案数据在 get_field_mappings_by_template 时已经包含 mappings JSON
+            const resp = await fetch('/api/export/mappings/' + currentTemplate.id);
+            const data = await resp.json();
+            const scheme = data.mappings.find(m => m.id === mappingId);
+            if (scheme) {
+                currentMappings = scheme.mappings;
+                buildMappingTableFromCurrent();
+                bootstrap.Modal.getInstance(document.getElementById('loadSchemeModal')).hide();
+                showToast('方案已加载', 'success');
+            }
+        } catch (err) {
+            showToast('加载方案失败', 'danger');
+        }
+    }
+
+    async function deleteScheme(mappingId) {
+        if (!confirm('确定删除此方案吗？')) return;
+        try {
+            await fetch('/api/export/mapping/' + mappingId, {
+                method: 'DELETE',
+                headers: { 'X-CSRF-Token': '{{ csrf_token }}' }
+            });
+            showSavedSchemes();
+        } catch (err) {
+            console.error('删除方案失败:', err);
+        }
+    }
+
+    // ---- 导出历史 ----
+    document.getElementById('historySection').querySelector('.ee-card-header').addEventListener('click', async function() {
+        const body = document.getElementById('historyBody');
+        if (body.classList.contains('show')) return; // 已经打开
+        await loadHistory();
+    });
+
+    async function loadHistory() {
+        try {
+            const resp = await fetch('/api/export/history');
+            const data = await resp.json();
+            const tbody = document.getElementById('historyTableBody');
+            if (!data.history || data.history.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">暂无导出记录</td></tr>';
+                return;
+            }
+            tbody.innerHTML = data.history.map(h => `
+                <tr>
+                    <td class="small">${escapeHtml(h.created_at || '')}</td>
+                    <td>${escapeHtml(h.template_name || '')}</td>
+                    <td>${escapeHtml(h.scheme_name || '')}</td>
+                    <td><span class="badge bg-secondary">${h.row_count} 条</span></td>
+                    <td>${escapeHtml(h.created_by || '')}</td>
+                    <td>
+                        ${h.status === 'completed'
+                            ? '<span class="badge bg-success">完成</span>'
+                            : '<span class="badge bg-warning">' + escapeHtml(h.status) + '</span>'}
+                    </td>
+                </tr>
+            `).join('');
+        } catch (err) {
+            console.error('加载历史失败:', err);
+        }
+    }
+
+    async function clearHistory() {
+        if (!confirm('确定要清空所有导出历史记录吗？此操作不可撤销。')) return;
+        try {
+            const resp = await fetch('/api/export/history', {
+                method: 'DELETE',
+                headers: { 'X-CSRF-Token': '{{ csrf_token }}' }
+            });
+            const data = await resp.json();
+            if (data.success) {
+                document.getElementById('historyTableBody').innerHTML =
+                    '<tr><td colspan="6" class="text-center text-muted py-3">暂无导出记录</td></tr>';
+                showToast('导出历史已清空', 'success');
+            } else {
+                showToast(data.message || '清空失败', 'danger');
+            }
+        } catch (err) {
+            showToast('清空失败: ' + err.message, 'danger');
+        }
+    }
+
+    // ---- 工具函数 ----
+    function escapeHtml(str) {
+        if (!str) return '';
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+</script>
+{% endblock %}

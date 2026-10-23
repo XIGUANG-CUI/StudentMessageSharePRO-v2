@@ -1,0 +1,514 @@
+{% extends "base.html" %}
+
+{% block title %}{{ '编辑' if student else '新增' }}学生 - 学生数据管理系统{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-person-plus"></i> {{ '编辑学生' if student else '新增学生' }}</h2>
+    <a href="{{ url_for('admin.admin_students') }}" class="btn btn-secondary">
+        <i class="bi bi-arrow-left"></i> 返回列表
+    </a>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <form method="POST" id="studentForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="next" value="{{ next_url or '' }}">
+            <div class="row g-3">
+                <div class="col-md-3 d-flex flex-column align-items-center">
+                    <div class="position-relative mb-2" style="width:100px;height:130px;">
+                        <img id="photoPreview" src="{{ student.photo_url if student and student.photo_url else '' }}"
+                             class="rounded border bg-light {% if not student or not student.photo_url %}d-none{% endif %}"
+                             style="width:100px;height:130px;object-fit:cover;"
+                             alt="学生照片">
+                        <div id="photoPlaceholder"
+                             class="rounded border bg-light d-flex flex-column align-items-center justify-content-center text-muted {% if student and student.photo_url %}d-none{% endif %}"
+                             style="width:100px;height:130px;">
+                            <i class="bi bi-person" style="font-size:2.5rem;"></i>
+                            <small class="mt-1">暂无照片</small>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-outline-primary btn-sm w-100" id="readCardBtn" onclick="readCardFromDevice()">
+                        <i class="bi bi-credit-card"></i> 读卡采集
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm w-100 mt-1" title="设置读卡器地址" onclick="openCardReaderSettings()">
+                        <i class="bi bi-gear"></i> 读卡器地址
+                    </button>
+                    <input type="hidden" id="photoUrlField" name="photo_url" value="{{ student.photo_url if student else '' }}">
+                </div>
+
+                <div class="col-md-9">
+                    <h6 class="border-bottom pb-1 mb-2 text-primary"><i class="bi bi-person-badge me-1"></i>基本信息</h6>
+                    <div class="row g-2">
+                        <div class="col-md-4">
+                            <label class="form-label small">学号 <span class="text-danger">*</span></label>
+                            <input type="text" name="student_no" class="form-control form-control-sm"
+                                   value="{{ student.student_no if student else '' }}" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small">国网学籍号</label>
+                            <input type="text" name="national_no" class="form-control form-control-sm"
+                                   value="{{ student.national_no if student else '' }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small">年级 <span class="text-danger">*</span></label>
+                            <input type="text" name="grade" class="form-control form-control-sm"
+                                   value="{{ student.grade if student else '' }}" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small">学生姓名 <span class="text-danger">*</span></label>
+                            <input type="text" name="name" class="form-control form-control-sm"
+                                   value="{{ student.name if student else '' }}" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small">性别 <span class="text-danger">*</span></label>
+                            <select name="gender" class="form-select form-select-sm" required>
+                                <option value="">请选择</option>
+                                <option value="男" {{ 'selected' if student and student.gender == '男' else '' }}>男</option>
+                                <option value="女" {{ 'selected' if student and student.gender == '女' else '' }}>女</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small">民族</label>
+                            <input type="text" name="ethnicity" class="form-control form-control-sm"
+                                   value="{{ student.ethnicity if student else '' }}">
+                        </div>
+                    </div>
+                    <div class="mt-2">
+                        <label class="form-label small">身份证号 <span class="text-danger">*</span></label>
+                        <input type="text" name="id_card" id="idCard" class="form-control form-control-sm"
+                               value="{{ student.id_card if student else '' }}" required maxlength="18">
+                        <div class="invalid-feedback" id="idCardError"></div>
+                        <div class="valid-feedback" id="idCardSuccess"></div>
+                    </div>
+                </div>
+            </div>
+
+            <h6 class="border-bottom pb-1 mb-2 mt-3 text-success"><i class="bi bi-building me-1"></i>班级与学籍</h6>
+            <div class="row g-2 mb-2">
+                <div class="col-md-4">
+                    <label class="form-label small">学校类型 <span class="text-danger">*</span></label>
+                    <select name="school" class="form-select form-select-sm" required>
+                        <option value="1" {{ 'selected' if student and student.school == 1 else '' }}>中职</option>
+                        <option value="2" {{ 'selected' if student and student.school == 2 else '' }}>技工</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">专业 <span class="text-danger">*</span></label>
+                    <input type="text" name="major" class="form-control form-control-sm"
+                           value="{{ student.major if student else '' }}" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">行政班级 <span class="text-danger">*</span></label>
+                    <input type="text" name="admin_class" class="form-control form-control-sm"
+                           value="{{ student.admin_class if student else '' }}" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">虚拟班级</label>
+                    <input type="text" name="virtual_class" class="form-control form-control-sm"
+                           value="{{ student.virtual_class if student else '' }}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">学籍状态 <span class="text-danger">*</span></label>
+                    <select name="registration_status" class="form-select form-select-sm" required>
+                        {% for rs in filter_values.registration_statuses %}
+                        <option value="{{ rs }}" {{ 'selected' if (not student and loop.first) or (student and student.registration_status == rs) else '' }}>{{ rs }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">在校状态 <span class="text-danger">*</span></label>
+                    <select name="attendance_status" class="form-select form-select-sm" required>
+                        {% for ast in filter_values.attendance_statuses %}
+                        <option value="{{ ast }}" {{ 'selected' if (not student and loop.first) or (student and student.attendance_status == ast) else '' }}>{{ ast }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <h6 class="border-bottom pb-1 mb-2 text-warning"><i class="bi bi-people me-1"></i>家长信息</h6>
+            <div class="row g-2 mb-2">
+                <div class="col-md-4">
+                    <label class="form-label small">家长姓名</label>
+                    <input type="text" name="parent_name" class="form-control form-control-sm"
+                           value="{{ student.parent_name if student else '' }}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">家长身份证号</label>
+                    <input type="text" name="parent_id_card" class="form-control form-control-sm"
+                           value="{{ student.parent_id_card if student else '' }}" maxlength="18">
+                    <div class="invalid-feedback" id="parentIdCardError"></div>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">家长电话</label>
+                    <input type="text" name="parent_phone" class="form-control form-control-sm"
+                           value="{{ student.parent_phone if student else '' }}">
+                </div>
+            </div>
+
+            <h6 class="border-bottom pb-1 mb-2 text-info"><i class="bi bi-telephone me-1"></i>联系方式与住址</h6>
+            <div class="row g-2 mb-2">
+                <div class="col-md-6">
+                    <label class="form-label small">学生电话</label>
+                    <input type="text" name="student_phone" class="form-control form-control-sm"
+                           value="{{ student.student_phone if student else '' }}">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small">住址</label>
+                    <textarea name="address" class="form-control form-control-sm" rows="1">{{ student.address if student else '' }}</textarea>
+                </div>
+            </div>
+
+            <h6 class="border-bottom pb-1 mb-2 text-secondary"><i class="bi bi-credit-card-2-front me-1"></i>身份证信息</h6>
+            <div class="row g-2 mb-2">
+                <div class="col-md-6">
+                    <label class="form-label small">签发机关</label>
+                    <input type="text" name="issue_authority" class="form-control form-control-sm"
+                           value="{{ student.issue_authority if student else '' }}">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">有效期开始</label>
+                    <input type="text" name="valid_start" class="form-control form-control-sm"
+                           placeholder="YYYYMMDD" value="{{ student.valid_start if student else '' }}">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">有效期结束</label>
+                    <input type="text" name="valid_end" class="form-control form-control-sm"
+                           placeholder="YYYYMMDD或长期" value="{{ student.valid_end if student else '' }}">
+                </div>
+            </div>
+
+            <h6 class="border-bottom pb-1 mb-2 text-secondary"><i class="bi bi-journal-text me-1"></i>学业扩展信息</h6>
+            <div class="row g-2 mb-2">
+                <div class="col-md-3">
+                    <label class="form-label small">专业方向</label>
+                    <input type="text" name="major_direction" class="form-control form-control-sm"
+                           value="{{ student.major_direction if student else '' }}">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">户口性质</label>
+                    <input type="text" name="household_type" class="form-control form-control-sm"
+                           value="{{ student.household_type if student else '' }}">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">初中毕业学校</label>
+                    <input type="text" name="junior_school" class="form-control form-control-sm"
+                           value="{{ student.junior_school if student else '' }}">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">初中毕业时间</label>
+                    <input type="text" name="junior_graduation_time" class="form-control form-control-sm"
+                           placeholder="YYYYMM" value="{{ student.junior_graduation_time if student else '' }}">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">入学形式</label>
+                    <input type="text" name="admission_type" class="form-control form-control-sm"
+                           value="{{ student.admission_type if student else '' }}">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">异动信息</label>
+                    <input type="text" name="change_info" class="form-control form-control-sm"
+                           value="{{ student.change_info if student else '' }}">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small">备注</label>
+                    <input type="text" name="remark" class="form-control form-control-sm"
+                           value="{{ student.remark if student else '' }}">
+                </div>
+            </div>
+
+            <div class="col-12 text-end mt-3">
+                <a href="{{ url_for('admin.admin_students') }}" class="btn btn-secondary">
+                    <i class="bi bi-x-circle"></i> 取消
+                </a>
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check-circle"></i> {{ '更新' if student else '保存' }}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>window.CARD_READER_WS_URL = '{{ card_reader_ws_url }}';</script>
+<script src="{{ url_for('static', filename='js/card_reader.js') }}"></script>
+<script>
+document.getElementById('idCard').addEventListener('input', function() {
+    this.value = this.value.toUpperCase();
+});
+
+function showPhotoPreview(photoUrl) {
+    var img = document.getElementById('photoPreview');
+    var placeholder = document.getElementById('photoPlaceholder');
+    if (photoUrl) {
+        img.src = photoUrl;
+        img.classList.remove('d-none');
+        placeholder.classList.add('d-none');
+    } else {
+        img.src = '';
+        img.classList.add('d-none');
+        placeholder.classList.remove('d-none');
+    }
+}
+
+function readCardFromDevice() {
+    var btn = document.getElementById('readCardBtn');
+    var originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>读卡中...';
+
+    var reader = new HuashiCardReader();
+
+    reader.readIDCard(10000)
+        .then(function(cardData) {
+            fillFormFromCard(cardData);
+            showToast('身份证读取成功！请补充学业信息后保存', 'success');
+        })
+        .catch(function(error) {
+            showToast('读卡失败: ' + error.message, 'danger');
+        })
+        .finally(function() {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            reader.disconnect();
+        });
+}
+
+function fillFormFromCard(cardData) {
+    var form = document.getElementById('studentForm');
+
+    if (cardData.name) form.querySelector('[name="name"]').value = cardData.name;
+    if (cardData.gender) form.querySelector('[name="gender"]').value = cardData.gender;
+    if (cardData.nation) form.querySelector('[name="ethnicity"]').value = cardData.nation;
+    if (cardData.id_card) {
+        form.querySelector('[name="id_card"]').value = cardData.id_card;
+    }
+    if (cardData.address) form.querySelector('[name="address"]').value = cardData.address;
+    if (cardData.issue_authority) form.querySelector('[name="issue_authority"]').value = cardData.issue_authority;
+    if (cardData.valid_start) form.querySelector('[name="valid_start"]').value = cardData.valid_start;
+    if (cardData.valid_end) form.querySelector('[name="valid_end"]').value = cardData.valid_end;
+
+    if (cardData.photo_base64) {
+        document.getElementById('photoUrlField').value = cardData.photo_base64;
+        showPhotoPreview(cardData.photo_base64);
+
+        fetch('/api/photos/save', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': '{{ csrf_token }}'},
+            body: JSON.stringify({
+                id_card: cardData.id_card,
+                photo_base64: cardData.photo_base64
+            })
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(result) {
+                if (result.success) {
+                    document.getElementById('photoUrlField').value = result.photo_url;
+                    showPhotoPreview(result.photo_url);
+                }
+            })
+            .catch(function() {});
+    }
+}
+
+function loadStudentPhoto(idCard) {
+    if (!idCard) return;
+    showPhotoPreview('/api/photos/' + encodeURIComponent(idCard) + '?t=' + new Date().getTime());
+}
+
+function showToast(message, type) {
+    var toastHtml = '<div class="position-fixed bottom-0 end-0 m-3" style="z-index:1060;">' +
+        '<div class="toast align-items-center text-white bg-' + (type === 'success' ? 'success' : 'danger') + ' border-0">' +
+        '<div class="d-flex"><div class="toast-body">' + message + '</div>' +
+        '<button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>' +
+        '</div></div></div>';
+    document.body.insertAdjacentHTML('beforeend', toastHtml);
+    var toastEl = document.querySelector('.toast:last-child');
+    var toast = new bootstrap.Toast(toastEl, { delay: 3000 });
+    toast.show();
+    setTimeout(function() { toastEl.remove(); }, 3500);
+}
+
+var _formCheckTimer = null;
+var _formParentCheckTimer = null;
+
+function validateIdCardFullForm(idCard) {
+    if (!idCard) return { valid: false, error: '身份证号码不能为空' };
+    idCard = idCard.toString().trim().toUpperCase();
+    if (idCard.length !== 18) return { valid: false, error: '身份证号码长度不正确，必须为18位' };
+    if (!/^\d{17}$/.test(idCard.slice(0, 17))) return { valid: false, error: '身份证号码前17位必须为数字' };
+    var lc = idCard.slice(-1);
+    if (!/^[\dX]$/.test(lc)) return { valid: false, error: '身份证号码第18位必须为数字或大写字母X' };
+    var rm = {'11':1,'12':1,'13':1,'14':1,'15':1,'21':1,'22':1,'23':1,'31':1,'32':1,'33':1,'34':1,'35':1,'36':1,'37':1,'41':1,'42':1,'43':1,'44':1,'45':1,'46':1,'50':1,'51':1,'52':1,'53':1,'54':1,'61':1,'62':1,'63':1,'64':1,'65':1,'71':1,'81':1,'82':1,'91':1};
+    if (!rm[idCard.slice(0, 2)]) return { valid: false, error: '身份证号码地区码无效' };
+    var bs = idCard.slice(6, 14), y = +bs.slice(0,4), m = +bs.slice(4,6), d = +bs.slice(6,8);
+    var bd = new Date(y, m-1, d);
+    if (bd.getFullYear() !== y || bd.getMonth() !== m-1 || bd.getDate() !== d) return { valid: false, error: '身份证号码出生日期无效' };
+    if (bd > new Date()) return { valid: false, error: '出生日期不能是未来日期' };
+    if (y < 1900) return { valid: false, error: '出生日期无效' };
+    var w = [7,9,10,5,8,4,2,1,6,3,7,9,10,5,8,4,2], cc = ['1','0','X','9','8','7','6','5','4','3','2'], t = 0;
+    for (var i = 0; i < 17; i++) t += +idCard[i] * w[i];
+    if (lc !== cc[t % 11]) return { valid: false, error: '身份证号码校验位验证失败，请检查输入是否正确' };
+    return { valid: true, error: '' };
+}
+
+(function() {
+    var idEl = document.getElementById('idCard');
+    var pidEl = document.querySelector('[name="parent_id_card"]');
+    var idErr = document.getElementById('idCardError');
+    var pidErr = document.getElementById('parentIdCardError');
+
+    function cv(el, errEl) { el.classList.remove('is-invalid', 'is-valid'); errEl.textContent = ''; errEl.style.display = 'none'; }
+    function si(el, errEl, msg) { el.classList.remove('is-valid'); el.classList.add('is-invalid'); errEl.textContent = msg; errEl.style.display = 'block'; }
+    function sv(el, errEl) { el.classList.remove('is-invalid'); el.classList.add('is-valid'); errEl.textContent = ''; errEl.style.display = 'none'; }
+
+    if (idEl) idEl.addEventListener('input', function() {
+        clearTimeout(_formCheckTimer);
+        _formCheckTimer = setTimeout(function() {
+            var v = idEl.value.trim();
+            if (!v) { cv(idEl, idErr); return; }
+            var r = validateIdCardFullForm(v);
+            if (!r.valid) { si(idEl, idErr, r.error); return; }
+            var eid = document.querySelector('[name="student_id"]') ? new URLSearchParams(window.location.pathname).get('edit') : '';
+            fetch('/api/students/check_id_card?id_card=' + encodeURIComponent(v) + (eid ? '&exclude_id=' + eid : ''))
+                .then(function(resp) { return resp.json(); })
+                .then(function(d) {
+                    if (d.valid && !d.exists) sv(idEl, idErr);
+                    else if (d.exists) si(idEl, idErr, '该身份证号已存在');
+                    else si(idEl, idErr, d.message || '格式不正确');
+                });
+        }, 500);
+    });
+
+    if (pidEl) pidEl.addEventListener('input', function() {
+        clearTimeout(_formParentCheckTimer);
+        _formParentCheckTimer = setTimeout(function() {
+            var v = pidEl.value.trim();
+            if (!v) { cv(pidEl, pidErr); return; }
+            var r = validateIdCardFullForm(v);
+            if (r.valid) sv(pidEl, pidErr);
+            else si(pidEl, pidErr, r.error);
+        }, 500);
+    });
+})();
+
+{% if student and student.id_card %}
+(function() {
+    var photoEl = document.getElementById('photoPreview');
+    if (photoEl && (!photoEl.src || photoEl.src === window.location.href)) {
+        loadStudentPhoto('{{ student.id_card }}');
+    }
+})();
+{% endif %}
+</script>
+
+<!-- 读卡器地址设置弹窗 -->
+<div class="modal fade" id="cardReaderSettingsModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-gear me-2"></i>读卡器地址设置</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label">华视读卡器 WebSocket 地址</label>
+                <input type="text" id="cardReaderWsUrl" class="form-control" placeholder="ws://192.168.1.100:9001">
+                <div class="form-text">填写插有身份证读卡器并运行华视监控软件的电脑 IP 和端口（默认 9001）</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary btn-sm" id="saveCardReaderConfig" onclick="saveCardReaderConfig()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+var _cardReaderSettingsModal = null;
+var _localIpDetected = '';
+
+(function() {
+    // 通过 WebRTC 自动获取当前浏览器电脑的局域网 IP
+    try {
+        var pc = new RTCPeerConnection({iceServers: []});
+        pc.createDataChannel('');
+        pc.createOffer().then(function(offer) { return pc.setLocalDescription(offer); });
+        pc.onicecandidate = function(e) {
+            if (!e.candidate) return;
+            var ip = e.candidate.address;
+            if (ip && /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip)) {
+                _localIpDetected = ip;
+                pc.close();
+                // 自动写入配置文件（仅在未手动设置过时）
+                fetch('/api/admin/card-reader-config')
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        var currentUrl = data.url || '';
+                        if (!currentUrl || currentUrl.indexOf('127.0.0.1') >= 0) {
+                            var autoUrl = 'ws://' + ip + ':9001';
+                            fetch('/api/admin/card-reader-config', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json', 'X-CSRF-Token': '{{ csrf_token }}'},
+                                body: JSON.stringify({url: autoUrl})
+                            }).then(function(r) { return r.json(); })
+                              .then(function(d) {
+                                  if (d.success) {
+                                      window.CARD_READER_WS_URL = autoUrl;
+                                      console.log('读卡器地址已自动配置:', autoUrl);
+                                  }
+                              });
+                        }
+                    });
+            }
+        };
+        setTimeout(function() { try { pc.close(); } catch(e) {} }, 3000);
+    } catch(e) {}
+})();
+
+function openCardReaderSettings() {
+    fetch('/api/admin/card-reader-config')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var currentUrl = data.url || '';
+            if (!currentUrl || currentUrl.indexOf('127.0.0.1') >= 0) {
+                currentUrl = _localIpDetected ? 'ws://' + _localIpDetected + ':9001' : currentUrl;
+            }
+            document.getElementById('cardReaderWsUrl').value = currentUrl;
+            if (!_cardReaderSettingsModal) {
+                _cardReaderSettingsModal = new bootstrap.Modal(document.getElementById('cardReaderSettingsModal'));
+            }
+            _cardReaderSettingsModal.show();
+        });
+}
+
+function saveCardReaderConfig() {
+    var url = document.getElementById('cardReaderWsUrl').value.trim();
+    var btn = document.getElementById('saveCardReaderConfig');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>保存中...';
+
+    fetch('/api/admin/card-reader-config', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': '{{ csrf_token }}'},
+        body: JSON.stringify({url: url})
+    })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (_cardReaderSettingsModal) _cardReaderSettingsModal.hide();
+            showToast(data.message || '设置已保存', data.success ? 'success' : 'danger');
+            if (data.success) {
+                window.CARD_READER_WS_URL = data.url;
+            }
+        })
+        .catch(function() {
+            showToast('保存失败，请重试', 'danger');
+        })
+        .finally(function() {
+            btn.disabled = false;
+            btn.innerHTML = '保存';
+        });
+}
+</script>
+{% endblock %}

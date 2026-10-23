@@ -1,0 +1,474 @@
+{% extends "base.html" %}
+{% block title %}保险待办 - 学生数据管理系统{% endblock %}
+{% block head %}
+<style>
+    .it-layout { display: flex; gap: 16px; height: calc(100vh - 130px); }
+    .it-left { flex: 1; overflow-y: auto; background: #fff; border-radius: 8px; border: 1px solid #dee2e6; padding: 8px; }
+    .it-right { width: 360px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; }
+    .it-search-box { background: #f8f9fa; border-radius: 8px; padding: 12px; border: 1px solid #dee2e6; }
+    .it-school-group { margin-bottom: 10px; }
+    .it-school-header { display: flex; align-items: center; padding: 8px 12px; background: #6f42c1; color: #fff; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.88rem; user-select: none; }
+    .it-school-header:hover { background: #59359a; }
+    .it-school-header .it-toggle { margin-right: 8px; transition: transform .2s; display: inline-block; font-size: 0.75rem; }
+    .it-school-header.collapsed .it-toggle { transform: rotate(-90deg); }
+    .it-school-header .it-count { margin-left: auto; opacity: 0.85; font-size: 0.75rem; font-weight: 400; }
+    .it-students { margin: 2px 0 0 8px; }
+    .it-student-header { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; align-items: end; padding: 0 6px; margin-bottom: 2px; }
+    .it-col-header { font-size: 0.7rem; color: #6c757d; font-weight: 600; padding-top: 4px; }
+    .it-student-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; align-items: center; padding: 4px 6px; border-bottom: 1px solid #eee; font-size: 0.8rem; transition: background .15s; cursor: pointer; }
+    .it-student-row:hover { background: #f0f4ff; }
+    .it-student-row:last-child { border-bottom: none; }
+    .it-col-name { font-weight: 600; color: #212529; }
+    .it-col-class { color: #6c757d; }
+    .it-col-idcard { font-size: 0.72rem; color: #adb5bd; font-family: monospace; }
+    .it-chip { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; white-space: nowrap; }
+    .it-chip-done { background: #d4edda; color: #155724; }
+    .it-chip-pending { background: #fff3cd; color: #856404; }
+    .it-batch-bar { background: #f0ebff; border: 1px solid #d4c4f0; border-radius: 8px; padding: 12px; }
+    .it-batch-bar h6 { font-size: 0.82rem; color: #59359a; margin-bottom: 8px; }
+    .it-batch-bar .btn { margin-right: 4px; margin-bottom: 4px; }
+    .it-toast { position: fixed; bottom: 20px; right: 20px; z-index: 9999; padding: 10px 18px; border-radius: 6px; color: #fff; font-size: 0.85rem; animation: itSlideUp .3s ease; }
+    .it-toast.success { background: #198754; }
+    .it-toast.error { background: #dc3545; }
+    @keyframes itSlideUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+    .modal-it .modal-header { background: #6f42c1; color: #fff; border-radius: 5px 5px 0 0; }
+    .modal-it .modal-header .btn-close { filter: invert(1); }
+    .modal-it .modal-footer { border-top: none; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h5 class="mb-0"><i class="bi bi-list-check me-2"></i>保险待办</h5>
+    <button class="btn btn-sm btn-outline-success" id="itExportBtn" title="导出待办学生 Excel">
+        <i class="bi bi-download me-1"></i>导出 Excel
+    </button>
+</div>
+
+{% with _fh_type='export', _fh_title='保险待办导出说明', _fh_icon='bi-file-earmark-excel',
+    _fh_fields=['学号','学生身份证号','学生姓名','性别','年龄','民族','住址','专业','行政班级','虚拟班级','家长姓名','家长身份证号','家长电话','学生电话','年级','学籍状态','在校状态','专业方向','户口性质','入学形式','入学年份','备注','姓名拼音','学平险保单号','学平险缴费日期','学平险到期时间','学平险保费金额','实习险缴费日期','主管标记','申报日期','保单更新日期','学费总体情况'],
+    _fh_note='导出所有主管标记已审批通过、保险员未办结的学生数据（supervisor_flag 已审批且非空）。导出尊重当前搜索框筛选，与列表所见一致；导出列为当前角色的可见字段。' %}
+{% include '_field_help.html' %}
+{% endwith %}
+
+<div class="it-layout">
+    <div class="it-left" id="itTreeContainer">
+        <div class="text-center text-muted py-5">
+            <div class="spinner-border spinner-border-sm mb-2" role="status"></div>
+            <div>加载待办列表…</div>
+        </div>
+    </div>
+
+    <div class="it-right">
+        <div class="it-search-box">
+            <label class="form-label small fw-bold mb-1"><i class="bi bi-search me-1"></i>快速搜索</label>
+            <input type="text" class="form-control form-control-sm" id="itSearch" placeholder="学号 / 姓名 / 拼音 / 身份证号" autofocus>
+            <div class="text-muted mt-1" style="font-size:0.7rem">
+                <span id="itTotalCount">0</span> 名待办学生
+            </div>
+        </div>
+
+        <div class="it-batch-bar">
+            <h6><i class="bi bi-card-list me-1"></i>批量办结</h6>
+            <p class="text-muted small mb-2">分别操作学平险与实习就业险学生，办结后自动移出待办列表。</p>
+            <div class="mb-2">
+                <small class="text-muted fw-bold">中职</small>
+                <div class="d-flex gap-2 mt-1">
+                    <button class="btn btn-sm btn-primary flex-fill" id="itBatchZzStudent">
+                        <i class="bi bi-shield-check"></i> 学平险
+                    </button>
+                    <button class="btn btn-sm btn-purple flex-fill" id="itBatchZzIntern" style="background:#6f42c1;color:#fff">
+                        <i class="bi bi-briefcase"></i> 实习就业险
+                    </button>
+                </div>
+            </div>
+            <div>
+                <small class="text-muted fw-bold">技工</small>
+                <div class="d-flex gap-2 mt-1">
+                    <button class="btn btn-sm btn-primary flex-fill" id="itBatchJgStudent">
+                        <i class="bi bi-shield-check"></i> 学平险
+                    </button>
+                    <button class="btn btn-sm btn-purple flex-fill" id="itBatchJgIntern" style="background:#6f42c1;color:#fff">
+                        <i class="bi bi-briefcase"></i> 实习就业险
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade modal-it" id="itCompleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-check2-circle me-1"></i>批量办结 — <span id="itModalLabel">中职 学平险</span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small">
+                    即将办结 <strong id="itModalCount">0</strong> 名学生，主管标记将更新为「<span id="itModalFlagText"></span>」。
+                </p>
+
+                <div id="itInternNote" class="alert alert-info small d-none">
+                    <i class="bi bi-info-circle me-1"></i> 实习就业险在系统中无保单号字段，仅确认办结即可。
+                </div>
+
+                <div id="itModeSwitch" class="btn-group btn-group-sm mb-3 d-none" role="group">
+                    <input type="radio" class="btn-check" name="itMode" id="itModeUnified" autocomplete="off" checked>
+                    <label class="btn btn-outline-primary" for="itModeUnified">统一设置</label>
+                    <input type="radio" class="btn-check" name="itMode" id="itModePer" autocomplete="off">
+                    <label class="btn btn-outline-primary" for="itModePer">逐人设置</label>
+                </div>
+
+                <div id="itUnifiedArea">
+                    <div class="mb-3">
+                        <label class="form-label small">学平险保单号</label>
+                        <input type="text" class="form-control form-control-sm" id="itModalPolicyNo" placeholder="留空则不更新保单号">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small">学平险到期时间</label>
+                        <input type="date" class="form-control form-control-sm" id="itModalExpiry">
+                    </div>
+                </div>
+
+                <div id="itPerArea" class="d-none" style="max-height: 320px; overflow-y: auto;">
+                    <p class="text-muted small mb-1">逐人填写保单号与到期（已预填现有记录）：</p>
+                    <table class="table table-sm table-bordered mb-0">
+                        <thead><tr><th>学生</th><th>保单号</th><th>到期时间</th></tr></thead>
+                        <tbody id="itPerBody"></tbody>
+                    </table>
+                </div>
+
+                <div class="d-grid mt-2">
+                    <button class="btn btn-success" id="itModalConfirm">
+                        <i class="bi bi-check-lg"></i> 确认办结
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">取消</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/insurance_status.js') }}"></script>
+<script>window.CURRENT_SCHOOL_YEAR = {{ current_school_year }};</script>
+<script>
+(function() {
+    var treeData = {};
+    var collapsedSchool = {};
+    var searchTimer = null;
+    var completeModal = null;
+    var activeSchool = 1;
+    var activeStudents = [];
+
+    document.addEventListener('DOMContentLoaded', function() {
+        completeModal = new bootstrap.Modal(document.getElementById('itCompleteModal'));
+    });
+
+    function toast(msg, type) {
+        var el = document.createElement('div');
+        el.className = 'it-toast ' + (type || 'success');
+        el.textContent = msg;
+        document.body.appendChild(el);
+        setTimeout(function() { el.remove(); }, 2000);
+    }
+
+    function formatVal(v) { return v || ''; }
+
+    function formatDate(v) {
+        if (!v) return '';
+        if (InsuranceStatus.is_external_pay(v)) return '新生默认首保';
+        if (typeof v === 'string') {
+            if (v.match(/^\d{4}-\d{2}-\d{2}/)) return v;
+            // 斜杠日期格式 "YYYY/M/D"（中文 Excel 短日期格式）
+            var sm = v.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+            if (sm) return sm[1] + '-' + sm[2].padStart(2, '0') + '-' + sm[3].padStart(2, '0');
+            // 斜杠日期格式 "M/D/YY"（Excel 短日期格式，2 位年份）
+            var dm = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})/);
+            if (dm) return '20' + dm[3] + '-' + dm[1].padStart(2, '0') + '-' + dm[2].padStart(2, '0');
+        }
+        var num = parseFloat(v);
+        if (!isNaN(num) && num > 40000 && num < 60000) {
+            var d = new Date((num - 25569) * 86400 * 1000);
+            var y = d.getFullYear();
+            var m = String(d.getMonth() + 1).padStart(2, '0');
+            var day = String(d.getDate()).padStart(2, '0');
+            return y + '-' + m + '-' + day;
+        }
+        return String(v);
+    }
+
+    function schoolName(school) {
+        if (school === 1) return '中职';
+        if (school === 2) return '技工';
+        return '';
+    }
+
+    function flagChip(flag) {
+        if (!flag) return '<span class="it-chip it-chip-pending">待办结</span>';
+        if (flag.indexOf('办结') >= 0) return '<span class="it-chip it-chip-done">' + flag + '</span>';
+        return '<span class="it-chip it-chip-pending">' + flag + '</span>';
+    }
+
+    function loadTree(search) {
+        var params = search ? '?search=' + encodeURIComponent(search) : '';
+        fetch('/api/insurance/todo-tree' + params)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                treeData = data.students_by_school || {};
+                renderTree();
+                updateCount();
+            });
+    }
+
+    function renderTree() {
+        var container = document.getElementById('itTreeContainer');
+        var schoolKeys = [1, 2];
+        var hasAny = false;
+
+        for (var ki = 0; ki < schoolKeys.length; ki++) {
+            var school = schoolKeys[ki];
+            var students = treeData[school] || [];
+            if (students.length) hasAny = true;
+        }
+
+        if (!hasAny) {
+            container.innerHTML = '<div class="text-center text-muted py-5">无待办学生（所有审批通过的学生已办结）</div>';
+            return;
+        }
+
+        var html = '';
+        for (var ki = 0; ki < schoolKeys.length; ki++) {
+            var school = schoolKeys[ki];
+            var students = treeData[school] || [];
+            if (!students.length) continue;
+
+            var collapsed = collapsedSchool[school];
+
+            html += '<div class="it-school-group">';
+            html += '<div class="it-school-header' + (collapsed ? ' collapsed' : '') + '" data-school="' + school + '">';
+            html += '<span class="it-toggle">&#9660;</span>';
+            html += schoolName(school);
+            html += '<span class="it-count">' + students.length + '人</span>';
+            html += '</div>';
+
+            if (!collapsed) {
+                html += '<div class="it-student-header"><div class="it-col-header">学生信息</div><div class="it-col-header">保单号</div><div class="it-col-header">到期时间</div><div class="it-col-header">类型</div></div>';
+                html += '<div class="it-students">';
+                for (var si = 0; si < students.length; si++) {
+                    var s = students[si];
+                    html += '<div class="it-student-row" data-student-id="' + s.id + '">';
+                    html += '<div><span class="it-col-name">' + formatVal(s.name) + '</span> <span class="it-col-class">' + formatVal(s.admin_class) + '</span><br><span class="it-col-idcard">' + formatVal(s.id_card) + '</span></div>';
+                    html += '<div style="font-size:0.78rem;color:#495057">' + (formatVal(s.student_insurance_no) || '-') + '</div>';
+                    html += '<div style="font-size:0.78rem;color:#495057">' + (formatDate(s.student_insurance_expiry) || '-') + '</div>';
+                    html += '<div>' + flagChip(s.supervisor_flag) + '</div>';
+                    html += '</div>';
+                }
+                html += '</div>';
+            }
+            html += '</div>';
+        }
+
+        container.innerHTML = html;
+    }
+
+    function updateCount() {
+        var total = 0;
+        var schoolKeys = [1, 2];
+        for (var ki = 0; ki < schoolKeys.length; ki++) {
+            var students = treeData[schoolKeys[ki]] || [];
+            total += students.length;
+        }
+        document.getElementById('itTotalCount').textContent = total;
+    }
+
+    function getStudentsBySchoolAndType(school, type) {
+        var all = treeData[school] || [];
+        var filtered = [];
+        var targetFlag = type === 'intern' ? InsuranceStatus.PENDING_INTERN : InsuranceStatus.PENDING_XUEPING;
+        for (var i = 0; i < all.length; i++) {
+            if (all[i].supervisor_flag === targetFlag) {
+                filtered.push(all[i]);
+            }
+        }
+        return filtered;
+    }
+
+    function escapeAttr(v) {
+        return String(v == null ? '' : v)
+            .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function showCompleteModal(school, type) {
+        activeSchool = school;
+        activeStudents = getStudentsBySchoolAndType(school, type);
+
+        if (!activeStudents.length) {
+            toast(schoolName(school) + '无该类型待办学生', 'error');
+            return;
+        }
+
+        var year = window.CURRENT_SCHOOL_YEAR || new Date().getFullYear();
+        var typeLabel = type === 'intern' ? '实习就业险' : '学平险';
+        var flagText = type === 'intern' ? InsuranceStatus.done_intern(year) : InsuranceStatus.done_xueping(year);
+        var isIntern = (type === 'intern');
+
+        document.getElementById('itModalLabel').textContent = schoolName(school) + ' ' + typeLabel;
+        document.getElementById('itModalCount').textContent = activeStudents.length;
+        document.getElementById('itModalFlagText').textContent = flagText;
+
+        var modeSwitch = document.getElementById('itModeSwitch');
+        var internNote = document.getElementById('itInternNote');
+        var unifiedArea = document.getElementById('itUnifiedArea');
+        var perArea = document.getElementById('itPerArea');
+
+        if (isIntern) {
+            // 实习就业险：无保单号，仅确认办结
+            modeSwitch.classList.add('d-none');
+            internNote.classList.remove('d-none');
+            unifiedArea.classList.add('d-none');
+            perArea.classList.add('d-none');
+        } else {
+            // 学平险：统一/逐人 两模式
+            modeSwitch.classList.remove('d-none');
+            internNote.classList.add('d-none');
+            unifiedArea.classList.remove('d-none');
+            perArea.classList.add('d-none');
+            document.getElementById('itModeUnified').checked = true;
+            document.getElementById('itModalPolicyNo').value = '';
+            document.getElementById('itModalExpiry').value = '';
+        }
+
+        document.getElementById('itModalConfirm').onclick = function() {
+            doComplete(activeStudents, isIntern);
+        };
+
+        completeModal.show();
+    }
+
+    function renderPerTable(students) {
+        var body = document.getElementById('itPerBody');
+        body.innerHTML = students.map(function(s) {
+            var no = s.student_insurance_no || '';
+            var ex = formatDate(s.student_insurance_expiry) || '';
+            return '<tr data-id="' + s.id + '">' +
+                '<td style="font-size:0.78rem">' + escapeAttr(s.name) + '<br><span class="text-muted">' + escapeAttr(s.admin_class) + '</span></td>' +
+                '<td><input type="text" class="form-control form-control-sm it-per-no" value="' + escapeAttr(no) + '" placeholder="保单号"></td>' +
+                '<td><input type="date" class="form-control form-control-sm it-per-ex" value="' + ex + '"></td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    function sendComplete(payload) {
+        fetch('/api/insurance/complete', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        }).then(function(r) { return r.json(); })
+          .then(function(data) {
+              if (data.error) { toast(data.error, 'error'); return; }
+              toast('已办结 ' + data.count + ' 名学生', 'success');
+              completeModal.hide();
+              loadTree(document.getElementById('itSearch').value.trim());
+          });
+    }
+
+    function doComplete(students, isIntern) {
+        var studentIds = [];
+        for (var i = 0; i < students.length; i++) {
+            studentIds.push(students[i].id);
+        }
+
+        if (isIntern) {
+            // 实习就业险：仅办结，不写保单号/到期
+            sendComplete({ student_ids: studentIds });
+            return;
+        }
+
+        if (document.getElementById('itModePer').checked) {
+            // 逐人设置
+            var items = [];
+            var rows = document.querySelectorAll('#itPerBody tr');
+            for (var r = 0; r < rows.length; r++) {
+                var tr = rows[r];
+                var id = parseInt(tr.dataset.id, 10);
+                var no = tr.querySelector('.it-per-no').value.trim();
+                var ex = tr.querySelector('.it-per-ex').value.trim();
+                items.push({ student_id: id, student_insurance_no: no, student_insurance_expiry: ex });
+            }
+            sendComplete({ items: items });
+            return;
+        }
+
+        // 统一设置
+        var policyNo = document.getElementById('itModalPolicyNo').value.trim();
+        var expiry = document.getElementById('itModalExpiry').value.trim();
+        var body = { student_ids: studentIds };
+        if (policyNo) body.student_insurance_no = policyNo;
+        if (expiry) body.student_insurance_expiry = expiry;
+        sendComplete(body);
+    }
+
+    document.getElementById('itModeUnified').addEventListener('change', function() {
+        if (this.checked) {
+            document.getElementById('itUnifiedArea').classList.remove('d-none');
+            document.getElementById('itPerArea').classList.add('d-none');
+        }
+    });
+    document.getElementById('itModePer').addEventListener('change', function() {
+        if (this.checked) {
+            document.getElementById('itUnifiedArea').classList.add('d-none');
+            document.getElementById('itPerArea').classList.remove('d-none');
+            renderPerTable(activeStudents);
+        }
+    });
+
+    document.getElementById('itTreeContainer').addEventListener('click', function(e) {
+        var schoolHeader = e.target.closest('.it-school-header');
+        if (schoolHeader) {
+            var school = parseInt(schoolHeader.dataset.school);
+            collapsedSchool[school] = !collapsedSchool[school];
+            renderTree();
+            return;
+        }
+    });
+
+    document.getElementById('itSearch').addEventListener('input', function() {
+        clearTimeout(searchTimer);
+        var self = this;
+        searchTimer = setTimeout(function() {
+            loadTree(self.value.trim());
+        }, 300);
+    });
+
+    document.getElementById('itBatchZzStudent').addEventListener('click', function() {
+        showCompleteModal(1, 'student');
+    });
+
+    document.getElementById('itBatchZzIntern').addEventListener('click', function() {
+        showCompleteModal(1, 'intern');
+    });
+
+    document.getElementById('itBatchJgStudent').addEventListener('click', function() {
+        showCompleteModal(2, 'student');
+    });
+
+    document.getElementById('itBatchJgIntern').addEventListener('click', function() {
+        showCompleteModal(2, 'intern');
+    });
+
+    document.getElementById('itExportBtn').addEventListener('click', function() {
+        // 导出尊重当前搜索筛选，所见即所得
+        var kw = document.getElementById('itSearch').value.trim();
+        var url = '/api/insurance/todo/export' + (kw ? '?search=' + encodeURIComponent(kw) : '');
+        window.location.href = url;
+    });
+
+    loadTree('');
+})();
+</script>
+{% endblock %}

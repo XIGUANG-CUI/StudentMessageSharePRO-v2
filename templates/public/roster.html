@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="robots" content="noindex, nofollow">
+    <title>班级花名册</title>
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: #6366f1;
+            --success: #16a34a;
+            --success-light: #dcfce7;
+            --warning: #ea580c;
+            --warning-light: #ffedd5;
+            --text: #1e293b;
+            --text-secondary: #64748b;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --border: #e2e8f0;
+            --sidebar-w: 100px;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+                         'Microsoft YaHei', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            -webkit-font-smoothing: antialiased;
+            -webkit-tap-highlight-color: transparent;
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            color: #fff;
+            padding: 12px 16px;
+            flex-shrink: 0;
+            box-shadow: 0 2px 8px rgba(79, 70, 229, 0.2);
+        }
+        .header h1 {
+            font-size: 16px;
+            font-weight: 700;
+        }
+        .header .subtitle {
+            font-size: 11px;
+            opacity: 0.75;
+            margin-top: 2px;
+        }
+
+        .main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: var(--sidebar-w);
+            flex-shrink: 0;
+            background: var(--card-bg);
+            border-right: 1px solid var(--border);
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+        }
+        .sidebar::-webkit-scrollbar { display: none; }
+        .sidebar .inner { padding: 6px; }
+
+        .sidebar .class-btn {
+            display: block;
+            width: 100%;
+            padding: 10px 6px;
+            margin-bottom: 4px;
+            border: none;
+            border-radius: 10px;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 500;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+            -webkit-user-select: none;
+            min-height: 44px;
+            word-break: break-all;
+            line-height: 1.3;
+        }
+        .class-btn:active { background: #f1f5f9; }
+        .class-btn .count {
+            display: block;
+            font-size: 11px;
+            color: #94a3b8;
+            margin-top: 2px;
+        }
+        .class-btn.active {
+            background: var(--primary);
+            color: #fff;
+        }
+        .class-btn.active .count {
+            color: rgba(255,255,255,0.7);
+        }
+
+        .content {
+            flex: 1;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            padding: 10px 12px;
+        }
+
+        .content .panel-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 8px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid var(--border);
+        }
+        .content .panel-title .count {
+            font-size: 13px;
+            color: var(--primary);
+            font-weight: 600;
+            margin-left: 4px;
+        }
+
+        .student-card {
+            background: var(--card-bg);
+            border-radius: 10px;
+            padding: 10px 12px;
+            margin-bottom: 6px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-left: 3px solid var(--success);
+        }
+        .student-card.unregistered { border-left-color: var(--warning); }
+        .student-card .avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: 700;
+            color: #fff;
+            background: var(--success);
+        }
+        .student-card.unregistered .avatar { background: var(--warning); }
+        .student-card .info { flex: 1; min-width: 0; }
+        .student-card .info .name {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text);
+            line-height: 1.3;
+        }
+        .student-card .status-pill {
+            font-size: 11px;
+            padding: 4px 12px;
+            border-radius: 10px;
+            font-weight: 600;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .status-registered { background: var(--success-light); color: #166534; }
+        .status-unregistered { background: var(--warning-light); color: #c2410c; }
+
+        .empty-state {
+            text-align: center;
+            padding: 50px 16px;
+            color: #94a3b8;
+        }
+        .empty-state .icon { font-size: 40px; margin-bottom: 8px; }
+        .empty-state p { font-size: 14px; }
+
+        .loading-state {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        .loading-state .spinner {
+            width: 28px;
+            height: 28px;
+            border: 3px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 10px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .error-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #b91c1c;
+        }
+        .error-state button {
+            margin-top: 10px;
+            padding: 8px 20px;
+            border: none;
+            border-radius: 8px;
+            background: var(--primary);
+            color: #fff;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            min-height: 40px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>班级花名册</h1>
+        <div class="subtitle" id="headerSummary">加载中...</div>
+    </div>
+
+    <div class="main">
+        <div class="sidebar" id="sidebar">
+            <div class="inner" id="sidebarInner"></div>
+        </div>
+        <div class="content" id="content">
+            <div class="loading-state">
+                <div class="spinner"></div>
+                <span>加载中...</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    var allData = null;
+    var selectedClass = null;
+    var cacheKey = 'public_roster_cache';
+    var cacheTimeKey = 'public_roster_cache_time';
+    var CACHE_TTL_MS = 60000;
+
+    function tryCache() {
+        try {
+            var raw = localStorage.getItem(cacheKey);
+            var ts = localStorage.getItem(cacheTimeKey);
+            if (raw && ts) {
+                var age = Date.now() - parseInt(ts);
+                if (age < CACHE_TTL_MS) return JSON.parse(raw);
+            }
+        } catch(e) {}
+        return null;
+    }
+
+    function setCache(data) {
+        try {
+            localStorage.setItem(cacheKey, JSON.stringify(data));
+            localStorage.setItem(cacheTimeKey, String(Date.now()));
+        } catch(e) {}
+    }
+
+    function fetchData() {
+        var cached = tryCache();
+        if (cached) {
+            render(cached);
+            fetch('/api/public/roster?t=' + Date.now())
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.classes) {
+                        setCache(data);
+                        if (JSON.stringify(data.students) !== JSON.stringify(allData.students)) {
+                            allData = data;
+                            if (selectedClass !== null) applyFilter();
+                        }
+                    }
+                })
+                .catch(function(){});
+            return;
+        }
+
+        fetch('/api/public/roster?t=' + Date.now())
+            .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function(data) {
+                if (data.classes) {
+                    setCache(data);
+                    render(data);
+                } else {
+                    showError();
+                }
+            })
+            .catch(function() { showError(); });
+    }
+
+    function showError() {
+        document.getElementById('content').innerHTML = '<div class="error-state"><p>数据加载失败</p><button onclick="location.reload()">重新加载</button></div>';
+    }
+
+    function render(data) {
+        allData = data;
+        document.getElementById('headerSummary').textContent =
+            '在册学生（不含毕业、退学办结） | 共 ' + data.classes.length + ' 个班级, ' + data.students.length + ' 名学生';
+        buildSidebar(data.classes);
+        selectedClass = null;
+        if (data.students.length === 0) {
+            document.getElementById('content').innerHTML = '<div class="empty-state"><div class="icon">📋</div><p>暂无在册学生</p></div>';
+        } else {
+            document.getElementById('content').innerHTML = '<div class="empty-state"><div class="icon">👈</div><p>请点击左侧班级查看名单</p></div>';
+        }
+    }
+
+    function buildSidebar(classes) {
+        var html = '';
+        for (var i = 0; i < classes.length; i++) {
+            var c = classes[i];
+            html += '<button class="class-btn" data-class="' + escapeAttr(c.name) + '">' + escapeHtml(c.name) + '<span class="count">' + c.count + '人</span></button>';
+        }
+        document.getElementById('sidebarInner').innerHTML = html;
+    }
+
+    function selectClass(className, btn) {
+        selectedClass = className;
+        var buttons = document.querySelectorAll('.class-btn');
+        for (var i = 0; i < buttons.length; i++) {
+            buttons[i].classList.toggle('active', buttons[i] === btn);
+        }
+        if (btn) {
+            btn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        applyFilter();
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        document.getElementById('sidebar').addEventListener('click', function(e) {
+            var btn = e.target.closest('.class-btn');
+            if (!btn) return;
+            selectClass(btn.getAttribute('data-class'), btn);
+        });
+        fetchData();
+    });
+
+    function statusInfo(student) {
+        var st = (student.registration_status || '').trim() || '正式学籍';
+        if (st === '未注册') return { text: '未注册', cls: 'unregistered', pill: 'status-unregistered' };
+        return { text: st, cls: 'registered', pill: 'status-registered' };
+    }
+
+    function applyFilter() {
+        if (!allData) return;
+
+        if (selectedClass === null) {
+            document.getElementById('content').innerHTML = '<div class="empty-state"><div class="icon">👈</div><p>请点击左侧班级查看名单</p></div>';
+            return;
+        }
+
+        var students = allData.students.filter(function(s) {
+            return (s.admin_class || '未分班') === selectedClass;
+        });
+
+        var html = '';
+        if (students.length === 0) {
+            html = '<div class="empty-state"><div class="icon">📋</div><p>该班级暂无在册学生</p></div>';
+        } else {
+            html += '<div class="panel-title">' + escapeHtml(selectedClass) + '<span class="count">' + students.length + '人</span></div>';
+            for (var i = 0; i < students.length; i++) {
+                var s = students[i];
+                var initial = (s.name || '?').charAt(0);
+                var st = statusInfo(s);
+                html += '<div class="student-card ' + st.cls + '">' +
+                    '<div class="avatar">' + escapeHtml(initial) + '</div>' +
+                    '<div class="info">' +
+                        '<div class="name">' + escapeHtml(s.name) + '</div>' +
+                    '</div>' +
+                    '<div class="status-pill ' + st.pill + '">' + escapeHtml(st.text) + '</div>' +
+                '</div>';
+            }
+        }
+        document.getElementById('content').innerHTML = html;
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        var div = document.createElement('div');
+        div.appendChild(document.createTextNode(str));
+        return div.innerHTML;
+    }
+
+    function escapeAttr(str) {
+        if (!str) return '';
+        return str.replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    </script>
+</body>
+</html>

@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block title %}选择入学年份 - 学生数据管理系统{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-5 col-lg-4">
+        <div class="card shadow mt-5">
+            <div class="card-header bg-primary text-white text-center py-4">
+                <h4 class="mb-0">
+                    <i class="bi bi-calendar-date"></i> 选择入学年份
+                </h4>
+            </div>
+            <div class="card-body p-4">
+                <p class="text-muted text-center mb-4">
+                    请选择要操作的入学年份<br>
+                    <small>选择后将只显示该年份的学生数据</small>
+                </p>
+
+                <form id="yearSelectorForm">
+                    <div class="mb-4">
+                        <label for="yearSelect" class="form-label fw-bold">入学年份</label>
+                        <select class="form-select form-select-lg" id="yearSelect" required>
+                            <option value="">请选择年份</option>
+                            {% for year in existing_years %}
+                            <option value="{{ year }}">{{ year }} 年</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            <i class="bi bi-check-circle"></i> 确认进入
+                        </button>
+                        <a href="{{ url_for('admin.admin_year_clear') }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-globe"></i> 全校数据（不限年份）
+                        </a>
+                    </div>
+                </form>
+
+                <hr class="my-4">
+
+                <div class="text-center">
+                    <p class="text-muted mb-2">或创建新年份</p>
+                    <button type="button" class="btn btn-outline-success" id="createNewYearBtn">
+                        <i class="bi bi-plus-circle"></i> 创建新年份
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="createYearModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-calendar-plus"></i> 创建新年份
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="newYearInput" class="form-label">请输入年份</label>
+                    <input type="number" class="form-control form-control-lg" id="newYearInput"
+                           min="2000" max="2100" placeholder="如：2027" required>
+                    <div class="form-text">请输入4位数字的年份（如：2027），创建后将作为可选的入学年份。</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-success" id="confirmCreateYearBtn">
+                    <i class="bi bi-check"></i> 确认创建
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('yearSelectorForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        var year = document.getElementById('yearSelect').value;
+        if (!year) {
+            showToast('请选择入学年份', 'warning');
+            return;
+        }
+        selectYear(year);
+    });
+
+    document.getElementById('createNewYearBtn').addEventListener('click', function() {
+        var currentYear = new Date().getFullYear();
+        document.getElementById('newYearInput').value = currentYear;
+        var modal = new bootstrap.Modal(document.getElementById('createYearModal'));
+        modal.show();
+    });
+
+    document.getElementById('confirmCreateYearBtn').addEventListener('click', function() {
+        var year = document.getElementById('newYearInput').value;
+        if (!year || year < 2000 || year > 2100) {
+            showToast('请输入有效的年份（2000-2100）', 'warning');
+            return;
+        }
+
+        fetch('/api/year/create', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ year: parseInt(year) })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                var modal = bootstrap.Modal.getInstance(document.getElementById('createYearModal'));
+                modal.hide();
+                showToast(data.message, 'success');
+                selectYear(year);
+            } else {
+                showToast(data.message, 'danger');
+            }
+        })
+        .catch(function() {
+            showToast('创建年份失败，请重试', 'danger');
+        });
+    });
+
+    function selectYear(year) {
+        fetch('/api/year/select', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ year: parseInt(year) })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                window.location.href = data.redirect;
+            } else {
+                showToast(data.message, 'danger');
+            }
+        })
+        .catch(function() {
+            showToast('选择年份失败，请重试', 'danger');
+        });
+    }
+});
+</script>
+{% endblock %}

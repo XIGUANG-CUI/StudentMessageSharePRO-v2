@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+
+{% block title %}批量新增 - 学生数据管理系统{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-file-earmark-plus"></i> 批量新增</h2>
+    <a href="{{ url_for('admin.admin_students') }}" class="btn btn-secondary">
+        <i class="bi bi-arrow-left"></i> 返回列表
+    </a>
+</div>
+
+{% with _fh_type='import', _fh_title='Excel 批量导入字段说明', _fh_icon='bi-info-circle', _fh_template_url=url_for('admin.admin_import_template'), _fh_note='请先下载模板，按模板格式填写后上传。模板中表头必须与字段名完全一致。' %}
+{% include '_field_help.html' %}
+{% endwith %}
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="bi bi-download"></i> 1. 下载导入模板</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">请先下载导入模板，按照模板格式填写学生数据。</p>
+                <a href="{{ url_for('admin.admin_import_template') }}" class="btn btn-primary">
+                    <i class="bi bi-download"></i> 下载导入模板
+                </a>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="bi bi-upload"></i> 2. 上传文件</h5>
+            </div>
+            <div class="card-body">
+                <form id="uploadForm" method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <div class="mb-3">
+                        <label for="file" class="form-label">选择Excel文件</label>
+                        <input type="file" class="form-control" id="file" name="file" 
+                               accept=".xlsx,.xls" required>
+                        <div class="form-text">支持 .xlsx 和 .xls 格式，文件大小不超过10MB</div>
+                    </div>
+                    <button type="submit" class="btn btn-success" id="uploadBtn">
+                        <i class="bi bi-upload"></i> 上传并预览
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        {% if validation_results %}
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="bi bi-eye"></i> 3. 预览数据</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <span class="badge bg-success">通过: {{ validation_results | selectattr('valid') | list | length }}</span>
+                    <span class="badge bg-danger">失败: {{ validation_results | rejectattr('valid') | list | length }}</span>
+                </div>
+                
+                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                    <table class="table table-sm table-striped">
+                        <thead class="sticky-top bg-white">
+                            <tr>
+                                <th>行号</th>
+                                <th>学号</th>
+                                <th>姓名</th>
+                                <th>身份证号</th>
+                                <th>状态</th>
+                                <th>错误原因</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for result in validation_results %}
+                            <tr class="{{ 'table-danger' if not result.valid else 'table-success' }}">
+                                <td>{{ result.row }}</td>
+                                <td>{{ result.data.get('学号', '-') }}</td>
+                                <td>{{ result.data.get('学生姓名', '-') }}</td>
+                                <td>{{ result.data.get('学生身份证号', '-') }}</td>
+                                <td>
+                                    {% if result.valid %}
+                                    <i class="bi bi-check-circle-fill text-success"></i> 通过
+                                    {% else %}
+                                    <i class="bi bi-x-circle-fill text-danger"></i> 失败
+                                    {% endif %}
+                                </td>
+                                <td>{{ result.errors | join(', ') if result.errors else '-' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                
+                {% if validation_results | selectattr('valid') | list | length > 0 %}
+                <button id="importBtn" class="btn btn-primary w-100 mt-3">
+                    <i class="bi bi-check-circle"></i> 确认导入
+                </button>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- 导入进度弹窗 -->
+<div class="modal fade" id="importProgressModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-labelledby="importProgressModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="importProgressModalLabel">导入进度</h5>
+                <button type="button" class="btn-close" id="closeModalBtn" aria-label="Close" style="display: none;"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>总进度</span>
+                        <span id="progressPercent">0%</span>
+                    </div>
+                    <div class="progress">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" id="progressBar" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <span>状态:</span>
+                    <span id="importStatus" class="text-primary">准备导入...</span>
+                </div>
+                <div class="mb-2">
+                    <span>已处理:</span>
+                    <span id="processedCount">0</span> / <span id="totalCount">0</span> 条
+                </div>
+                <div class="mb-2">
+                    <span>成功:</span>
+                    <span id="successCount" class="text-success">0</span> 条
+                </div>
+                <div class="mb-2">
+                    <span>失败:</span>
+                    <span id="errorCount" class="text-danger">0</span> 条
+                </div>
+                <div id="errorMessages" class="mt-3" style="max-height: 150px; overflow-y: auto; display: none;">
+                    <h6>错误详情:</h6>
+                    <ul id="errorList" class="list-unstyled text-sm text-danger"></ul>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="cancelBtn">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 导入按钮处理
+    const importBtn = document.getElementById('importBtn');
+    if (importBtn) {
+        importBtn.addEventListener('click', function() {
+            showConfirm('确认导入通过的数据？', 'warn').then(function(result) {
+                if (!result) {
+                    return;
+                }
+            
+            const modalElement = document.getElementById('importProgressModal');
+            const modal = new bootstrap.Modal(modalElement, {
+                backdrop: 'static',
+                keyboard: false
+            });
+            modal.show();
+            
+            const progressBar = document.getElementById('progressBar');
+            const progressPercent = document.getElementById('progressPercent');
+            const importStatus = document.getElementById('importStatus');
+            const processedCount = document.getElementById('processedCount');
+            const totalCount = document.getElementById('totalCount');
+            const successCount = document.getElementById('successCount');
+            const errorCount = document.getElementById('errorCount');
+            const errorList = document.getElementById('errorList');
+            const errorMessages = document.getElementById('errorMessages');
+            const closeModalBtn = document.getElementById('closeModalBtn');
+            const cancelBtn = document.getElementById('cancelBtn');
+            
+            let progressId = null;
+            let pollInterval = null;
+            let isImporting = true;
+            
+            // 设置关闭按钮行为 - 导入过程中不允许关闭
+            cancelBtn.onclick = function() {
+                if (isImporting) {
+                    return;  // 导入过程中不允许关闭
+                }
+                if (pollInterval) {
+                    clearInterval(pollInterval);
+                }
+                modal.hide();
+            };
+            
+            // 更新状态为处理中
+            importStatus.textContent = '正在初始化...';
+            progressBar.style.width = '5%';
+            progressPercent.textContent = '5%';
+            cancelBtn.textContent = '禁止操作';  // 导入过程中显示"禁止操作"
+            
+            // 先发送导入请求获取progress_id
+            fetch('{{ url_for('admin.admin_import_confirm') }}', {
+                method: 'POST'
+            })
+            .then(function(response) { return safeJSON(response); })
+            .then(data => {
+                if (!data.success) {
+                    isImporting = false;
+                    importStatus.textContent = '导入失败: ' + data.message;
+                    importStatus.className = 'text-danger';
+                    closeModalBtn.style.display = 'block';
+                    cancelBtn.textContent = '关闭';
+                    return;
+                }
+                
+                progressId = data.progress_id;
+                
+                // 轮询获取进度
+                pollInterval = setInterval(function() {
+                    fetch('/admin/import/progress/' + progressId)
+                        .then(function(response) { return safeJSON(response); })
+                        .then(progress => {
+                            // 更新进度显示
+                            const percent = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+                            progressBar.style.width = percent + '%';
+                            progressPercent.textContent = percent + '%';
+                            
+                            totalCount.textContent = progress.total;
+                            processedCount.textContent = progress.current;
+                            successCount.textContent = progress.success;
+                            errorCount.textContent = progress.error;
+                            importStatus.textContent = progress.message;
+                            
+                            // 显示错误详情
+                            if (progress.errors && progress.errors.length > 0) {
+                                errorMessages.style.display = 'block';
+                                errorList.innerHTML = '';
+                                progress.errors.forEach(err => {
+                                    const li = document.createElement('li');
+                                    li.textContent = err;
+                                    errorList.appendChild(li);
+                                });
+                            }
+                            
+                            // 导入完成
+                            if (progress.status === 'completed') {
+                                clearInterval(pollInterval);
+                                isImporting = false;  // 导入结束，允许关闭
+                                importStatus.textContent = '导入完成！';
+                                importStatus.className = 'text-success';
+                                progressBar.classList.remove('progress-bar-animated');
+                                
+                                closeModalBtn.style.display = 'block';
+                                cancelBtn.textContent = '完成';
+                                
+                                // 2秒后跳转到学生列表页面
+                                setTimeout(() => {
+                                    window.location.href = '{{ url_for('admin.admin_students') }}';
+                                }, 2000);
+                            }
+                        })
+                        .catch(error => {
+                            console.error('轮询错误:', error);
+                        });
+                }, 500);  // 每500ms轮询一次
+            })
+            .catch(error => {
+                isImporting = false;
+                importStatus.textContent = '导入失败: ' + error.message;
+                importStatus.className = 'text-danger';
+                closeModalBtn.style.display = 'block';
+                cancelBtn.textContent = '关闭';
+            });
+        });
+    });
+    }
+});
+</script>
+{% endblock %}

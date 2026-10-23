@@ -1,0 +1,507 @@
+{% extends "base.html" %}
+{% block title %}保险审批 - 学生数据管理系统{% endblock %}
+{% block head %}
+<style>
+    .ia-layout { display: flex; gap: 16px; height: calc(100vh - 130px); }
+    .ia-left { flex: 1; overflow-y: auto; background: #fff; border-radius: 8px; border: 1px solid #dee2e6; padding: 8px; }
+    .ia-right { width: 320px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; }
+    .ia-search-box { background: #f8f9fa; border-radius: 8px; padding: 12px; border: 1px solid #dee2e6; }
+    .ia-expiry-group { margin-bottom: 10px; }
+    .ia-expiry-header { display: flex; align-items: center; padding: 8px 12px; background: #2d6a4f; color: #fff; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.88rem; user-select: none; }
+    .ia-expiry-header:hover { background: #1b4332; }
+    .ia-expiry-header .ia-toggle { margin-right: 8px; transition: transform .2s; display: inline-block; font-size: 0.75rem; }
+    .ia-expiry-header.collapsed .ia-toggle { transform: rotate(-90deg); }
+    .ia-expiry-header .ia-count { margin-left: auto; opacity: 0.85; font-size: 0.75rem; font-weight: 400; }
+    .ia-students { margin: 2px 0 0 8px; }
+    .ia-student-header { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; align-items: end; padding: 0 6px; margin-bottom: 2px; }
+    .ia-col-header { font-size: 0.7rem; color: #6c757d; font-weight: 600; padding-top: 4px; }
+    .ia-student-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; align-items: center; padding: 4px 6px; border-bottom: 1px solid #eee; font-size: 0.8rem; transition: background .15s; }
+    .ia-student-row:hover { background: #f0f4ff; }
+    .ia-student-row:last-child { border-bottom: none; }
+    .ia-col-name { font-weight: 600; color: #212529; }
+    .ia-col-class { color: #6c757d; }
+    .ia-col-idcard { font-size: 0.72rem; color: #adb5bd; font-family: monospace; }
+    .ia-chip { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; white-space: nowrap; cursor: pointer; transition: background .2s; }
+    .ia-chip-pending { background: #fff3cd; color: #856404; }
+    .ia-chip-pending:hover { background: #ffe69c; }
+    .ia-chip-done { background: #d4edda; color: #155724; }
+    .ia-chip-reject { background: #f8d7da; color: #721c24; }
+    .ia-selected-detail { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; }
+    .ia-summary-card { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px; }
+    .ia-summary-total { font-size: 0.82rem; color: #166534; margin-bottom: 6px; font-weight: 600; }
+    .ia-summary-total strong { color: #15803d; }
+    .ia-summary-school { font-size: 0.75rem; font-weight: 600; color: #14532d; margin: 4px 0 2px; }
+    .ia-summary-row { display: flex; justify-content: space-between; align-items: center; padding: 2px 6px; font-size: 0.72rem; border-radius: 4px; margin: 1px 0; }
+    .ia-summary-row.student { background: #dcfce7; color: #166534; }
+    .ia-summary-row.intern { background: #e9d5ff; color: #6b21a8; }
+    .ia-summary-row .ia-summary-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ia-summary-row .ia-summary-count { font-weight: 700; margin-left: 6px; }
+    .ia-selected-detail h6 { font-size: 0.85rem; margin-bottom: 8px; color: #2d6a4f; }
+    .ia-detail-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 0.78rem; border-bottom: 1px dotted #eee; }
+    .ia-detail-row:last-child { border-bottom: none; }
+    .ia-detail-label { color: #6c757d; }
+    .ia-detail-val { color: #212529; font-weight: 500; }
+    .ia-detail-val.mono { font-family: monospace; font-size: 0.72rem; }
+    .ia-toast { position: fixed; bottom: 20px; right: 20px; z-index: 9999; padding: 10px 18px; border-radius: 6px; color: #fff; font-size: 0.85rem; animation: iaSlideUp .3s ease; }
+    .ia-toast.success { background: #198754; }
+    .ia-toast.error { background: #dc3545; }
+    @keyframes iaSlideUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+    .modal-ia .modal-header { background: #2d6a4f; color: #fff; border-radius: 5px 5px 0 0; }
+    .modal-ia .modal-header .btn-close { filter: invert(1); }
+    .modal-ia .modal-body { font-size: 0.9rem; }
+    .modal-ia .modal-footer { border-top: none; }
+    .modal-ia .ia-modal-student { background: #f8f9fa; border-radius: 6px; padding: 10px; margin-bottom: 12px; }
+    .modal-ia .ia-modal-student .ia-modal-row { display: flex; justify-content: space-between; padding: 2px 0; font-size: 0.82rem; }
+    .modal-ia .ia-modal-student .ia-modal-label { color: #6c757d; }
+    .modal-ia .ia-modal-student .ia-modal-val { font-weight: 600; }
+
+    /* === 批量操作（Phase 2/4 共享组件） === */
+    .ia-student-row, .ia-student-header { grid-template-columns: 26px repeat(5, 1fr); }
+    .ia-cell-cb { display: flex; align-items: center; justify-content: center; }
+    .ia-batch-badge { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 10px; font-size: 0.65rem; font-weight: 600; background: #e7f1ff; color: #1c5fd6; vertical-align: middle; }
+    .ic-batch-bar { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 9000; display: none; background: #212529; color: #fff; padding: 8px 14px; border-radius: 12px; align-items: center; gap: 10px; box-shadow: 0 6px 22px rgba(0,0,0,.35); }
+    .ic-batch-bar .ic-batch-info { font-size: 0.85rem; }
+    .ic-batch-bar .ic-batch-actions { display: flex; gap: 6px; }
+    .ia-selectall-box { font-size: 0.72rem; color: #6c757d; display: flex; align-items: center; gap: 4px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h5 class="mb-0"><i class="bi bi-check2-all me-2"></i>保险审批</h5>
+    <div class="text-muted" style="font-size:0.72rem">
+        <span class="ia-chip ia-chip-pending" style="cursor:default">待审批</span>
+        <span class="ia-chip ia-chip-done" style="cursor:default;margin-left:4px">已审批</span>
+        <span class="ia-chip ia-chip-reject" style="cursor:default;margin-left:4px">已否决</span>
+        <span style="margin-left:4px">点击徽章进行审批</span>
+    </div>
+</div>
+
+<div class="ia-layout">
+    <div class="ia-left" id="iaTreeContainer">
+        <div class="text-center text-muted py-5">
+            <div class="spinner-border spinner-border-sm mb-2" role="status"></div>
+            <div>加载待审批列表…</div>
+        </div>
+    </div>
+
+    <div class="ia-right">
+        <div class="ia-search-box">
+            <label class="form-label small fw-bold mb-1"><i class="bi bi-search me-1"></i>快速搜索</label>
+            <input type="text" class="form-control form-control-sm" id="iaSearch" placeholder="学号 / 姓名 / 拼音 / 身份证号" autofocus>
+            <div class="text-muted mt-1 d-flex justify-content-between" style="font-size:0.7rem">
+                <span><span id="iaTotalCount">0</span> 名待审批学生</span>
+                <label class="ia-selectall-box mb-0"><input type="checkbox" id="iaSelectAll"> 全选本视图</label>
+            </div>
+        </div>
+
+        <div class="ia-summary-card" id="iaSummaryCard">
+            <div class="ia-summary-total" id="iaSummaryTotal">
+                <i class="bi bi-check2-circle me-1"></i>已办结学生：<strong id="iaSummaryGrandTotal">-</strong>
+            </div>
+            <div id="iaSummaryBody"></div>
+        </div>
+
+        <div class="ia-selected-detail d-none" id="iaDetail">
+            <h6><i class="bi bi-person-badge me-1"></i>已选学生信息</h6>
+            <div class="ia-detail-row"><span class="ia-detail-label">姓名</span><span class="ia-detail-val" id="iaDetailName">-</span></div>
+            <div class="ia-detail-row"><span class="ia-detail-label">班级</span><span class="ia-detail-val" id="iaDetailClass">-</span></div>
+            <div class="ia-detail-row"><span class="ia-detail-label">身份证号</span><span class="ia-detail-val mono" id="iaDetailIdcard">-</span></div>
+            <div class="ia-detail-row"><span class="ia-detail-label">学平险缴费日期</span><span class="ia-detail-val" id="iaDetailPayDate">-</span></div>
+            <div class="ia-detail-row"><span class="ia-detail-label">学平险到期</span><span class="ia-detail-val" id="iaDetailExpiry">-</span></div>
+            <div class="ia-detail-row"><span class="ia-detail-label">主管标记</span><span class="ia-detail-val" id="iaDetailFlag">-</span></div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade modal-ia" id="iaApproveModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-check2-circle me-1"></i>主管审批</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="ia-modal-student">
+                    <div class="ia-modal-row"><span class="ia-modal-label">学生</span><span class="ia-modal-val" id="iaModalName">-</span></div>
+                    <div class="ia-modal-row"><span class="ia-modal-label">班级</span><span class="ia-modal-val" id="iaModalClass">-</span></div>
+                    <div class="ia-modal-row"><span class="ia-modal-label">身份证号</span><span class="ia-modal-val" id="iaModalIdcard" style="font-family:monospace;font-size:0.75rem">-</span></div>
+                    <div class="ia-modal-row"><span class="ia-modal-label">学平险缴费日期</span><span class="ia-modal-val" id="iaModalPayDate">-</span></div>
+                    <div class="ia-modal-row"><span class="ia-modal-label">实习险缴费日期</span><span class="ia-modal-val" id="iaModalInternPayDate">-</span></div>
+                    <div class="ia-modal-row"><span class="ia-modal-label">学平险到期时间</span><span class="ia-modal-val" id="iaModalExpiry">-</span></div>
+                </div>
+                <p class="text-muted small mb-2">
+                    审批通过 → 写入「按计划办理学平险」<br>
+                    实习就业险 → 写入「按计划办理实习就业险」<br>
+                    否决 → 写入「不参保」
+                </p>
+                <div class="alert alert-warning py-2 px-2 small mb-2 d-none" id="iaModalApproveHint">
+                    <i class="bi bi-exclamation-triangle me-1"></i>请录入该生2期学平险缴费日期
+                </div>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-success" id="iaModalApprove">
+                        <i class="bi bi-check-lg"></i> 审批通过 — 按计划办理学平险
+                    </button>
+                    <button class="btn btn-purple" id="iaModalInternship" style="background:#6f42c1;color:#fff">
+                        <i class="bi bi-briefcase"></i> 审批通过 — 按计划办理实习就业险
+                    </button>
+                    <button class="btn btn-outline-danger" id="iaModalReject">
+                        <i class="bi bi-x-lg"></i> 否决 — 不参保
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">取消</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/insurance_status.js') }}"></script>
+<script src="{{ url_for('static', filename='js/insurance_common.js') }}"></script>
+<script>window.CURRENT_SCHOOL_YEAR = {{ current_school_year }};</script>
+<script>
+(function() {
+    var treeData = {};
+    var collapsedExpiry = {};
+    var selectedStudentId = null;
+    var currentStudent = null;
+    var searchTimer = null;
+    var approveModal = null;
+    var batchController = null;
+
+    document.addEventListener('DOMContentLoaded', function() {
+        approveModal = new bootstrap.Modal(document.getElementById('iaApproveModal'));
+    });
+
+    function toast(msg, type) {
+        var el = document.createElement('div');
+        el.className = 'ia-toast ' + (type || 'success');
+        el.textContent = msg;
+        document.body.appendChild(el);
+        setTimeout(function() { el.remove(); }, 2000);
+    }
+
+    function formatVal(v) { return v || ''; }
+
+    function formatDate(v) {
+        if (v === null || v === undefined) return '';
+        if (InsuranceStatus.is_external_pay(v)) return '新生默认首保';
+        if (typeof v === 'string') {
+            v = v.trim();
+            if (!v) return '';
+            // 中文日期格式 "2026年6月03日"
+            var cm = v.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日/);
+            if (cm) return cm[1] + '-' + cm[2].padStart(2, '0') + '-' + cm[3].padStart(2, '0');
+            // 标准日期格式 "YYYY-MM-DD"（兼容带时间后缀如 "2026-06-03 00:00:00"）
+            var m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+            if (m) return m[1] + '-' + m[2].padStart(2, '0') + '-' + m[3].padStart(2, '0');
+            // 斜杠日期格式 "YYYY/M/D"（中文 Excel 短日期格式）
+            var sm = v.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+            if (sm) return sm[1] + '-' + sm[2].padStart(2, '0') + '-' + sm[3].padStart(2, '0');
+            // 斜杠日期格式 "M/D/YY"（Excel 短日期格式，2 位年份）
+            var dm = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})/);
+            if (dm) return '20' + dm[3] + '-' + dm[1].padStart(2, '0') + '-' + dm[2].padStart(2, '0');
+        }
+        var num = parseFloat(v);
+        if (!isNaN(num) && num > 40000 && num < 60000) {
+            var d = new Date((num - 25569) * 86400 * 1000);
+            var y = d.getFullYear();
+            var mo = String(d.getMonth() + 1).padStart(2, '0');
+            var day = String(d.getDate()).padStart(2, '0');
+            return y + '-' + mo + '-' + day;
+        }
+        return '';
+    }
+
+    function flagChip(flag) {
+        if (!flag || flag === '') return '<span class="ia-chip ia-chip-pending">待审批</span>';
+        if (flag === InsuranceStatus.EXEMPT) return '<span class="ia-chip ia-chip-reject">不参保</span>';
+        if (flag === InsuranceStatus.PENDING_XUEPING || flag.indexOf('办结') >= 0) return '<span class="ia-chip ia-chip-done">' + flag + '</span>';
+        return '<span class="ia-chip ia-chip-pending">' + flag + '</span>';
+    }
+
+    function formatExpiryLabel(dateStr) {
+        var normalized = formatDate(dateStr);
+        if (!normalized) return '未设置到期时间';
+        try {
+            var parts = normalized.split('-');
+            if (parts.length < 3) return '未设置到期时间';
+            var y = parts[0];
+            var mo = parseInt(parts[1], 10);
+            var d = parseInt(parts[2], 10);
+            if (isNaN(mo) || isNaN(d)) return '未设置到期时间';
+            return y + '年' + mo + '月' + d + '日';
+        } catch(e) { return '未设置到期时间'; }
+    }
+
+    function loadTree(search) {
+        var params = search ? '?search=' + encodeURIComponent(search) : '';
+        fetch('/api/insurance/approve-tree' + params)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                treeData = data.tree || {};
+                renderTree();
+                updateCount();
+            });
+    }
+
+    function loadSummary() {
+        fetch('/api/insurance/approve-summary')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                document.getElementById('iaSummaryGrandTotal').textContent = data.grand_total || 0;
+                var html = '';
+                var schoolNames = {'1': '中职', '2': '技工'};
+                for (var sk in data.schools) {
+                    var s = data.schools[sk];
+                    if (s.total === 0) continue;
+                    html += '<div class="ia-summary-school">' + (schoolNames[sk] || sk) + '（' + s.total + '人）</div>';
+                    for (var i = 0; i < s.students.length; i++) {
+                        var d = s.students[i];
+                        html += '<div class="ia-summary-row student"><span class="ia-summary-label">' + d.label + '</span><span class="ia-summary-count">' + d.count + '</span></div>';
+                    }
+                    for (var i = 0; i < s.interns.length; i++) {
+                        var d = s.interns[i];
+                        html += '<div class="ia-summary-row intern"><span class="ia-summary-label">' + d.label + '</span><span class="ia-summary-count">' + d.count + '</span></div>';
+                    }
+                }
+                document.getElementById('iaSummaryBody').innerHTML = html || '<div class="text-muted" style="font-size:0.7rem">暂无办结记录</div>';
+            });
+    }
+
+    function renderTree() {
+        var container = document.getElementById('iaTreeContainer');
+        var expiries = Object.keys(treeData).sort(function(a, b) {
+            // 未设置到期时间排最后
+            var da = formatDate(a);
+            var db = formatDate(b);
+            if (!da && !db) return 0;
+            if (!da) return 1;
+            if (!db) return -1;
+            return da < db ? -1 : (da > db ? 1 : 0);
+        });
+
+        if (!expiries.length) {
+            container.innerHTML = '<div class="text-center text-muted py-5">无待审批学生（所有已缴费学生均已完成审批）</div>';
+            return;
+        }
+
+        var html = '';
+        for (var ei = 0; ei < expiries.length; ei++) {
+            var expiry = expiries[ei];
+            var students = treeData[expiry];
+            var collapsed = collapsedExpiry[expiry];
+
+            html += '<div class="ia-expiry-group">';
+            html += '<div class="ia-expiry-header' + (collapsed ? ' collapsed' : '') + '" data-expiry="' + expiry + '">';
+            html += '<span class="ia-toggle">&#9660;</span>';
+            html += formatExpiryLabel(expiry);
+            html += '<span class="ia-count">' + students.length + '人</span>';
+            html += '</div>';
+
+            if (!collapsed) {
+                html += '<div class="ia-student-header"><div></div><div class="ia-col-header">学生信息</div><div class="ia-col-header">学平险缴费日期</div><div class="ia-col-header">保费</div><div class="ia-col-header">实习险缴费日期</div><div class="ia-col-header">主管标记</div></div>';
+                html += '<div class="ia-students">';
+                for (var si = 0; si < students.length; si++) {
+                    var s = students[si];
+                    var selStyle = s.id === selectedStudentId ? ' style="background:#e7f1ff"' : '';
+                    var batchBadge = '';
+                    var g = parseInt(s.grade, 10);
+                    var en = parseInt(s.enrollment_year, 10);
+                    if (!isNaN(g)) {
+                        // 先判定类别再计算：普通(grade==enroll) / 转入(grade<enroll) / 特殊(grade>enroll)
+                        // 特殊：年级由初中毕业时间推算可能偏高；若年级超出当前学年(未来)以入学年为准，否则以年级为准
+                        var cb = null, startY;
+                        if (isNaN(en)) {
+                            startY = g;
+                        } else if (g > en) {
+                            startY = (g > window.CURRENT_SCHOOL_YEAR) ? en : g;
+                        } else {
+                            startY = g;
+                        }
+                        cb = window.CURRENT_SCHOOL_YEAR - startY + 1;
+                        if (cb >= 1 && cb <= 3) batchBadge = '<span class="ia-batch-badge">第' + cb + '年</span>';
+                    }
+                    html += '<div class="ia-student-row" data-student-id="' + s.id + '"' + selStyle + '>';
+                    html += '<div class="ia-cell-cb"><input type="checkbox" class="ic-row-cb"></div>';
+                    html += '<div><span class="ia-col-name">' + formatVal(s.name) + '</span>' + batchBadge + ' <span class="ia-col-class">' + formatVal(s.admin_class) + '</span><br><span class="ia-col-idcard">' + formatVal(s.id_card) + '</span></div>';
+                    var payExternal = InsuranceStatus.is_external_pay(s.student_insurance_pay_date);
+                    var payTxt = formatDate(s.student_insurance_pay_date) || '-';
+                    html += '<div style="font-size:0.78rem;' + (payExternal ? 'color:#868e96;font-style:italic' : 'color:#495057') + '">' + payTxt + '</div>';
+                    html += '<div style="font-size:0.8rem;color:#495057">' + (formatVal(s.insurance_premium) || '静默') + '</div>';
+                    html += '<div style="font-size:0.8rem;color:#495057">' + (formatDate(s.internship_insurance_pay_date) || '-') + '</div>';
+                    html += '<div>' + flagChip(s.supervisor_flag) + '</div>';
+                    html += '</div>';
+                }
+                html += '</div>';
+            }
+            html += '</div>';
+        }
+
+        container.innerHTML = html;
+        if (batchController) batchController.syncCheckboxes();
+    }
+
+    function updateCount() {
+        var total = 0;
+        var expiries = Object.keys(treeData);
+        for (var ei = 0; ei < expiries.length; ei++) {
+            total += treeData[expiries[ei]].length;
+        }
+        document.getElementById('iaTotalCount').textContent = total;
+    }
+
+    function findStudentById(sid) {
+        var expiries = Object.keys(treeData);
+        for (var ei = 0; ei < expiries.length; ei++) {
+            var students = treeData[expiries[ei]];
+            for (var si = 0; si < students.length; si++) {
+                if (students[si].id === sid) return students[si];
+            }
+        }
+        return null;
+    }
+
+    function doSingleAction(studentId, action) {
+        fetch('/api/insurance/approve-single', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({student_id: studentId, action: action})
+        }).then(function(r) { return r.json(); })
+          .then(function(data) {
+              if (data.error) { toast(data.error, 'error'); return; }
+              var label = action === 'approve' ? '审批通过（学平险）' : (action === 'internship' ? '审批通过（实习就业险）' : '已否决（不参保）');
+              toast(label + ' — ' + (currentStudent ? currentStudent.name : ''), 'success');
+              approveModal.hide();
+              loadTree(document.getElementById('iaSearch').value.trim());
+              loadSummary();
+          });
+    }
+
+    function showApproveModal(student) {
+        currentStudent = student;
+        document.getElementById('iaModalName').textContent = student.name || '-';
+        document.getElementById('iaModalClass').textContent = student.admin_class || '-';
+        document.getElementById('iaModalIdcard').textContent = student.id_card || '-';
+        document.getElementById('iaModalPayDate').textContent = formatDate(student.student_insurance_pay_date) || '-';
+        document.getElementById('iaModalInternPayDate').textContent = formatDate(student.internship_insurance_pay_date) || '-';
+        document.getElementById('iaModalExpiry').textContent = formatExpiryLabel(student.student_insurance_expiry);
+        var hasInternDate = student.internship_insurance_pay_date && student.internship_insurance_pay_date !== '';
+        document.getElementById('iaModalInternship').disabled = !hasInternDate;
+        var payExternal = InsuranceStatus.is_external_pay(student.student_insurance_pay_date);
+        // “按计划办理学平险”按钮是否锁定、以及锁定原因提示，均由后端 approve-tree 计算并通过
+        // xueping_locked / xueping_lock_hint 随学生数据下发（后端为唯一真源，避免前后端解析不一致）。
+        var xuepingLocked = !!student.xueping_locked;
+        document.getElementById('iaModalApprove').disabled = xuepingLocked;
+        // 否决（不参保）按钮禁用条件：已交实习就业险、或学平险已录入真实缴费日期（非空且非占位文字）。
+        // 此时该生已有参保记录，不应再被标为“不参保”。无需提示。
+        var payIsRealDate = student.student_insurance_pay_date && student.student_insurance_pay_date !== '' && !payExternal;
+        document.getElementById('iaModalReject').disabled = hasInternDate || payIsRealDate;
+        var hintEl = document.getElementById('iaModalApproveHint');
+        if (student.xueping_lock_hint) {
+            hintEl.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>' + student.xueping_lock_hint;
+            hintEl.classList.remove('d-none');
+        } else {
+            hintEl.classList.add('d-none');
+        }
+        approveModal.show();
+    }
+
+    document.getElementById('iaTreeContainer').addEventListener('click', function(e) {
+        var expHeader = e.target.closest('.ia-expiry-header');
+        if (expHeader) {
+            var expiry = expHeader.dataset.expiry;
+            collapsedExpiry[expiry] = !collapsedExpiry[expiry];
+            renderTree();
+            return;
+        }
+
+        var chip = e.target.closest('.ia-chip');
+        if (chip) {
+            var row = chip.closest('.ia-student-row');
+            if (row) {
+                var sid = parseInt(row.dataset.studentId);
+                var student = findStudentById(sid);
+                if (student) showApproveModal(student);
+            }
+            return;
+        }
+
+        var row = e.target.closest('.ia-student-row');
+        if (row && !e.target.closest('.ia-chip') && !e.target.closest('.ia-cell-cb')) {
+            var sid = parseInt(row.dataset.studentId);
+            selectedStudentId = sid;
+            var student = findStudentById(sid);
+            if (student) {
+                document.getElementById('iaDetail').classList.remove('d-none');
+                document.getElementById('iaDetailName').textContent = student.name || '-';
+                document.getElementById('iaDetailClass').textContent = student.admin_class || '-';
+                document.getElementById('iaDetailIdcard').textContent = student.id_card || '-';
+                document.getElementById('iaDetailPayDate').textContent = formatDate(student.student_insurance_pay_date) || '-';
+                document.getElementById('iaDetailExpiry').textContent = formatExpiryLabel(student.student_insurance_expiry);
+                document.getElementById('iaDetailFlag').textContent = student.supervisor_flag || '待审批';
+            }
+        }
+    });
+
+    document.getElementById('iaSearch').addEventListener('input', function() {
+        clearTimeout(searchTimer);
+        var self = this;
+        searchTimer = setTimeout(function() {
+            loadTree(self.value.trim());
+        }, 300);
+    });
+
+    // === 批量审批（Phase 4）===
+    function doBatchApprove(action, ids) {
+        if (!ids.length) return;
+        var label = action === 'approve' ? '审批通过（学平险）' : (action === 'internship' ? '审批通过（实习就业险）' : '已否决（不参保）');
+        fetch('/api/insurance/approve', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({student_ids: ids, action: action})
+        }).then(function(r) { return r.json(); })
+          .then(function(data) {
+              if (data.error) { toast(data.error, 'error'); return; }
+              toast(label + ' — 共 ' + (data.count || ids.length) + ' 人', 'success');
+              batchController.clear();
+              loadTree(document.getElementById('iaSearch').value.trim());
+              loadSummary();
+          });
+    }
+
+    batchController = InsuranceCommon.createBatchController({
+        containerId: 'iaTreeContainer',
+        rowSelector: '.ia-student-row',
+        getRowId: function (row) { return parseInt(row.dataset.studentId, 10); },
+        toolbarId: 'iaBatchBar',
+        actions: [
+            { label: '审批通过（学平险）', cls: 'btn-success', handler: function (ids) { doBatchApprove('approve', ids); } },
+            { label: '审批通过（实习就业险）', cls: 'btn-purple', style: 'background:#6f42c1;color:#fff', handler: function (ids) { doBatchApprove('internship', ids); } },
+            { label: '否决（不参保）', cls: 'btn-outline-danger', handler: function (ids) { doBatchApprove('reject', ids); } }
+        ]
+    });
+
+    document.getElementById('iaSelectAll').addEventListener('change', function() {
+        batchController.selectAllVisible(this.checked);
+    });
+
+    document.getElementById('iaModalApprove').addEventListener('click', function() {
+        if (currentStudent) doSingleAction(currentStudent.id, 'approve');
+    });
+
+    document.getElementById('iaModalInternship').addEventListener('click', function() {
+        if (currentStudent) doSingleAction(currentStudent.id, 'internship');
+    });
+
+    document.getElementById('iaModalReject').addEventListener('click', function() {
+        if (currentStudent) doSingleAction(currentStudent.id, 'reject');
+    });
+
+    loadTree('');
+    loadSummary();
+})();
+</script>
+{% endblock %}

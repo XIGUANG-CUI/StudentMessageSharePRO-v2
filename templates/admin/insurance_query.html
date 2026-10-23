@@ -1,0 +1,308 @@
+{% extends "base.html" %}
+
+{% block title %}保单查询 - 学生数据管理系统{% endblock %}
+
+{% block head %}
+<style>
+    :root {
+        --iq-primary: #2563eb;
+        --iq-primary-light: #eff6ff;
+        --iq-success: #10b981;
+        --iq-success-light: #ecfdf5;
+        --iq-warning: #f59e0b;
+        --iq-warning-light: #fffbeb;
+        --iq-danger: #ef4444;
+        --iq-gray-50: #f9fafb;
+        --iq-gray-100: #f3f4f6;
+        --iq-gray-200: #e5e7eb;
+        --iq-gray-300: #d1d5db;
+        --iq-gray-500: #6b7280;
+        --iq-gray-700: #374151;
+        --iq-gray-900: #111827;
+        --iq-radius: 14px;
+        --iq-radius-sm: 10px;
+        --iq-shadow: 0 4px 12px rgba(0,0,0,.06), 0 2px 4px rgba(0,0,0,.04);
+    }
+
+    .iq-header {
+        display: flex; align-items: center; justify-content: space-between;
+        margin-bottom: 1.5rem; flex-wrap: wrap; gap: 12px;
+    }
+    .iq-title { font-size: 1.4rem; font-weight: 700; color: var(--iq-gray-900); }
+    .iq-subtitle { font-size: .85rem; color: var(--iq-gray-500); }
+
+    /* 搜索栏 */
+    .iq-search-card {
+        background: #fff; border-radius: var(--iq-radius);
+        box-shadow: var(--iq-shadow); padding: 20px 24px; margin-bottom: 1.25rem;
+    }
+    .iq-search-row {
+        display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    }
+    .iq-search-row .form-control {
+        flex: 1; min-width: 200px; border-radius: var(--iq-radius-sm);
+        border: 1.5px solid var(--iq-gray-200);
+        padding: 10px 16px; font-size: .9rem;
+        transition: border-color .2s, box-shadow .2s;
+    }
+    .iq-search-row .form-control:focus {
+        border-color: var(--iq-primary);
+        box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+    }
+    .iq-search-row .form-control::placeholder { color: var(--iq-gray-500); }
+    .iq-btn {
+        padding: 10px 20px; border-radius: var(--iq-radius-sm);
+        font-weight: 600; font-size: .85rem; border: none; cursor: pointer;
+        transition: all .2s; white-space: nowrap;
+    }
+    .iq-btn-search {
+        background: var(--iq-primary); color: #fff;
+    }
+    .iq-btn-search:hover { background: #1d4ed8; transform: translateY(-1px); }
+    .iq-btn-reset {
+        background: var(--iq-gray-100); color: var(--iq-gray-700);
+    }
+    .iq-btn-reset:hover { background: var(--iq-gray-200); }
+
+    /* 结果计数 */
+    .iq-count-bar {
+        display: flex; align-items: center; gap: 8px; margin-bottom: 1rem;
+        font-size: .85rem; color: var(--iq-gray-500);
+    }
+    .iq-count-bar strong { color: var(--iq-primary); }
+
+    /* 表格 */
+    .iq-card {
+        background: #fff; border-radius: var(--iq-radius);
+        box-shadow: var(--iq-shadow); overflow: hidden;
+    }
+    .iq-table { width: 100%; border-collapse: collapse; }
+    .iq-table thead { background: var(--iq-gray-50); }
+    .iq-table th {
+        padding: 12px 16px; text-align: left; font-size: .78rem;
+        font-weight: 700; color: var(--iq-gray-500); text-transform: uppercase;
+        letter-spacing: .5px; border-bottom: 2px solid var(--iq-gray-200);
+        white-space: nowrap;
+    }
+    .iq-table td {
+        padding: 12px 16px; font-size: .85rem; color: var(--iq-gray-700);
+        border-bottom: 1px solid var(--iq-gray-100); vertical-align: middle;
+    }
+    .iq-table tbody tr:hover { background: var(--iq-primary-light); }
+    .iq-table .iq-name {
+        font-weight: 600; color: var(--iq-gray-900);
+    }
+    .iq-table .iq-idcard {
+        font-family: 'Courier New', monospace; font-size: .8rem;
+        letter-spacing: .5px;
+    }
+
+    /* Badge */
+    .iq-badge {
+        display: inline-block; padding: 3px 10px; border-radius: 20px;
+        font-size: .72rem; font-weight: 600;
+    }
+    .iq-badge-expired { background: #fef2f2; color: #dc2626; }
+    .iq-badge-active { background: #ecfdf5; color: #059669; }
+    .iq-badge-none { background: var(--iq-gray-100); color: var(--iq-gray-500); }
+
+    /* 空状态/加载 */
+    .iq-empty {
+        text-align: center; padding: 3rem 1.5rem; color: var(--iq-gray-500);
+    }
+    .iq-empty i { font-size: 2.5rem; color: var(--iq-gray-300); display: block; margin-bottom: .75rem; }
+    .iq-empty .iq-empty-title { font-size: 1rem; font-weight: 600; color: var(--iq-gray-700); }
+    .iq-loading {
+        text-align: center; padding: 2rem; color: var(--iq-gray-500);
+    }
+
+    /* 快捷提示 */
+    .iq-hint {
+        font-size: .78rem; color: var(--iq-gray-500); margin-top: 8px;
+        display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    }
+    .iq-hint span { display: inline-flex; align-items: center; gap: 4px; }
+    .iq-hint .bi { font-size: .85rem; }
+
+    @media (max-width: 768px) {
+        .iq-search-row { flex-direction: column; }
+        .iq-search-row .form-control { width: 100%; }
+        .iq-table { font-size: .78rem; }
+        .iq-table th, .iq-table td { padding: 8px 10px; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="iq-header">
+    <div>
+        <div class="iq-title"><i class="bi bi-shield-check me-2"></i>保单查询</div>
+        <div class="iq-subtitle">查询学生学平险保单信息，支持姓名、姓名拼音、身份证号码搜索</div>
+    </div>
+</div>
+
+<!-- 搜索卡片 -->
+<div class="iq-search-card">
+    <div class="iq-search-row">
+        <input type="text" id="iqKeyword" class="form-control"
+               placeholder="输入姓名 / 姓名拼音 / 身份证号码..."
+               autofocus>
+        <button class="iq-btn iq-btn-search" onclick="doSearch()">
+            <i class="bi bi-search me-1"></i>搜索
+        </button>
+        <button class="iq-btn iq-btn-reset" onclick="resetSearch()">
+            <i class="bi bi-x-circle me-1"></i>重置
+        </button>
+    </div>
+    <div class="iq-hint">
+        <span><i class="bi bi-info-circle"></i> 输入姓名支持模糊匹配</span>
+        <span><i class="bi bi-pin-map"></i> 输入拼音自动匹配（如 zhang san）</span>
+        <span><i class="bi bi-credit-card"></i> 18位数字自动识别为身份证号精确匹配</span>
+    </div>
+</div>
+
+<!-- 结果区域 -->
+<div id="iqResultArea">
+    <div class="iq-empty">
+        <i class="bi bi-search"></i>
+        <div class="iq-empty-title">输入搜索条件开始查询</div>
+        <div>支持姓名、姓名拼音、身份证号三种方式搜索保单信息</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    var _abortController = null;
+
+    /* 身份证号脱敏：显示前6位 + **** + 后4位 */
+    function maskIdCard(val) {
+        if (!val || val.length < 10) return val || '-';
+        return val.slice(0, 6) + '****' + val.slice(-4);
+    }
+
+    /* 多格式日期解析：兼容 2026-03-01 / 2026/3/1 / 2026.3.1 / 2026年3月1日 / 20260301
+       返回时间戳（毫秒）；无法解析返回 null —— 避免历史斜杠格式被字符串比较误判 */
+    function parseDate(str) {
+        if (str === null || str === undefined) return null;
+        var s = String(str).trim()
+            .replace(/[./年月]/g, '-')   // 统一分隔符
+            .replace(/日/g, '')          // 去「日」字
+            .replace(/-+/g, '-')         // 折叠多余连字符
+            .replace(/^-+|-+$/g, '');    // 去首尾连字符
+        if (!s) return null;
+        var m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+        if (m) {
+            var y = +m[1], mo = +m[2] - 1, d = +m[3];
+            if (mo < 0 || mo > 11 || d < 1 || d > 31) return null;
+            var t = new Date(y, mo, d).getTime();
+            if (isNaN(t)) return null;
+            // 回环校验：拒绝溢出日期（如 02-30 被 JS 自动滚成 03-02）
+            var chk = new Date(t);
+            if (chk.getFullYear() !== y || chk.getMonth() !== mo || chk.getDate() !== d) return null;
+            return t;
+        }
+        var m2 = s.match(/^(\d{8})$/);   // YYYYMMDD
+        if (m2) {
+            var y2 = +s.slice(0, 4), mo2 = +s.slice(4, 6) - 1, d2 = +s.slice(6, 8);
+            if (mo2 < 0 || mo2 > 11 || d2 < 1 || d2 > 31) return null;
+            var t2 = new Date(y2, mo2, d2).getTime();
+            if (isNaN(t2)) return null;
+            var chk2 = new Date(t2);
+            if (chk2.getFullYear() !== y2 || chk2.getMonth() !== mo2 || chk2.getDate() !== d2) return null;
+            return t2;
+        }
+        return null;
+    }
+
+    /* 当天 00:00（本地时区）时间戳，用于「是否已到期」判断 */
+    function startOfToday() {
+        var n = new Date();
+        return new Date(n.getFullYear(), n.getMonth(), n.getDate()).getTime();
+    }
+
+    /* Enter 键触发搜索 */
+    document.getElementById('iqKeyword').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') doSearch();
+    });
+
+    window.doSearch = function() {
+        var keyword = document.getElementById('iqKeyword').value.trim();
+        var area = document.getElementById('iqResultArea');
+
+        if (_abortController) _abortController.abort();
+        _abortController = new AbortController();
+
+        area.innerHTML = '<div class="iq-loading"><div class="spinner-border text-primary mb-2" role="status"></div><div>正在查询保单信息…</div></div>';
+
+        var params = new URLSearchParams();
+        if (keyword) params.set('keyword', keyword);
+
+        fetch('/api/insurance/query?' + params.toString(), {
+            signal: _abortController.signal
+        })
+        .then(function(r) {
+            if (!r.ok) throw new Error('查询失败');
+            return r.json();
+        })
+        .then(function(data) {
+            if (!data.students || data.students.length === 0) {
+                area.innerHTML = '<div class="iq-empty"><i class="bi bi-inbox"></i><div class="iq-empty-title">未找到匹配的保单信息</div><div>请尝试更换搜索条件或检查输入是否正确</div></div>';
+                return;
+            }
+
+            var html = '<div class="iq-count-bar"><i class="bi bi-check-circle-fill text-success"></i>共找到 <strong>' + data.count + '</strong> 条保单记录</div>';
+            html += '<div class="iq-card"><div class="table-responsive"><table class="iq-table"><thead><tr>';
+            html += '<th>姓名</th><th>身份证号码</th><th>班级</th><th>年级</th><th>保单号</th><th>保险到期时间</th><th>缴费日期</th><th>主管标记</th>';
+            html += '</tr></thead><tbody>';
+
+            data.students.forEach(function(s) {
+                var expiry = s.student_insurance_expiry || '';
+                var expiryBadge = '';
+                if (!expiry) {
+                    expiryBadge = '<span class="iq-badge iq-badge-none">未登记</span>';
+                } else {
+                    var expTs = parseDate(expiry);
+                    if (expTs === null) {
+                        // 无法解析的格式：中性展示，不误判为「有效」或「已过期」
+                        expiryBadge = '<span class="iq-badge iq-badge-none"><i class="bi bi-question-circle me-1"></i>' + expiry + '（格式异常）</span>';
+                    } else if (expTs < startOfToday()) {
+                        expiryBadge = '<span class="iq-badge iq-badge-expired"><i class="bi bi-exclamation-triangle me-1"></i>' + expiry + '</span>';
+                    } else {
+                        expiryBadge = '<span class="iq-badge iq-badge-active"><i class="bi bi-check-circle me-1"></i>' + expiry + '</span>';
+                    }
+                }
+
+                var insuranceNo = s.student_insurance_no || '<span class="text-muted">-</span>';
+                var payDate = s.student_insurance_pay_date || '-';
+                var supervisorFlag = s.supervisor_flag || '-';
+
+                html += '<tr>';
+                html += '<td><span class="iq-name">' + (s.name || '-') + '</span></td>';
+                html += '<td><span class="iq-idcard">' + maskIdCard(s.id_card) + '</span></td>';
+                html += '<td>' + (s.admin_class || '-') + '</td>';
+                html += '<td>' + (s.grade || '-') + '</td>';
+                html += '<td>' + insuranceNo + '</td>';
+                html += '<td>' + expiryBadge + '</td>';
+                html += '<td>' + payDate + '</td>';
+                html += '<td>' + supervisorFlag + '</td>';
+                html += '</tr>';
+            });
+
+            html += '</tbody></table></div></div>';
+            area.innerHTML = html;
+        })
+        .catch(function(err) {
+            if (err.name === 'AbortError') return;
+            area.innerHTML = '<div class="iq-empty"><i class="bi bi-exclamation-triangle text-danger"></i><div class="iq-empty-title">查询失败</div><div>' + err.message + '</div></div>';
+        });
+    };
+
+    window.resetSearch = function() {
+        document.getElementById('iqKeyword').value = '';
+        document.getElementById('iqResultArea').innerHTML = '<div class="iq-empty"><i class="bi bi-search"></i><div class="iq-empty-title">输入搜索条件开始查询</div><div>支持姓名、姓名拼音、身份证号三种方式搜索保单信息</div></div>';
+    };
+})();
+</script>
+{% endblock %}

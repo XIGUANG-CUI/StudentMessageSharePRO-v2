@@ -1,0 +1,520 @@
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background-color: #f8f9fa;
+}
+
+.footer {
+    margin-top: 2rem;
+    padding: 1rem 0;
+    background-color: #f8f9fa;
+    border-top: 1px solid #dee2e6;
+}
+
+.card {
+    border: none;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    margin-bottom: 1rem;
+}
+
+.card-header {
+    background-color: #fff;
+    border-bottom: 1px solid #dee2e6;
+    font-weight: 500;
+}
+
+.table {
+    margin-bottom: 0;
+}
+
+.table th {
+    font-weight: 500;
+    background-color: #f8f9fa;
+}
+
+.badge {
+    font-weight: 500;
+}
+
+.btn {
+    font-weight: 500;
+}
+
+.navbar-brand {
+    font-weight: 600;
+}
+
+.form-label {
+    font-weight: 500;
+    color: #495057;
+}
+
+.sticky-top {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.pagination {
+    margin-bottom: 0;
+}
+
+.progress {
+    height: 1.5rem;
+    background-color: #e9ecef;
+}
+
+.progress-bar {
+    font-weight: 500;
+}
+
+.modal-content {
+    border: none;
+    border-radius: 0.5rem;
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+.modal-header {
+    border-bottom: 1px solid #dee2e6;
+}
+
+.modal-footer {
+    border-top: 1px solid #dee2e6;
+}
+
+.form-control:focus,
+.form-select:focus {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+.btn-link {
+    text-decoration: none;
+}
+
+.btn-link:hover {
+    text-decoration: underline;
+}
+
+.text-danger {
+    color: #dc3545 !important;
+}
+
+#toastContainer {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-width: 400px;
+    pointer-events: none;
+}
+
+#toastContainer .toast-item {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    color: #fff;
+    font-size: 0.9rem;
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.2);
+    animation: toastSlideIn 0.3s ease-out;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    cursor: pointer;
+}
+
+#toastContainer .toast-item.toast-success {
+    background: linear-gradient(135deg, #28a745, #20c997);
+}
+
+#toastContainer .toast-item.toast-danger {
+    background: linear-gradient(135deg, #dc3545, #e74c3c);
+}
+
+#toastContainer .toast-item.toast-warning {
+    background: linear-gradient(135deg, #ffc107, #fd7e14);
+    color: #212529;
+}
+
+#toastContainer .toast-item.toast-info {
+    background: linear-gradient(135deg, #17a2b8, #0dcaf0);
+}
+
+#toastContainer .toast-item.toast-removing {
+    opacity: 0;
+    transform: translateX(100%);
+}
+
+#toastContainer .toast-item .toast-icon {
+    margin-right: 0.5rem;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+
+#toastContainer .toast-item .toast-msg {
+    flex: 1;
+    line-height: 1.4;
+}
+
+#toastContainer .toast-item .toast-close {
+    margin-left: 0.75rem;
+    background: none;
+    border: none;
+    color: inherit;
+    opacity: 0.7;
+    cursor: pointer;
+    font-size: 1.1rem;
+    padding: 0;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+#toastContainer .toast-item .toast-close:hover {
+    opacity: 1;
+}
+
+@keyframes toastSlideIn {
+    from {
+        opacity: 0;
+        transform: translateX(100%);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+#confirmModal .modal-dialog {
+    max-width: 420px;
+}
+
+#confirmModal .confirm-icon {
+    font-size: 2.5rem;
+    margin-bottom: 0.5rem;
+}
+
+#confirmModal .confirm-icon.warn {
+    color: #ffc107;
+}
+
+#confirmModal .confirm-icon.danger {
+    color: #dc3545;
+}
+
+#confirmModal .confirm-message {
+    font-size: 1rem;
+    color: #495057;
+    line-height: 1.6;
+    white-space: pre-line;
+}
+
+@media (max-width: 768px) {
+    .container-fluid {
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
+    }
+    
+    .card {
+        margin-bottom: 0.75rem;
+    }
+    
+    .table-responsive {
+        font-size: 0.875rem;
+    }
+
+    #toastContainer {
+        left: 0.5rem;
+        right: 0.5rem;
+        max-width: none;
+    }
+}
+
+/* 导入/导出字段帮助面板 */
+.fh-panel { border: 1px solid #e0e0e0; border-radius: 10px; margin-bottom: 1rem; background: #fafbfc; }
+.fh-panel .fh-trigger { 
+    display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer;
+    font-weight: 600; font-size: .9rem; color: #555; user-select: none;
+    border-radius: 10px;
+}
+.fh-panel .fh-trigger:hover { background: #f0f2f5; }
+.fh-panel .fh-trigger .fh-icon { font-size: 1rem; transition: transform .2s; }
+.fh-panel.open .fh-trigger .fh-icon { transform: rotate(90deg); }
+.fh-panel .fh-body { display: none; padding: 0 14px 14px; }
+.fh-panel.open .fh-body { display: block; }
+.fh-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.fh-tag {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: .75rem; font-family: monospace; background: #e8ecf1; color: #333;
+}
+.fh-tag.req { background: #fee2e2; color: #dc2626; }
+.fh-tag.auto { background: #ecfdf5; color: #059669; }
+.fh-tag.ins { background: #fef3c7; color: #92400e; }
+.fh-tag-dimmed { background: #f3f4f6; color: #9ca3af; text-decoration: line-through; cursor: help; }
+.fh-note { font-size: .78rem; color: #888; margin-top: 8px; line-height: 1.5; }
+.fh-note strong { color: #555; }
+
+@media print {
+    body * {
+        visibility: hidden;
+    }
+    #classComparisonCard,
+    #classComparisonCard *,
+    #classComparisonDetailPrint,
+    #classComparisonDetailPrint * {
+        visibility: visible;
+    }
+    body.printing-card[data-print-id="adminClassDistCard"] #adminClassDistCard,
+    body.printing-card[data-print-id="adminClassDistCard"] #adminClassDistCard *,
+    body.printing-card[data-print-id="virtualClassDistCard"] #virtualClassDistCard,
+    body.printing-card[data-print-id="virtualClassDistCard"] #virtualClassDistCard * {
+        visibility: visible;
+    }
+    body.printing-card #classComparisonCard,
+    body.printing-card #classComparisonCard * {
+        visibility: hidden;
+    }
+    body.printing-card #classComparisonDetailPrint,
+    body.printing-card #classComparisonDetailPrint * {
+        visibility: hidden;
+    }
+    #classComparisonCard {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        border: none !important;
+        box-shadow: none !important;
+        font-size: 11px;
+    }
+    #classComparisonCard .btn,
+    #classComparisonCard .no-print {
+        display: none !important;
+    }
+    #classComparisonCard .table-responsive {
+        max-height: none !important;
+        overflow-y: visible !important;
+    }
+    #classComparisonCard thead.sticky-top {
+        position: static !important;
+    }
+    #classComparisonCard .card-body {
+        padding: 0 !important;
+    }
+    #classComparisonCard .card-header {
+        padding: 3px 6px !important;
+    }
+    #classComparisonCard h6 {
+        font-size: 12px !important;
+    }
+    #classComparisonCard .badge {
+        font-size: 10px !important;
+        padding: 1px 5px !important;
+    }
+    #classComparisonCard td,
+    #classComparisonCard th {
+        padding: 2px 4px !important;
+        font-size: 11px;
+        page-break-inside: avoid;
+        break-inside: avoid;
+    }
+    #classComparisonCard tr {
+        page-break-inside: avoid;
+        break-inside: avoid;
+    }
+    #classComparisonCard .card {
+        color: #000 !important;
+    }
+    #classComparisonCard .card-header {
+        color: #000 !important;
+        background: #fff !important;
+        border-bottom: 2px solid #000 !important;
+    }
+    #classComparisonCard h6 {
+        color: #000 !important;
+    }
+    #classComparisonCard table,
+    #classComparisonCard th,
+    #classComparisonCard td {
+        color: #000 !important;
+        background: #fff !important;
+        border-color: #000 !important;
+    }
+    #classComparisonCard thead.table-light {
+        background: #fff !important;
+    }
+    #classComparisonCard thead th {
+        color: #000 !important;
+        background: #e0e0e0 !important;
+    }
+    #classComparisonCard .bg-primary {
+        background: #fff !important;
+        color: #000 !important;
+    }
+    #classComparisonCard .bg-primary.bg-opacity-10 {
+        background: #fff !important;
+    }
+    #classComparisonCard .bg-body-tertiary {
+        background: #fff !important;
+    }
+    #classComparisonCard .bg-opacity-10 {
+        background: #fff !important;
+    }
+    #classComparisonCard .text-primary {
+        color: #000 !important;
+    }
+    #classComparisonCard .fw-bold {
+        font-weight: 700 !important;
+    }
+    #classComparisonCard .badge {
+        color: #000 !important;
+        background: #fff !important;
+        border: none !important;
+    }
+    #classComparisonCard .badge.bg-primary {
+        color: #000 !important;
+        background: #fff !important;
+        border: none !important;
+    }
+    #classComparisonCard .rounded-pill {
+        border-radius: 0 !important;
+    }
+    #classComparisonCard .border-2 {
+        border-width: 1px !important;
+    }
+    #classComparisonCard .border-secondary-subtle,
+    #classComparisonCard .border-primary {
+        border-color: #000 !important;
+    }
+    body.printing-card #adminClassDistCard,
+    body.printing-card #virtualClassDistCard {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        border: none !important;
+        box-shadow: none !important;
+        font-size: 11px;
+    }
+    body.printing-card #adminClassDistCard .btn,
+    body.printing-card #adminClassDistCard .no-print,
+    body.printing-card #virtualClassDistCard .btn,
+    body.printing-card #virtualClassDistCard .no-print {
+        display: none !important;
+    }
+    body.printing-card #adminClassDistCard .table-responsive,
+    body.printing-card #virtualClassDistCard .table-responsive {
+        max-height: none !important;
+        overflow-y: visible !important;
+    }
+    body.printing-card #adminClassDistCard thead.sticky-top,
+    body.printing-card #virtualClassDistCard thead.sticky-top {
+        position: static !important;
+    }
+    body.printing-card #adminClassDistCard .card-body,
+    body.printing-card #virtualClassDistCard .card-body {
+        padding: 0 !important;
+    }
+    body.printing-card #adminClassDistCard .card-header,
+    body.printing-card #virtualClassDistCard .card-header {
+        padding: 3px 6px !important;
+        color: #000 !important;
+        background: #fff !important;
+        border-bottom: 2px solid #000 !important;
+    }
+    body.printing-card #adminClassDistCard h6,
+    body.printing-card #virtualClassDistCard h6 {
+        font-size: 12px !important;
+        color: #000 !important;
+    }
+    body.printing-card #adminClassDistCard table,
+    body.printing-card #adminClassDistCard th,
+    body.printing-card #adminClassDistCard td,
+    body.printing-card #virtualClassDistCard table,
+    body.printing-card #virtualClassDistCard th,
+    body.printing-card #virtualClassDistCard td {
+        padding: 2px 4px !important;
+        font-size: 11px;
+        color: #000 !important;
+        background: #fff !important;
+        border: 1px solid #000 !important;
+        page-break-inside: avoid;
+        break-inside: avoid;
+    }
+    body.printing-card #adminClassDistCard tr,
+    body.printing-card #virtualClassDistCard tr {
+        page-break-inside: avoid;
+        break-inside: avoid;
+    }
+    body.printing-card #adminClassDistCard thead th,
+    body.printing-card #virtualClassDistCard thead th {
+        color: #000 !important;
+        background: #e0e0e0 !important;
+    }
+    body.printing-card #adminClassDistCard .table-light,
+    body.printing-card #virtualClassDistCard .table-light {
+        background: #fff !important;
+    }
+    body.printing-card #adminClassDistCard tfoot,
+    body.printing-card #virtualClassDistCard tfoot,
+    body.printing-card #adminClassDistCard tfoot tr,
+    body.printing-card #virtualClassDistCard tfoot tr,
+    body.printing-card #adminClassDistCard tfoot td,
+    body.printing-card #virtualClassDistCard tfoot td,
+    body.printing-card #adminClassDistCard tfoot th,
+    body.printing-card #virtualClassDistCard tfoot th {
+        color: #000 !important;
+        background: #e0e0e0 !important;
+        font-weight: 700 !important;
+    }
+    body.printing-card #adminClassDistCard .table-info,
+    body.printing-card #virtualClassDistCard .table-info {
+        color: #000 !important;
+        background: #e0e0e0 !important;
+    }
+    body.printing-card #adminClassDistCard .table-striped > tbody > tr:nth-of-type(odd) td,
+    body.printing-card #virtualClassDistCard .table-striped > tbody > tr:nth-of-type(odd) td {
+        background: #fff !important;
+        border: 1px solid #000 !important;
+    }
+    body.printing-card #adminClassDistCard .rounded-pill,
+    body.printing-card #virtualClassDistCard .rounded-pill {
+        border-radius: 0 !important;
+    }
+    #classComparisonDetailPrint {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        padding: 0.6cm;
+        font-size: 10px;
+        line-height: 1.4;
+    }
+    #classComparisonDetailPrint h2 {
+        font-size: 14px !important;
+        margin: 0 0 3px 0 !important;
+    }
+    #classComparisonDetailPrint h3 {
+        font-size: 12px !important;
+        margin: 0 0 3px 0 !important;
+    }
+    #classComparisonDetailPrint p {
+        margin: 0 0 3px 0 !important;
+    }
+    #classComparisonDetailPrint .detail-group {
+        border: 1px solid #000 !important;
+        margin-bottom: 6px !important;
+        padding: 4px 6px !important;
+        page-break-inside: avoid;
+        break-inside: avoid;
+    }
+    #classComparisonDetailPrint .detail-sub {
+        margin-bottom: 3px !important;
+        padding-left: 10px !important;
+    }
+    @page {
+        size: A4 portrait;
+        margin: 0.6cm;
+    }
+}

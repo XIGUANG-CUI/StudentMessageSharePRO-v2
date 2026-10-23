@@ -1,0 +1,382 @@
+{% extends "base.html" %}
+
+{% block title %}字典管理 - 学生数据管理系统{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2><i class="bi bi-book"></i> 字典管理</h2>
+        <p class="text-muted mb-0">管理系统字典数据，用于学生信息的选项</p>
+    </div>
+    <div class="d-flex gap-2">
+        <button class="btn btn-primary" id="addDictBtn">
+            <i class="bi bi-plus-circle"></i> 添加字典项
+        </button>
+        <button class="btn btn-success" id="importDictBtn">
+            <i class="bi bi-upload"></i> 批量导入
+        </button>
+        <button class="btn btn-info" id="exportDictBtn">
+            <i class="bi bi-download"></i> 导出
+        </button>
+        <button class="btn btn-outline-secondary" id="refreshDictBtn">
+            <i class="bi bi-arrow-clockwise"></i> 刷新
+        </button>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-6">
+        {% with _fh_type='import', _fh_title='字典批量导入说明', _fh_icon='bi-upload', _fh_template_url='#', _fh_fields=['dict_type','dict_value'], _fh_note='Excel 模板包含两列：dict_type（字典类型）和 dict_value（字典值）。同一 type 下 value 不可重复。下载模板后填写上传即可。' %}
+        {% include '_field_help.html' %}
+        {% endwith %}
+    </div>
+    <div class="col-md-6">
+        {% with _fh_type='export', _fh_title='字典数据导出说明', _fh_icon='bi-download',
+            _fh_fields=['dict_type','dict_value'],
+            _fh_note='导出所有字典类型及对应值的完整列表（Excel 格式），不含自动生成的入学年份类型。' %}
+        {% include '_field_help.html' %}
+        {% endwith %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">字典列表</h5>
+        <div class="d-flex align-items-center gap-2">
+            <input type="text" class="form-control form-control-sm" style="width:200px;" id="dictSearch" placeholder="搜索字典类型或值...">
+            <select class="form-select form-select-sm" style="width:auto;" id="dictTypeFilter">
+                <option value="">全部类型</option>
+            </select>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>字典类型</th>
+                        <th>字典值</th>
+                        <th>创建时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="dictsTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="dictFormModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">添加字典项</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="dictForm">
+                    <div class="mb-3">
+                        <label for="dictTypeSelect" class="form-label">字典类型 *</label>
+                        <select class="form-select" id="dictTypeSelect" required>
+                            <option value="">请选择字典类型</option>
+                            <option value="custom">自定义类型</option>
+                        </select>
+                        <input type="text" class="form-control mt-2 d-none" id="dictTypeCustom" placeholder="请输入自定义字典类型">
+                    </div>
+                    <div class="mb-3">
+                        <label for="dictValue" class="form-label">字典值 *</label>
+                        <input type="text" class="form-control" id="dictValue" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="saveDictBtn">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="importDictModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">批量导入字典</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="importDictForm">
+                    <div class="mb-3">
+                        <label for="dictFile" class="form-label">选择Excel文件</label>
+                        <input type="file" class="form-control" id="dictFile" accept=".xlsx,.xls" required>
+                        <div class="form-text">
+                            文件必须包含dict_type和dict_value两列。<br>
+                            <a href="/api/dicts/template" class="btn btn-sm btn-outline-primary mt-2">
+                                <i class="bi bi-download"></i> 下载导入模板
+                            </a>
+                        </div>
+                    </div>
+                    <div class="alert alert-info">
+                        <strong>Excel格式要求：</strong>
+                        <ul class="mb-0">
+                            <li>第一行必须是列标题：dict_type, dict_value</li>
+                            <li>dict_type：字典类型（如 nation, major）</li>
+                            <li>dict_value：字典值（如 汉族）</li>
+                        </ul>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="confirmImportBtn">开始导入</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="deleteConfirmModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">确认删除</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>确定要删除这个字典项吗？</p>
+                <input type="hidden" id="deleteDictId">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteBtn">确认删除</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var addModal = null;
+var importModal = null;
+var deleteModal = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    addModal = new bootstrap.Modal(document.getElementById('dictFormModal'));
+    importModal = new bootstrap.Modal(document.getElementById('importDictModal'));
+    deleteModal = new bootstrap.Modal(document.getElementById('deleteConfirmModal'));
+
+    loadDicts();
+    loadDictTypes();
+
+    document.getElementById('addDictBtn').addEventListener('click', function() {
+        document.getElementById('dictForm').reset();
+        document.getElementById('dictTypeSelect').value = '';
+        document.getElementById('dictTypeCustom').classList.add('d-none');
+        document.getElementById('dictTypeCustom').value = '';
+        addModal.show();
+    });
+
+    document.getElementById('importDictBtn').addEventListener('click', function() {
+        document.getElementById('importDictForm').reset();
+        importModal.show();
+    });
+
+    document.getElementById('refreshDictBtn').addEventListener('click', function() {
+        document.getElementById('dictSearch').value = '';
+        loadDicts();
+    });
+
+    document.getElementById('dictTypeFilter').addEventListener('change', function() {
+        loadDicts(this.value, document.getElementById('dictSearch').value.trim());
+    });
+
+    var searchTimer = null;
+    document.getElementById('dictSearch').addEventListener('input', function() {
+        clearTimeout(searchTimer);
+        var self = this;
+        searchTimer = setTimeout(function() {
+            loadDicts(document.getElementById('dictTypeFilter').value, self.value);
+        }, 300);
+    });
+
+    document.getElementById('dictTypeSelect').addEventListener('change', function() {
+        var custom = document.getElementById('dictTypeCustom');
+        if (this.value === 'custom') {
+            custom.classList.remove('d-none');
+        } else {
+            custom.classList.add('d-none');
+            custom.value = '';
+        }
+    });
+
+    document.getElementById('saveDictBtn').addEventListener('click', function() {
+        var dictTypeSelect = document.getElementById('dictTypeSelect');
+        var dictType = dictTypeSelect.value === 'custom'
+            ? document.getElementById('dictTypeCustom').value.trim()
+            : dictTypeSelect.value.trim();
+        var dictValue = document.getElementById('dictValue').value.trim();
+
+        if (!dictType || !dictValue) {
+            showToast('字典类型和值不能为空', 'danger');
+            return;
+        }
+
+        fetch('/api/dicts', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({dict_type: dictType, dict_value: dictValue})
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    showToast('字典项创建成功', 'success');
+                    addModal.hide();
+                    reloadDicts();
+                    loadDictTypes();
+                } else {
+                    showToast(data.message, 'danger');
+                }
+            });
+    });
+
+    document.getElementById('confirmImportBtn').addEventListener('click', function() {
+        var fileInput = document.getElementById('dictFile');
+        if (!fileInput.files.length) {
+            showToast('请选择要导入的文件', 'danger');
+            return;
+        }
+
+        var btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 导入中...';
+
+        var formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+
+        fetch('/api/dicts/batch', {
+            method: 'POST',
+            body: formData
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    importModal.hide();
+                    reloadDicts();
+                    loadDictTypes();
+                } else {
+                    showToast(data.message, 'danger');
+                }
+            })
+            .finally(function() {
+                btn.disabled = false;
+                btn.textContent = '开始导入';
+            });
+    });
+
+    document.getElementById('exportDictBtn').addEventListener('click', function() {
+        window.location.href = '/api/dicts/export';
+    });
+
+    document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+        var dictId = document.getElementById('deleteDictId').value;
+        fetch('/api/dicts/' + dictId, {method: 'DELETE'})
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    showToast('字典项删除成功', 'success');
+                    deleteModal.hide();
+                    reloadDicts();
+                    loadDictTypes();
+                } else {
+                    showToast(data.message, 'danger');
+                }
+            });
+    });
+
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.delete-dict-btn');
+        if (btn) {
+            document.getElementById('deleteDictId').value = btn.getAttribute('data-id');
+            deleteModal.show();
+        }
+    });
+});
+
+function loadDicts(dictType, search) {
+    var url = '/api/dicts';
+    var params = [];
+    if (dictType) params.push('type=' + encodeURIComponent(dictType));
+    if (search) params.push('search=' + encodeURIComponent(search));
+    if (params.length) url += '?' + params.join('&');
+
+    fetch(url)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) renderTable(data.dicts);
+        });
+}
+
+function reloadDicts() {
+    var filter = document.getElementById('dictTypeFilter');
+    var search = document.getElementById('dictSearch');
+    loadDicts(filter.value, search.value.trim());
+}
+
+function loadDictTypes() {
+    fetch('/api/dicts/types')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.success) return;
+            var types = data.types;
+
+            var filterSelect = document.getElementById('dictTypeFilter');
+            filterSelect.querySelectorAll('option:not(:first-child)').forEach(function(o) { o.remove(); });
+            types.forEach(function(t) {
+                var opt = document.createElement('option');
+                opt.value = t;
+                opt.textContent = t;
+                filterSelect.appendChild(opt);
+            });
+
+            var typeSelect = document.getElementById('dictTypeSelect');
+            typeSelect.querySelectorAll('option:not(:first-child):not([value="custom"])').forEach(function(o) { o.remove(); });
+            types.forEach(function(t) {
+                var opt = document.createElement('option');
+                opt.value = t;
+                opt.textContent = t;
+                typeSelect.insertBefore(opt, typeSelect.querySelector('[value="custom"]'));
+            });
+        });
+}
+
+function renderTable(dicts) {
+    var tbody = document.getElementById('dictsTableBody');
+    tbody.innerHTML = '';
+
+    if (!dicts || dicts.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">暂无字典数据</td></tr>';
+        return;
+    }
+
+    dicts.forEach(function(d) {
+        var row = document.createElement('tr');
+        row.innerHTML =
+            '<td>' + d.id + '</td>' +
+            '<td><span class="badge bg-info">' + escapeHtml(d.dict_type) + '</span></td>' +
+            '<td>' + escapeHtml(d.dict_value) + '</td>' +
+            '<td>' + (d.create_time || '-') + '</td>' +
+            '<td><button class="btn btn-sm btn-outline-danger delete-dict-btn" data-id="' + d.id + '">' +
+            '<i class="bi bi-trash"></i> 删除</button></td>';
+        tbody.appendChild(row);
+    });
+}
+
+function escapeHtml(str) {
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+</script>
+{% endblock %}

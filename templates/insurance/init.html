@@ -1,0 +1,346 @@
+{% extends "base.html" %}
+{% block title %}保险初始化导入 - 学生数据管理系统{% endblock %}
+{% block head %}
+<style>
+    .ii-card { max-width: 800px; margin: 0 auto; }
+    .ii-upload-zone { border: 2px dashed #adb5bd; border-radius: 8px; padding: 40px; text-align: center; cursor: pointer; transition: border-color .2s; }
+    .ii-upload-zone:hover { border-color: #0d6efd; }
+    .ii-result { margin-top: 16px; }
+    .ii-error-list { max-height: 200px; overflow-y: auto; font-size: 0.85rem; }
+    .ii-summary { font-size: 0.8rem; }
+    .ii-summary .badge { font-size: 0.75rem; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="ii-card">
+    {% with _fh_type='import', _fh_title='保险数据导入字段说明', _fh_icon='bi-shield-check', _fh_template_url=url_for('insurance.insurance_init_template'), _fh_note='以身份证号为唯一匹配依据，批量覆盖更新学生保险相关字段。整行为该生保险列的完整真相：空单元格将清空对应字段（完成 2 位年→4 位年的迁移）；未匹配（身份证号无对应学生）的记录不动。主管标记支持 `YYYY年度学平险办结` / `按计划办理学平险` / `不参保` 等，2 位年自动补全为 4 位年。' %}
+    {% include '_field_help.html' %}
+    {% endwith %}
+    <h4 class="mb-3"><i class="bi bi-cloud-upload me-2"></i>保险初始化导入</h4>
+    <p class="text-muted small">
+        上传 Excel 文件（.xlsx），系统按<strong>身份证号</strong>匹配学生记录，<strong>整体覆盖</strong>写入保险数据。
+        <br>模板包含 6 列：身份证号、学平险保单号、学平险缴费日期、学平险到期时间、实习险缴费日期、主管标记。
+        <br><strong>全量覆盖语义</strong>：文件中某格为空，即视为清空该生对应字段；未匹配的学生记录保持不变。
+    </p>
+    <div class="mb-3">
+        <a href="{{ url_for('insurance.insurance_init_template') }}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-download me-1"></i>下载导入模板
+        </a>
+    </div>
+
+    <div class="ii-upload-zone" id="iiUploadZone">
+        <i class="bi bi-file-earmark-excel" style="font-size: 3rem; color: #198754;"></i>
+        <p class="mt-2 mb-0 text-muted">点击或拖拽上传 Excel 文件</p>
+        <input type="file" id="iiFileInput" accept=".xlsx" style="display:none">
+    </div>
+
+    <div id="iiPreview" class="d-none mt-3">
+        <h6>预览数据 (<span id="iiRowCount">0</span> 行，仅显示前 10 行)</h6>
+        <div class="table-responsive" style="max-height: 300px;">
+            <table class="table table-sm table-bordered">
+                <thead><tr id="iiPreviewHead"></tr></thead>
+                <tbody id="iiPreviewBody"></tbody>
+            </table>
+        </div>
+        <button class="btn btn-primary" id="iiSubmitBtn">
+            <i class="bi bi-check-lg"></i> 确认导入
+        </button>
+        <button class="btn btn-outline-secondary ms-2" id="iiCancelBtn">取消</button>
+    </div>
+
+    <div id="iiResult" class="ii-result d-none"></div>
+</div>
+
+<!-- 导入进度弹窗 -->
+<div class="modal fade" id="iiProgressModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">保险初始化导入进度</h5>
+                <button type="button" class="btn-close" id="iiCloseModalBtn" style="display:none;"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>总进度</span>
+                        <span id="iiProgressPercent">0%</span>
+                    </div>
+                    <div class="progress">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" id="iiProgressBar" role="progressbar" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <span>状态:</span>
+                    <span id="iiImportStatus" class="text-primary">准备导入...</span>
+                </div>
+                <div class="mb-2">
+                    <span>已处理:</span>
+                    <span id="iiProcessedCount">0</span> / <span id="iiTotalCount">0</span> 条
+                </div>
+                <div class="mb-2">
+                    <span>成功:</span>
+                    <span id="iiSuccessCount" class="text-success">0</span> 条
+                </div>
+                <div class="mb-2">
+                    <span>跳过:</span>
+                    <span id="iiSkippedCount" class="text-secondary">0</span> 条
+                </div>
+                <div class="mb-2">
+                    <span>失败:</span>
+                    <span id="iiErrorCount" class="text-danger">0</span> 条
+                </div>
+                <div id="iiErrorMessages" class="mt-3" style="max-height: 150px; overflow-y: auto; display: none;">
+                    <h6 class="d-flex justify-content-between align-items-center">
+                        <span>错误详情:</span>
+                        <button type="button" id="iiDownloadErrors" class="btn btn-sm btn-outline-warning d-none">下载失败清单 (CSV)</button>
+                    </h6>
+                    <ul id="iiErrorList" class="list-unstyled small text-danger"></ul>
+                </div>
+                <div id="iiSummary" class="ii-summary mt-3 p-2 rounded bg-light" style="display: none;">
+                    <h6 class="mb-2">导入汇总</h6>
+                    <div class="mb-1">批次分布：
+                        <span class="badge bg-primary" id="iiBatch1">第1年 0</span>
+                        <span class="badge bg-info" id="iiBatch2">第2年 0</span>
+                        <span class="badge bg-secondary" id="iiBatch3">第3年 0</span>
+                    </div>
+                    <div class="mb-1">主管标记归一化：<span id="iiNormalized">0</span> 条（未识别 <span id="iiUnrecognized" class="text-danger">0</span> 条）</div>
+                    <div class="mb-0">忽略学平险列（应为实习就业险）：<span id="iiIgnoredXp">0</span> 条</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="iiCancelModalBtn">禁止操作</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function() {
+    var pendingFile = null;
+    var currentProgressId = null;   // 当前导入的 progress_id，供失败清单 CSV 导出使用
+
+    document.getElementById('iiUploadZone').addEventListener('click', function() {
+        document.getElementById('iiFileInput').click();
+    });
+
+    document.getElementById('iiUploadZone').addEventListener('dragover', function(e) {
+        e.preventDefault();
+        this.style.borderColor = '#0d6efd';
+    });
+    document.getElementById('iiUploadZone').addEventListener('dragleave', function() {
+        this.style.borderColor = '#adb5bd';
+    });
+    document.getElementById('iiUploadZone').addEventListener('drop', function(e) {
+        e.preventDefault();
+        this.style.borderColor = '#adb5bd';
+        var file = e.dataTransfer.files[0];
+        if (file) handleFile(file);
+    });
+
+    document.getElementById('iiFileInput').addEventListener('change', function(e) {
+        var file = e.target.files[0];
+        if (file) handleFile(file);
+    });
+
+    function handleFile(file) {
+        pendingFile = file;
+        var fd = new FormData();
+        fd.append('file', file);
+
+        document.getElementById('iiRowCount').textContent = '解析中…';
+        document.getElementById('iiPreview').classList.remove('d-none');
+
+        fetch('/api/insurance/init-preview', {
+            method: 'POST',
+            body: fd
+        }).then(function(r) {
+            if (!r.ok || (r.headers.get('content-type') || '').indexOf('application/json') === -1) {
+                throw new Error('服务器未返回有效数据，可能会话已过期或权限不足，请刷新页面并重新登录后重试');
+            }
+            return r.json();
+        })
+          .then(function(data) {
+              if (!data.success) {
+                  alert('预览失败: ' + (data.errors ? data.errors.join('；') : (data.error || '未知错误')));
+                  document.getElementById('iiPreview').classList.add('d-none');
+                  pendingFile = null;
+                  return;
+              }
+              var columns = data.columns || [];
+              var preview = data.preview || [];
+              document.getElementById('iiRowCount').textContent = data.total;
+              document.getElementById('iiPreviewHead').innerHTML =
+                  columns.map(function(h) { return '<th>' + h + '</th>'; }).join('');
+              document.getElementById('iiPreviewBody').innerHTML = preview.map(function(r) {
+                  return '<tr>' + columns.map(function(h) { return '<td>' + (r[h] != null ? r[h] : '') + '</td>'; }).join('') + '</tr>';
+              }).join('');
+          })
+          .catch(function(err) {
+              alert('预览失败: ' + err.message);
+              document.getElementById('iiPreview').classList.add('d-none');
+              pendingFile = null;
+          });
+    }
+
+    document.getElementById('iiSubmitBtn').addEventListener('click', function() {
+        if (!pendingFile) return alert('请先选择文件');
+        if (!confirm('确认导入该文件？将以全量覆盖语义更新匹配到的学生保险字段。')) return;
+
+        var fd = new FormData();
+        fd.append('file', pendingFile);
+
+        // 初始化进度弹窗
+        var modalEl = document.getElementById('iiProgressModal');
+        var modal = new bootstrap.Modal(modalEl, {backdrop: 'static', keyboard: false});
+        modal.show();
+
+        var progressBar = document.getElementById('iiProgressBar');
+        var progressPercent = document.getElementById('iiProgressPercent');
+        var importStatus = document.getElementById('iiImportStatus');
+        var processedCount = document.getElementById('iiProcessedCount');
+        var totalCount = document.getElementById('iiTotalCount');
+        var successCount = document.getElementById('iiSuccessCount');
+        var skippedCount = document.getElementById('iiSkippedCount');
+        var errorCount = document.getElementById('iiErrorCount');
+        var errorMessages = document.getElementById('iiErrorMessages');
+        var errorList = document.getElementById('iiErrorList');
+        var summaryEl = document.getElementById('iiSummary');
+        var closeModalBtn = document.getElementById('iiCloseModalBtn');
+        var cancelBtn = document.getElementById('iiCancelModalBtn');
+
+        var pollTimer = null;
+        var isImporting = true;
+
+        cancelBtn.onclick = function() {
+            if (isImporting) return;
+            if (pollTimer) clearInterval(pollTimer);
+            modal.hide();
+        };
+
+        importStatus.textContent = '正在提交...';
+        progressBar.style.width = '2%';
+        progressPercent.textContent = '2%';
+
+        fetch('/insurance/init', {
+            method: 'POST',
+            body: fd
+        }).then(function(r) {
+            if (!r.ok || (r.headers.get('content-type') || '').indexOf('application/json') === -1) {
+                throw new Error('服务器未返回有效数据，可能会话已过期或权限不足，请刷新页面并重新登录后重试');
+            }
+            return r.json();
+        })
+          .then(function(data) {
+              if (!data.success) {
+                  isImporting = false;
+                  importStatus.textContent = '导入失败: ' + (data.error || '未知错误');
+                  importStatus.className = 'text-danger';
+                  closeModalBtn.style.display = 'block';
+                  cancelBtn.textContent = '关闭';
+                  return;
+              }
+
+              var progressId = data.progress_id;
+              currentProgressId = progressId;
+              totalCount.textContent = data.total;
+
+              pollTimer = setInterval(function() {
+                  fetch('/api/insurance/init-progress/' + progressId)
+                      .then(function(r) { return r.json(); })
+                      .then(function(progress) {
+                          var percent = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+                          progressBar.style.width = percent + '%';
+                          progressPercent.textContent = percent + '%';
+
+                          processedCount.textContent = progress.current;
+                          successCount.textContent = progress.success || 0;
+                          skippedCount.textContent = progress.skipped || 0;
+                          errorCount.textContent = progress.error || 0;
+                          importStatus.textContent = progress.message;
+
+                          if (progress.errors && progress.errors.length > 0) {
+                              errorMessages.style.display = 'block';
+                              errorList.innerHTML = '';
+                              progress.errors.forEach(function(err) {
+                                  var li = document.createElement('li');
+                                  li.textContent = err;
+                                  errorList.appendChild(li);
+                              });
+                          }
+
+                          if (progress.status === 'completed') {
+                              clearInterval(pollTimer);
+                              isImporting = false;
+                              importStatus.textContent = '导入完成！';
+                              importStatus.className = 'text-success';
+                              progressBar.classList.remove('progress-bar-animated');
+
+                              // 汇总
+                              var bd = progress.batch_distribution || {1:0,2:0,3:0};
+                              document.getElementById('iiBatch1').textContent = '第1年 ' + (bd[1]||0);
+                              document.getElementById('iiBatch2').textContent = '第2年 ' + (bd[2]||0);
+                              document.getElementById('iiBatch3').textContent = '第3年 ' + (bd[3]||0);
+                              document.getElementById('iiNormalized').textContent = progress.normalized || 0;
+                              document.getElementById('iiUnrecognized').textContent = progress.unrecognized || 0;
+                              document.getElementById('iiIgnoredXp').textContent = progress.ignored_xueping || 0;
+                              summaryEl.style.display = 'block';
+
+                              // 失败清单下载：存在错误时显示按钮（内容由后端 errors_full 提供）
+                              var dlBtn = document.getElementById('iiDownloadErrors');
+                              if (progress.errors && progress.errors.length > 0) {
+                                  dlBtn.classList.remove('d-none');
+                              } else {
+                                  dlBtn.classList.add('d-none');
+                              }
+
+                              closeModalBtn.style.display = 'block';
+                              cancelBtn.textContent = '完成';
+                          }
+                      })
+                      .catch(function(err) {
+                          console.error('轮询错误:', err);
+                      });
+              }, 500);
+          })
+          .catch(function(err) {
+              isImporting = false;
+              importStatus.textContent = '导入失败: ' + err.message;
+              importStatus.className = 'text-danger';
+              closeModalBtn.style.display = 'block';
+              cancelBtn.textContent = '关闭';
+          });
+    });
+
+    document.getElementById('iiCancelBtn').addEventListener('click', function() {
+        pendingFile = null;
+        document.getElementById('iiPreview').classList.add('d-none');
+        document.getElementById('iiResult').classList.add('d-none');
+        document.getElementById('iiFileInput').value = '';
+    });
+
+    // 下载失败清单：从后端导出全量错误 CSV（不再受轮询"最近 10 条"截断限制）
+    document.getElementById('iiDownloadErrors').addEventListener('click', function() {
+        if (!currentProgressId) return;
+        fetch('/api/insurance/init/errors/' + currentProgressId + '/csv')
+            .then(function(r) {
+                if (!r.ok) throw new Error('导出失败，请重试');
+                return r.blob();
+            })
+            .then(function(blob) {
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = '保险导入失败清单_' + new Date().toISOString().slice(0, 10) + '.csv';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            })
+            .catch(function(err) {
+                alert('下载失败: ' + err.message);
+            });
+    });
+})();
+</script>
+{% endblock %}

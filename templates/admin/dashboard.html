@@ -1,0 +1,1395 @@
+{% extends "base.html" %}
+
+{% block title %}控制台 - 学生数据管理系统{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-speedometer2"></i> 控制台</h2>
+    
+    <div class="d-flex gap-2">
+        <a href="{{ public_pending_leave_url }}" class="btn btn-outline-info btn-sm" target="_blank" title="公开待销假学生查询">
+            <i class="bi bi-search"></i> 待销假查询
+        </a>
+        <a href="{{ public_roster_url }}" class="btn btn-outline-info btn-sm" target="_blank" title="公开班级花名册">
+            <i class="bi bi-journal-text"></i> 班级花名册
+        </a>
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#trashModal" title="注册前退学学生管理">
+            <i class="bi bi-trash"></i> 注册前退学学生管理
+        </button>
+        <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#cleanupModal" title="清理出勤记录">
+            <i class="bi bi-trash"></i> 清理出勤
+        </button>
+        <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#updateStatusModal" title="更新在校状态">
+            <i class="bi bi-arrow-repeat"></i> 更新在校状态
+        </button>
+        <div class="btn-group">
+            <a href="{{ url_for('admin.admin_dashboard', registration_status=current_registration) if current_registration else url_for('admin.admin_dashboard') }}" class="btn btn-outline-secondary {{ 'active' if not current_school else '' }}">全部</a>
+            <a href="{{ url_for('admin.admin_dashboard', school=1, registration_status=current_registration) if current_registration else url_for('admin.admin_dashboard', school=1) }}" class="btn btn-outline-secondary {{ 'active' if current_school == '1' else '' }}">中职</a>
+            <a href="{{ url_for('admin.admin_dashboard', school=2, registration_status=current_registration) if current_registration else url_for('admin.admin_dashboard', school=2) }}" class="btn btn-outline-secondary {{ 'active' if current_school == '2' else '' }}">技工</a>
+        </div>
+        <div class="btn-group">
+            <a href="{{ url_for('admin.admin_dashboard', school=current_school) if current_school else url_for('admin.admin_dashboard') }}" class="btn btn-outline-secondary {{ 'active' if not current_registration else '' }}">全部</a>
+            <a href="{{ url_for('admin.admin_dashboard', registration_status='正式学籍', school=current_school) if current_school else url_for('admin.admin_dashboard', registration_status='正式学籍') }}" class="btn btn-outline-secondary {{ 'active' if current_registration == '正式学籍' else '' }}">正式学籍</a>
+            <a href="{{ url_for('admin.admin_dashboard', registration_status='未注册', school=current_school) if current_school else url_for('admin.admin_dashboard', registration_status='未注册') }}" class="btn btn-outline-secondary {{ 'active' if current_registration == '未注册' else '' }}">未注册</a>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4 g-2">
+    <div class="col-sm-6 col-md-3 col-lg-2">
+        <div class="card text-white bg-primary h-100">
+            <div class="card-body py-2 px-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title small mb-1">学生总数</h6>
+                        <h4 class="card-text mb-0">{{ stats.total }}</h4>
+                    </div>
+                    <i class="bi bi-people-fill opacity-50" style="font-size: 2rem;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-sm-6 col-md-3 col-lg-2">
+        <div class="card text-white bg-success h-100">
+            <div class="card-body py-2 px-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title small mb-1">在校人数</h6>
+                        <h4 class="card-text mb-0">{{ stats.attendance_in }}</h4>
+                    </div>
+                    <i class="bi bi-person-check-fill opacity-50" style="font-size: 2rem;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-sm-6 col-md-3 col-lg-2">
+        <div class="card text-white bg-warning h-100">
+            <div class="card-body py-2 px-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title small mb-1">未在校人数</h6>
+                        <h4 class="card-text mb-0">{{ stats.attendance_out }}</h4>
+                    </div>
+                    <i class="bi bi-person-x-fill opacity-50" style="font-size: 2rem;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-sm-6 col-md-3 col-lg-2">
+        <div class="card text-white bg-info h-100">
+            <div class="card-body py-2 px-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title small mb-1">正式学籍</h6>
+                        <h4 class="card-text mb-0">{{ stats.registration_registered }}</h4>
+                    </div>
+                    <i class="bi bi-person-badge-fill opacity-50" style="font-size: 2rem;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-lg-4">
+        <div class="card border-start border-4 border-info h-100" id="backupCountdownCard">
+            <div class="card-body py-2 px-3 d-flex align-items-center gap-3">
+                <div id="cdIcon" class="flex-shrink-0 rounded-circle d-flex align-items-center justify-content-center" 
+                     style="width:48px;height:48px;background:linear-gradient(135deg,#0ea5e9,#6366f1);color:#fff;font-size:1.3rem;">
+                    <i class="bi bi-clock-history"></i>
+                </div>
+                <div class="flex-grow-1 min-width-0">
+                    <div class="d-flex justify-content-between align-items-baseline">
+                        <span class="small text-muted text-uppercase fw-semibold" style="letter-spacing:0.04em;">数据库备份倒计时</span>
+                        <div class="d-flex align-items-center gap-1">
+                            <button id="cdIntervalBtn" class="btn p-0 border-0 text-muted" title="调整备份间隔" style="font-size:0.85rem;line-height:1;opacity:0.6;transition:opacity 0.2s;"
+                                    onclick="toggleIntervalPanel()" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='0.6'">
+                                <i class="bi bi-gear"></i>
+                            </button>
+                            <span id="cdStatusBadge" class="badge rounded-pill" style="font-size:0.65rem;">加载中</span>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-baseline gap-2 mt-1">
+                        <span id="cdTime" class="fw-bold" style="font-size:1.6rem;font-family:'JetBrains Mono','Consolas','Courier New',monospace;line-height:1;color:#1e293b;">--:--</span>
+                        <span id="cdLabel" class="text-muted" style="font-size:0.7rem;">加载中…</span>
+                    </div>
+                    <div class="progress mt-2" style="height:4px;background:#e2e8f0;border-radius:2px;">
+                        <div id="cdProgress" class="progress-bar" style="width:0%;height:4px;border-radius:2px;transition:width 0.6s ease;" role="progressbar"></div>
+                    </div>
+                    <div id="cdIntervalPanel" style="display:none;margin-top:0.5rem;padding:0.5rem 0.6rem;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;font-size:0.75rem;">
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <span class="fw-semibold text-muted" style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em;">备份间隔</span>
+                            <span id="cdIntervalLabel" class="fw-bold" style="color:#4f46e5;">30分钟</span>
+                        </div>
+                        <div class="d-flex flex-wrap gap-1 mb-2" id="cdPresetBtns"></div>
+                        <div class="d-flex align-items-center gap-2">
+                            <input type="range" id="cdIntervalSlider" class="form-range flex-grow-1" style="height:6px;" min="60" max="14400" step="60" value="1800">
+                            <button id="cdIntervalApplyBtn" class="btn btn-sm text-white flex-shrink-0" style="background:linear-gradient(135deg,#4f46e5,#6366f1);font-size:0.7rem;padding:0.2rem 0.6rem;border-radius:6px;display:none;">
+                                <i class="bi bi-check-lg"></i> 应用
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# 暂时停用：公开页面链接卡片（复制/打开）。链接仍需通过顶部按钮跳转后从地址栏手动复制。
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card border-start border-4 border-secondary">
+            <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                <h6 class="card-title mb-0"><i class="bi bi-link-45deg"></i> 公开页面链接（免登录，需访问口令）</h6>
+                <span class="text-muted small">链接内含访问口令，请勿公开外传</span>
+            </div>
+            <div class="card-body py-3">
+                <div class="row g-3">
+                    <div class="col-12 col-lg-6">
+                        <label class="form-label small text-muted mb-1">待销假学生表</label>
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control" id="urlPendingLeave" value="{{ public_pending_leave_url }}" readonly>
+                            <button class="btn btn-outline-secondary" type="button" onclick="copyToClipboard(document.getElementById('urlPendingLeave').value)"><i class="bi bi-clipboard"></i> 复制</button>
+                            <a class="btn btn-outline-primary" href="{{ public_pending_leave_url }}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i></a>
+                        </div>
+                    </div>
+                    <div class="col-12 col-lg-6">
+                        <label class="form-label small text-muted mb-1">班级花名册</label>
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control" id="urlRoster" value="{{ public_roster_url }}" readonly>
+                            <button class="btn btn-outline-secondary" type="button" onclick="copyToClipboard(document.getElementById('urlRoster').value)"><i class="bi bi-clipboard"></i> 复制</button>
+                            <a class="btn btn-outline-primary" href="{{ public_roster_url }}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i></a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+#}
+
+<div class="row">
+    <div class="col-md-5 mb-4">
+        <div class="card h-100">
+            <div class="card-header py-2">
+                <h6 class="card-title mb-0"><i class="bi bi-bar-chart"></i> 年级人数分布</h6>
+            </div>
+            <div class="card-body">
+                <canvas id="gradeChart" style="max-height: 280px;"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-7 mb-4">
+        <div class="card border-start border-info border-4 shadow-sm h-100">
+            <div class="card-header py-2 bg-light d-flex justify-content-between align-items-center">
+                <h6 class="card-title mb-0 text-info"><i class="bi bi-bar-chart me-1"></i>{{ stats.last_attendance_date }} 学生出勤率<span id="monitorBadge" class="d-none ms-2 badge bg-danger monitor-pulse">监控中</span></h6>
+                <button type="button" id="monitorToggleBtn" class="btn btn-outline-success btn-sm" title="实时监控出勤数据">
+                    <i class="bi bi-play-circle"></i> 实时监控
+                </button>
+            </div>
+            <div class="card-body p-2">
+                <canvas id="attendanceRateChart" style="max-height: 280px;"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-5 mb-4">
+        <div class="card h-100">
+            <div class="card-header py-2">
+                <h6 class="card-title mb-0"><i class="bi bi-bar-chart"></i> 专业人数分布</h6>
+            </div>
+            <div class="card-body">
+                <canvas id="majorChart" style="max-height: 280px;"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-7 mb-4">
+        <div class="row g-3 h-100">
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-header py-2">
+                        <h6 class="card-title mb-0"><i class="bi bi-pie-chart"></i> 性别比例</h6>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="genderChart" style="max-height: 280px;"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-header py-2">
+                        <h6 class="card-title mb-0"><i class="bi bi-pie-chart"></i> 学籍状态分布</h6>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="registrationChart" style="max-height: 280px;"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-header py-2">
+                        <h6 class="card-title mb-0"><i class="bi bi-pie-chart"></i> 在校状态分布</h6>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="attendanceChart" style="max-height: 280px;"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-header py-2">
+                        <h6 class="card-title mb-0"><i class="bi bi-pie-chart"></i> {{ stats.last_attendance_date }} 出勤点名</h6>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="todayAttendancePieChart" style="max-height: 280px;"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6 mb-4">
+        <div class="card border-start border-primary border-4 shadow-sm h-100" id="adminClassDistCard">
+            <div class="card-header py-2 d-flex justify-content-between align-items-center bg-light">
+                <h6 class="card-title mb-0 text-primary"><i class="bi bi-table me-1"></i>行政班级分布 <small class="text-muted">({{ stats.class_detail | length }} 个班)</small></h6>
+                <button type="button" class="btn btn-light btn-sm rounded-pill no-print" onclick="printCard('adminClassDistCard')" title="打印">
+                    <i class="bi bi-printer"></i>
+                </button>
+            </div>
+            <div class="card-body p-2">
+                <div class="table-responsive" style="max-height: 520px; overflow-y: auto;">
+                    <table class="table table-sm table-bordered align-middle mb-0">
+                        <thead class="table-light sticky-top small text-uppercase fw-semibold">
+                            <tr>
+                                <th>班级</th>
+                                <th>男</th>
+                                <th>女</th>
+                                <th>专业</th>
+                                <th>人数</th>
+                                <th>总</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for cls in stats.class_detail %}
+                            {% set majors = cls.majors or [{'major': '-', 'count': '-'}] %}
+                            {% set row_count = majors | length %}
+                            {% for m in majors %}
+                            <tr>
+                                {% if loop.first %}
+                                <td rowspan="{{ row_count }}"><strong>{{ cls.admin_class }}</strong></td>
+                                <td rowspan="{{ row_count }}" class="text-center">{{ cls.male }}</td>
+                                <td rowspan="{{ row_count }}" class="text-center">{{ cls.female }}</td>
+                                {% endif %}
+                                <td>{{ m.major }}</td>
+                                <td class="text-center">{{ m.count }}</td>
+                                {% if loop.first %}
+                                <td rowspan="{{ row_count }}" class="text-center"><strong>{{ cls.total }}</strong></td>
+                                {% endif %}
+                            </tr>
+                            {% endfor %}
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="table-info fw-bold">
+                                <td>合计</td>
+                                <td class="text-center">{{ stats.class_detail_total_male }}</td>
+                                <td class="text-center">{{ stats.class_detail_total_female }}</td>
+                                <td>-</td>
+                                <td class="text-center">-</td>
+                                <td class="text-center">{{ stats.class_detail_grand_total }}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6 mb-4">
+        <div class="card border-start border-success border-4 shadow-sm h-100" id="virtualClassDistCard">
+            <div class="card-header py-2 d-flex justify-content-between align-items-center bg-light">
+                <h6 class="card-title mb-0 text-success"><i class="bi bi-diagram-3 me-1"></i>虚拟班级分布 <small class="text-muted">({{ stats.virtual_class_detail | length }} 个班)</small></h6>
+                <button type="button" class="btn btn-light btn-sm rounded-pill no-print" onclick="printCard('virtualClassDistCard')" title="打印">
+                    <i class="bi bi-printer"></i>
+                </button>
+            </div>
+            <div class="card-body p-2">
+                <div class="table-responsive" style="max-height: 520px; overflow-y: auto;">
+                    <table class="table table-sm table-bordered align-middle mb-0">
+                        <thead class="table-light sticky-top small text-uppercase fw-semibold">
+                            <tr>
+                                <th>班级</th>
+                                <th>男</th>
+                                <th>女</th>
+                                <th>专业</th>
+                                <th>人数</th>
+                                <th>总</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for cls in stats.virtual_class_detail %}
+                            {% set majors = cls.majors or [{'major': '-', 'count': '-'}] %}
+                            {% set row_count = majors | length %}
+                            {% for m in majors %}
+                            <tr>
+                                {% if loop.first %}
+                                <td rowspan="{{ row_count }}"><strong>{{ cls.virtual_class }}</strong></td>
+                                <td rowspan="{{ row_count }}" class="text-center">{{ cls.male }}</td>
+                                <td rowspan="{{ row_count }}" class="text-center">{{ cls.female }}</td>
+                                {% endif %}
+                                <td>{{ m.major }}</td>
+                                <td class="text-center">{{ m.count }}</td>
+                                {% if loop.first %}
+                                <td rowspan="{{ row_count }}" class="text-center"><strong>{{ cls.total }}</strong></td>
+                                {% endif %}
+                            </tr>
+                            {% endfor %}
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="table-info fw-bold">
+                                <td>合计</td>
+                                <td class="text-center">{{ stats.virtual_class_detail_total_male }}</td>
+                                <td class="text-center">{{ stats.virtual_class_detail_total_female }}</td>
+                                <td>-</td>
+                                <td class="text-center">-</td>
+                                <td class="text-center">{{ stats.virtual_class_detail_grand_total }}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="trashModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-trash text-secondary"></i> 注册前退学学生清除</h5>
+                <span class="badge bg-info bg-opacity-25 text-info-emphasis me-auto ms-3" id="trashFilterBadge" style="display:none;">
+                    <i class="bi bi-funnel-fill"></i> 仅显示无正式学籍学生
+                </span>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <span id="trashCount" class="text-muted small">加载中…</span>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-success btn-sm" id="trashRestoreAllBtn" onclick="trashRestoreAll()" disabled>
+                            <i class="bi bi-arrow-counterclockwise"></i> 恢复全部
+                        </button>
+                        <button type="button" class="btn btn-outline-danger btn-sm" id="trashDeleteAllBtn" onclick="trashDeleteAll()" disabled>
+                            <i class="bi bi-trash-fill"></i> 永久删除全部
+                        </button>
+                    </div>
+                </div>
+                <div class="table-responsive" style="max-height: 420px; overflow-y: auto;">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="table-light sticky-top small text-uppercase fw-semibold">
+                            <tr>
+                                <th>学号</th>
+                                <th>姓名</th>
+                                <th>身份证号</th>
+                                <th>班级</th>
+                                <th>校别</th>
+                                <th>删除时间</th>
+                                <th style="width:160px;">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="trashTableBody">
+                            <tr><td colspan="7" class="text-center text-muted py-4">加载中…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function loadTrashStudents() {
+    fetch('/api/admin/trash/students')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var tbody = document.getElementById('trashTableBody');
+            var allStudents = data.students || [];
+            var filteredStudents = allStudents.filter(function(s) {
+                return s.registration_status !== '正式学籍';
+            });
+
+            var totalCount = allStudents.length;
+            var filteredCount = filteredStudents.length;
+            var excludedCount = totalCount - filteredCount;
+
+            var filterBadge = document.getElementById('trashFilterBadge');
+            if (excludedCount > 0) {
+                filterBadge.style.display = '';
+                filterBadge.title = '已自动过滤 ' + excludedCount + ' 名正式学籍学生';
+            } else {
+                filterBadge.style.display = 'none';
+            }
+
+            document.getElementById('trashCount').textContent =
+                '共 ' + filteredCount + ' 条软删除记录' +
+                (excludedCount > 0 ? '（已过滤 ' + excludedCount + ' 名正式学籍学生）' : '');
+            document.getElementById('trashRestoreAllBtn').disabled = filteredCount === 0;
+            document.getElementById('trashDeleteAllBtn').disabled = filteredCount === 0;
+
+            if (filteredCount === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">没有符合条件的软删除学生记录</td></tr>';
+                return;
+            }
+
+            var html = '';
+            filteredStudents.forEach(function(s) {
+                html += '<tr>';
+                html += '<td><code>' + (s.student_no || '-') + '</code></td>';
+                html += '<td><strong>' + (s.name || '-') + '</strong></td>';
+                html += '<td><small>' + (s.id_card || '-') + '</small></td>';
+                html += '<td>' + (s.admin_class || '-') + '</td>';
+                html += '<td>' + (s.school_name || '-') + '</td>';
+                html += '<td><small>' + (s.updated_at || '-') + '</small></td>';
+                html += '<td>';
+                html += '<button class="btn btn-outline-success btn-sm me-1" onclick="trashRestore(' + s.id + ', this)" title="恢复该学生"><i class="bi bi-arrow-counterclockwise"></i></button>';
+                html += '<button class="btn btn-outline-danger btn-sm" onclick="trashDelete(' + s.id + ', this)" title="永久删除"><i class="bi bi-trash-fill"></i></button>';
+                html += '</td>';
+                html += '</tr>';
+            });
+            tbody.innerHTML = html;
+        })
+        .catch(function() {
+            document.getElementById('trashTableBody').innerHTML = '<tr><td colspan="7" class="text-center text-danger py-4">加载失败，<a href="javascript:loadTrashStudents()">点击重试</a></td></tr>';
+            document.getElementById('trashCount').textContent = '加载失败';
+            document.getElementById('trashRestoreAllBtn').disabled = true;
+            document.getElementById('trashDeleteAllBtn').disabled = true;
+            document.getElementById('trashFilterBadge').style.display = 'none';
+        });
+}
+
+function parseTrashResponse(r, btn, origHTML) {
+    var ct = r.headers.get('Content-Type') || '';
+    if (ct.indexOf('application/json') === -1) {
+        var msg = '服务器返回异常（会话可能已过期，请刷新页面重试）';
+        if (typeof showToast === 'function') { showToast(msg, 'danger'); } else { alert(msg); }
+        resetTrashBtn(btn, origHTML);
+        return null;
+    }
+    return r.json();
+}
+
+function resetTrashBtn(btn, origHTML) {
+    if (!btn) return;
+    btn.disabled = false;
+    btn.innerHTML = origHTML;
+}
+
+function trashRestore(id, btn) {
+    var origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    fetch('/api/admin/trash/restore/' + id, { method: 'POST' })
+        .then(function(r) {
+            return parseTrashResponse(r, btn, origHTML);
+        })
+        .then(function(data) {
+            if (!data) return;
+            if (data.success) {
+                showToast('已恢复该学生', 'success');
+                loadTrashStudents();
+            } else {
+                showToast(data.message || '恢复失败', 'danger');
+                resetTrashBtn(btn, origHTML);
+            }
+        })
+        .catch(function(e) {
+            showToast('网络连接失败，请检查网络后重试', 'danger');
+            resetTrashBtn(btn, origHTML);
+        });
+}
+
+function trashDelete(id, btn) {
+    if (!confirm('确定永久删除该学生及其所有出勤记录？此操作不可恢复！')) return;
+    var origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    fetch('/api/admin/trash/delete/' + id, { method: 'POST' })
+        .then(function(r) {
+            return parseTrashResponse(r, btn, origHTML);
+        })
+        .then(function(data) {
+            if (!data) return;
+            if (data.success) {
+                showToast('已永久删除该学生', 'success');
+                loadTrashStudents();
+            } else {
+                showToast(data.message || '删除失败', 'danger');
+                resetTrashBtn(btn, origHTML);
+            }
+        })
+        .catch(function(e) {
+            showToast('网络连接失败，请检查网络后重试', 'danger');
+            resetTrashBtn(btn, origHTML);
+        });
+}
+
+function trashRestoreAll() {
+    if (!confirm('确定恢复全部注册前退学学生？')) return;
+    var btn = document.getElementById('trashRestoreAllBtn');
+    var origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 恢复中…';
+    fetch('/api/admin/trash/restore-all', { method: 'POST' })
+        .then(function(r) {
+            return parseTrashResponse(r, btn, origHTML);
+        })
+        .then(function(data) {
+            if (!data) return;
+            if (data.success) {
+                showToast(data.message || '已全部恢复', 'success');
+                resetTrashBtn(btn, origHTML);
+                loadTrashStudents();
+            } else {
+                showToast(data.message || '恢复失败', 'danger');
+                resetTrashBtn(btn, origHTML);
+            }
+        })
+        .catch(function(e) {
+            showToast('网络连接失败，请检查网络后重试', 'danger');
+            resetTrashBtn(btn, origHTML);
+        });
+}
+
+function trashDeleteAll() {
+    if (!confirm('确定永久删除全部注册前退学学生及其出勤记录？此操作不可恢复！')) return;
+    var btn = document.getElementById('trashDeleteAllBtn');
+    var origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 删除中…';
+    fetch('/api/admin/trash/delete-all', { method: 'POST' })
+        .then(function(r) {
+            return parseTrashResponse(r, btn, origHTML);
+        })
+        .then(function(data) {
+            if (!data) return;
+            if (data.success) {
+                showToast(data.message || '已全部删除', 'success');
+                resetTrashBtn(btn, origHTML);
+                loadTrashStudents();
+            } else {
+                showToast(data.message || '删除失败', 'danger');
+                resetTrashBtn(btn, origHTML);
+            }
+        })
+        .catch(function(e) {
+            showToast('网络连接失败，请检查网络后重试', 'danger');
+            resetTrashBtn(btn, origHTML);
+        });
+}
+
+document.getElementById('trashModal').addEventListener('show.bs.modal', function() {
+    loadTrashStudents();
+});
+</script>
+{% endblock %}
+
+{% block scripts %}
+<style>
+@keyframes monitorPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+.monitor-pulse { animation: monitorPulse 1.2s ease-in-out infinite; }
+</style>
+<script>
+const gradeData = {{ stats.grade_distribution | tojson }};
+const majorData = {{ stats.major_distribution | tojson }};
+const genderData = {{ stats.gender_distribution | tojson }};
+const registrationBySchool = {{ stats.registration_by_school | tojson }};
+const attendanceData = {{ stats.attendance_status_distribution | tojson }};
+const attendanceByClass = {{ stats.attendance_by_class | tojson }};
+const todayAttendanceByClass = {{ stats.today_attendance_by_class | tojson }};
+const todayAttendancePieData = [
+    { status: '出勤', count: {{ stats.today_attendance_present }} },
+    { status: '缺勤', count: {{ stats.today_attendance_absent }} }
+];
+
+const getPieBg = (labels, map) => labels.map(l => map[l] || 'rgba(200,200,200,0.8)');
+const getPieBorder = (labels, map) => labels.map(l => map[l] || 'rgba(150,150,150,1)');
+
+const genderColorMap = { '男': 'rgba(54, 162, 235, 0.85)', '女': 'rgba(255, 105, 180, 0.85)' };
+const genderBorderMap = { '男': 'rgba(54, 162, 235, 1)', '女': 'rgba(255, 105, 180, 1)' };
+
+const registrationColorMap = { '正式学籍': 'rgba(144, 238, 144, 0.85)', '未注册': 'rgba(255, 255, 150, 0.9)' };
+const registrationBorderMap = { '正式学籍': 'rgba(60, 179, 113, 1)', '未注册': 'rgba(218, 165, 32, 1)' };
+
+const attendanceColorMap = { '在校': 'rgba(0, 206, 209, 0.85)', '非在校': 'rgba(248, 248, 248, 0.95)' };
+const attendanceBorderMap = { '在校': 'rgba(0, 180, 180, 1)', '非在校': 'rgba(180, 180, 180, 1)' };
+
+const todayAttColorMap = { '出勤': 'rgba(40, 167, 69, 0.85)', '缺勤': 'rgba(220, 53, 69, 0.85)' };
+const todayAttBorderMap = { '出勤': 'rgba(40, 167, 69, 1)', '缺勤': 'rgba(220, 53, 69, 1)' };
+
+Chart.register(ChartDataLabels);
+
+new Chart(document.getElementById('gradeChart'), {
+    type: 'bar',
+    data: {
+        labels: gradeData.map(d => d.grade),
+        datasets: [{
+            label: '人数',
+            data: gradeData.map(d => d.count),
+            backgroundColor: 'rgba(54, 162, 235, 0.8)',
+            borderColor: 'rgba(54, 162, 235, 1)',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: { display: false },
+            datalabels: { anchor: 'end', align: 'top', font: { weight: 'bold' }, formatter: v => v }
+        },
+        scales: {
+            y: { beginAtZero: true, grace: '15%' }
+        }
+    }
+});
+
+new Chart(document.getElementById('majorChart'), {
+    type: 'bar',
+    data: {
+        labels: majorData.map(d => d.major),
+        datasets: [{
+            label: '人数',
+            data: majorData.map(d => d.count),
+            backgroundColor: 'rgba(255, 99, 132, 0.8)',
+            borderColor: 'rgba(255, 99, 132, 1)',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: { display: false },
+            datalabels: { anchor: 'end', align: 'top', font: { weight: 'bold' }, formatter: v => v }
+        },
+        scales: {
+            y: { beginAtZero: true, grace: '10%' }
+        }
+    }
+});
+
+new Chart(document.getElementById('genderChart'), {
+    type: 'pie',
+    data: {
+        labels: genderData.map(d => d.gender),
+        datasets: [{
+            data: genderData.map(d => d.count),
+            backgroundColor: getPieBg(genderData.map(d => d.gender), genderColorMap),
+            borderColor: getPieBorder(genderData.map(d => d.gender), genderBorderMap),
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: { position: 'bottom' },
+            datalabels: {
+                color: '#333',
+                font: { weight: 'bold', size: 13 },
+                formatter: (v) => v
+            }
+        }
+    }
+});
+
+new Chart(document.getElementById('registrationChart'), {
+    type: 'pie',
+    data: {
+        labels: registrationBySchool.map(d => d.school_name + '-' + d.registration_status),
+        datasets: [{
+            data: registrationBySchool.map(d => d.count),
+            backgroundColor: registrationBySchool.map(function(d) {
+                var reg = d.registration_status;
+                if (reg === '正式学籍') return 'rgba(144, 238, 144, 0.85)';
+                if (reg === '未注册') return 'rgba(255, 255, 150, 0.9)';
+                return 'rgba(200,200,200,0.8)';
+            }),
+            borderColor: registrationBySchool.map(function(d) {
+                var reg = d.registration_status;
+                if (reg === '正式学籍') return 'rgba(60, 179, 113, 1)';
+                if (reg === '未注册') return 'rgba(218, 165, 32, 1)';
+                return 'rgba(150,150,150,1)';
+            }),
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: {
+                position: 'bottom',
+                labels: {
+                    generateLabels: function(chart) {
+                        var data = chart.data;
+                        var ds = data.datasets[0];
+                        var seen = {};
+                        var result = [];
+                        data.labels.forEach(function(label, i) {
+                            var key = ds.backgroundColor[i];
+                            if (!seen[key]) {
+                                seen[key] = true;
+                                result.push({
+                                    text: data.labels[i].split('-')[1],
+                                    fillStyle: ds.backgroundColor[i],
+                                    strokeStyle: ds.borderColor[i],
+                                    lineWidth: ds.borderWidth,
+                                    hidden: chart.getDatasetMeta(0).data[i] ? chart.getDatasetMeta(0).data[i].hidden : false,
+                                    index: i
+                                });
+                            }
+                        });
+                        return result;
+                    }
+                }
+            },
+            datalabels: {
+                color: '#333',
+                font: { weight: 'bold', size: 13 },
+                formatter: (v) => v
+            }
+        }
+    }
+});
+
+new Chart(document.getElementById('attendanceChart'), {
+    type: 'pie',
+    data: {
+        labels: attendanceData.map(d => d.attendance_status),
+        datasets: [{
+            data: attendanceData.map(d => d.count),
+            backgroundColor: getPieBg(attendanceData.map(d => d.attendance_status), attendanceColorMap),
+            borderColor: getPieBorder(attendanceData.map(d => d.attendance_status), attendanceBorderMap),
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: {
+                position: 'bottom',
+                labels: {
+                    boxWidth: 30,
+                    boxHeight: 10,
+                    padding: 6,
+                    font: { size: 10 }
+                }
+            },
+            datalabels: {
+                color: '#333',
+                font: { weight: 'bold', size: 13 },
+                formatter: (v) => v
+            }
+        }
+    }
+});
+
+const todayAttendancePieChart = new Chart(document.getElementById('todayAttendancePieChart'), {
+    type: 'pie',
+    data: {
+        labels: todayAttendancePieData.map(d => d.status),
+        datasets: [{
+            data: todayAttendancePieData.map(d => d.count),
+            backgroundColor: getPieBg(todayAttendancePieData.map(d => d.status), todayAttColorMap),
+            borderColor: getPieBorder(todayAttendancePieData.map(d => d.status), todayAttBorderMap),
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: { position: 'bottom' },
+            datalabels: {
+                color: '#333',
+                font: { weight: 'bold', size: 13 },
+                formatter: (v) => v
+            }
+        }
+    }
+});
+</script>
+<script>
+const attendanceRateChart = new Chart(document.getElementById('attendanceRateChart'), {
+    type: 'bar',
+    data: {
+        labels: todayAttendanceByClass.map(function(d) { return d.admin_class; }),
+        datasets: [{
+            label: '出勤率 (%)',
+            data: todayAttendanceByClass.map(function(d) {
+                return d.total_students > 0 ? Math.round(d.present / d.total_students * 1000) / 10 : 0;
+            }),
+            backgroundColor: 'rgba(23, 162, 184, 0.7)',
+            borderColor: 'rgba(23, 162, 184, 1)',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        scales: {
+            x: {
+                ticks: { maxRotation: 45, font: { size: 10 } }
+            },
+            y: {
+                min: 0,
+                max: 100,
+                ticks: {
+                    callback: function(v) { return v + '%'; },
+                    font: { size: 11 }
+                }
+            }
+        },
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                callbacks: {
+                    label: function(ctx) {
+                        var row = todayAttendanceByClass[ctx.dataIndex];
+                        return row.present + ' / ' + row.total_students + ' (' + (ctx.raw) + '%)';
+                    }
+                }
+            }
+        }
+    }
+});
+</script>
+<script>
+const POLL_INTERVAL_MS = 15000;
+let monitorTimer = null;
+let monitorRunning = false;
+
+function getCurrentFilterParams() {
+    var params = new URLSearchParams(window.location.search);
+    var result = '';
+    var school = params.get('school');
+    var reg = params.get('registration_status');
+    if (school) result += '&school=' + school;
+    if (reg) result += '&registration_status=' + encodeURIComponent(reg);
+    return result;
+}
+
+function updateAttendanceCharts(data) {
+    todayAttendancePieChart.data.datasets[0].data = [data.present, data.absent];
+    todayAttendancePieChart.data.labels = ['出勤', '缺勤'];
+    todayAttendancePieChart.data.datasets[0].backgroundColor = [
+        'rgba(40, 167, 69, 0.85)', 'rgba(220, 53, 69, 0.85)'
+    ];
+    todayAttendancePieChart.data.datasets[0].borderColor = [
+        'rgba(40, 167, 69, 1)', 'rgba(220, 53, 69, 1)'
+    ];
+    todayAttendancePieChart.update();
+
+    attendanceRateChart.data.labels = data.by_class.map(function(d) { return d.admin_class; });
+    attendanceRateChart.data.datasets[0].data = data.by_class.map(function(d) {
+        return d.total_students > 0 ? Math.round(d.present / d.total_students * 1000) / 10 : 0;
+    });
+    attendanceRateChart.options.plugins.tooltip.callbacks.label = function(ctx) {
+        var row = data.by_class[ctx.dataIndex];
+        return row.present + ' / ' + row.total_students + ' (' + (ctx.raw) + '%)';
+    };
+    attendanceRateChart.update();
+}
+
+function fetchAttendanceData() {
+    var url = '{{ url_for('api.api_today_attendance') }}?t=' + Date.now() + getCurrentFilterParams();
+    fetch(url)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            updateAttendanceCharts(data);
+        })
+        .catch(function() {});
+}
+
+function startMonitor() {
+    if (monitorRunning) return;
+    monitorRunning = true;
+    var btn = document.getElementById('monitorToggleBtn');
+    btn.classList.remove('btn-outline-success');
+    btn.classList.add('btn-outline-danger');
+    btn.innerHTML = '<i class="bi bi-stop-circle"></i> 停止监控';
+    document.getElementById('monitorBadge').classList.remove('d-none');
+    fetchAttendanceData();
+    monitorTimer = setInterval(fetchAttendanceData, POLL_INTERVAL_MS);
+}
+
+function stopMonitor() {
+    if (!monitorRunning) return;
+    monitorRunning = false;
+    var btn = document.getElementById('monitorToggleBtn');
+    btn.classList.remove('btn-outline-danger');
+    btn.classList.add('btn-outline-success');
+    btn.innerHTML = '<i class="bi bi-play-circle"></i> 实时监控';
+    document.getElementById('monitorBadge').classList.add('d-none');
+    if (monitorTimer) {
+        clearInterval(monitorTimer);
+        monitorTimer = null;
+    }
+}
+
+document.getElementById('monitorToggleBtn').addEventListener('click', function() {
+    if (monitorRunning) {
+        stopMonitor();
+    } else {
+        startMonitor();
+    }
+});
+</script>
+<script>
+function printCard(id) {
+    document.body.classList.add('printing-card');
+    document.body.setAttribute('data-print-id', id);
+    window.print();
+    document.body.classList.remove('printing-card');
+    document.body.removeAttribute('data-print-id');
+}
+</script>
+
+<div class="modal fade" id="cleanupModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('admin.admin_attendance_cleanup') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-trash text-danger"></i> 清理出勤记录</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i> 此操作将永久删除指定日期之前的所有出勤记录，不可恢复！
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">删除此日期之前的记录</label>
+                        <input type="date" name="before_date" class="form-control" required>
+                    </div>
+                    <p class="text-muted small">例如选择 2026-06-01，则删除 2026-06-01 之前（不含当天）的全部出勤数据。</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-danger">确认清理</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="updateStatusModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('admin.admin_update_attendance_status') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-arrow-repeat text-primary"></i> 更新在校状态</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> 此操作将根据最近点名记录更新学生在校状态：
+                    </div>
+                    <ul class="mb-3">
+                        <li><span class="badge bg-success">出勤</span> → 更新为 <strong>在校</strong></li>
+                        <li><span class="badge bg-danger">缺勤</span> → 更新为 <strong>待销假</strong></li>
+                        <li>仅当原有在校状态为<span class="badge bg-secondary">在校</span>或<span class="badge bg-secondary">待销假</span>时才更新</li>
+                        <li>原有<span class="badge bg-info">托管</span><span class="badge bg-warning text-dark">非在校</span>等状态<strong>不会被覆盖</strong></li>
+                    </ul>
+                    {% if attendance_dates %}
+                    <div class="border rounded p-2 bg-light">
+                        <small class="text-muted">历史点名日期：</small>
+                        <div class="mt-1">
+                        {% for d in attendance_dates[:5] %}
+                            <span class="badge bg-secondary me-1">{{ d.attendance_date }}</span>
+                        {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    <p class="text-muted small mt-3 mb-0">基于 <code>{{ stats.last_attendance_date }}</code> 的点名记录进行更新</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">确认更新</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<style>
+/* ── 备份倒计时动画 ── */
+@keyframes cdPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(14, 165, 233, 0.5); }
+    50% { box-shadow: 0 0 0 8px rgba(14, 165, 233, 0); }
+}
+@keyframes cdSpin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+.cd-backing-up #cdIcon {
+    animation: cdPulse 1.5s ease-in-out infinite;
+}
+.cd-backing-up #cdIcon i {
+    animation: cdSpin 2s linear infinite;
+}
+#cdTime {
+    transition: color 0.4s ease;
+    font-variant-numeric: tabular-nums;
+}
+.cd-urgent #cdTime { color: #dc2626 !important; }
+.cd-warning #cdTime { color: #d97706 !important; }
+.cd-backing-up #cdTime { color: #6366f1 !important; }
+
+.cd-preset-btn {
+    font-size: 0.68rem;
+    padding: 0.18rem 0.5rem;
+    border-radius: 12px;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #475569;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+.cd-preset-btn:hover {
+    border-color: #818cf8;
+    color: #4f46e5;
+    background: #eef2ff;
+}
+
+@media (max-width: 991px) {
+    #backupCountdownCard .card-body { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
+    #backupCountdownCard #cdIcon { width: 36px; height: 36px; font-size: 1rem; }
+    #backupCountdownCard #cdTime { font-size: 1.25rem; }
+}
+</style>
+
+<script>
+(function() {
+    var cdPollTimer = null;
+    var cdClientRemaining = -1;
+    var cdTick = null;
+    var cdTotalInterval = 1800;
+
+    var CD_SLOW = 30000;
+    var CD_MEDIUM = 10000;
+    var CD_FAST = 3000;
+    var CD_THRESHOLD_FAST = 60;
+    var CD_THRESHOLD_MEDIUM = 300;
+
+    function formatTime(totalSec) {
+        if (totalSec < 0) totalSec = 0;
+        var h = Math.floor(totalSec / 3600);
+        var m = Math.floor((totalSec % 3600) / 60);
+        var s = totalSec % 60;
+        if (h > 0) {
+            return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+        }
+        return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+    }
+
+    function updateCountdownDisplay(data) {
+        var card = document.getElementById('backupCountdownCard');
+        var timeEl = document.getElementById('cdTime');
+        var badge = document.getElementById('cdStatusBadge');
+        var label = document.getElementById('cdLabel');
+        var progress = document.getElementById('cdProgress');
+        var iconEl = document.getElementById('cdIcon');
+        var icon = iconEl ? iconEl.querySelector('i') : null;
+
+        var sec = data.remaining_seconds;
+        var status = data.status || 'idle';
+        var statusLabel = data.status_label || '未知';
+        var percent = data.percent || 0;
+        var total = data.total_interval || 1800;
+
+        cdClientRemaining = sec;
+        cdTotalInterval = data.total_interval || 1800;
+
+        if (data.interval_info) {
+            initIntervalPanel(data.interval_info, data.interval_info.presets);
+        }
+
+        if (data.poll_config) {
+            CD_SLOW = data.poll_config.slow || 30000;
+            CD_MEDIUM = data.poll_config.medium || 10000;
+            CD_FAST = data.poll_config.fast || 3000;
+            CD_THRESHOLD_FAST = data.poll_config.threshold_fast || 60;
+            CD_THRESHOLD_MEDIUM = data.poll_config.threshold_medium || 300;
+        }
+
+        card.classList.remove('cd-urgent', 'cd-warning', 'cd-backing-up');
+        if (status === 'backing_up') {
+            card.classList.add('cd-backing-up');
+            badge.className = 'badge rounded-pill bg-warning text-dark';
+            badge.textContent = '备份中';
+            label.textContent = '正在执行数据库备份…';
+            if (icon) { icon.className = 'bi bi-arrow-repeat'; }
+            timeEl.textContent = '--:--';
+            progress.style.width = '100%';
+            progress.className = 'progress-bar bg-warning';
+        } else if (status === 'stopped') {
+            badge.className = 'badge rounded-pill bg-secondary';
+            badge.textContent = '未启动';
+            label.textContent = '自动备份未开启';
+            timeEl.textContent = '--:--';
+            if (icon) { icon.className = 'bi bi-clock-history'; }
+            progress.style.width = '0%';
+            progress.className = 'progress-bar';
+        } else {
+            timeEl.textContent = formatTime(sec);
+            progress.style.width = percent + '%';
+
+            if (sec <= 60) {
+                card.classList.add('cd-urgent');
+                badge.className = 'badge rounded-pill bg-danger';
+                badge.textContent = '即将备份';
+                label.textContent = '剩余不足1分钟';
+                progress.className = 'progress-bar bg-danger';
+                if (icon) { icon.className = 'bi bi-exclamation-circle'; }
+            } else if (sec <= 300) {
+                card.classList.add('cd-warning');
+                badge.className = 'badge rounded-pill bg-info text-dark';
+                badge.textContent = '等待中';
+                label.textContent = formatTime(sec) + ' 后自动备份';
+                progress.className = 'progress-bar bg-info';
+                if (icon) { icon.className = 'bi bi-clock-history'; }
+            } else {
+                badge.className = 'badge rounded-pill bg-success';
+                badge.textContent = '等待中';
+                label.textContent = formatTime(sec) + ' 后自动备份';
+                progress.className = 'progress-bar bg-success';
+                if (icon) { icon.className = 'bi bi-clock-history'; }
+            }
+
+            if (sec <= 0 && cdClientRemaining <= 0) {
+                badge.className = 'badge rounded-pill bg-danger';
+                badge.textContent = '即将备份';
+                label.textContent = '备份即将开始…';
+                timeEl.textContent = '00:00';
+            }
+        }
+    }
+
+    function fetchCountdown() {
+        fetch('/api/backup/countdown')
+            .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function(data) {
+                updateCountdownDisplay(data);
+                scheduleNextPoll(data);
+            })
+            .catch(function(err) {
+                if (err.message !== 'HTTP 401') {
+                    console.error('[倒计时] 获取失败:', err);
+                }
+                scheduleNextPoll(null);
+            });
+    }
+
+    function scheduleNextPoll(data) {
+        if (cdPollTimer) clearTimeout(cdPollTimer);
+        var interval;
+        if (!data || data.status === 'stopped' || data.status === 'backing_up') {
+            interval = CD_SLOW;
+        } else {
+            var sec = data.remaining_seconds;
+            if (sec <= CD_THRESHOLD_FAST) {
+                interval = CD_FAST;
+            } else if (sec <= CD_THRESHOLD_MEDIUM) {
+                interval = CD_MEDIUM;
+            } else {
+                interval = CD_SLOW;
+            }
+        }
+        cdPollTimer = setTimeout(fetchCountdown, interval);
+    }
+
+    function startClientTick() {
+        if (cdTick) return;
+        cdTick = setInterval(function() {
+            if (cdClientRemaining > 0) {
+                cdClientRemaining--;
+                var timeEl = document.getElementById('cdTime');
+                var label = document.getElementById('cdLabel');
+                var progress = document.getElementById('cdProgress');
+                var total = 1800;
+                if (timeEl) timeEl.textContent = formatTime(cdClientRemaining);
+                if (label) label.textContent = formatTime(cdClientRemaining) + ' 后自动备份';
+                if (progress) {
+                    var pct = Math.round((1 - cdClientRemaining / cdTotalInterval) * 100);
+                    progress.style.width = Math.min(100, pct) + '%';
+                }
+                var card = document.getElementById('backupCountdownCard');
+                if (card) {
+                    card.classList.remove('cd-urgent', 'cd-warning');
+                    if (cdClientRemaining <= 60) card.classList.add('cd-urgent');
+                    else if (cdClientRemaining <= 300) card.classList.add('cd-warning');
+                }
+            }
+        }, 1000);
+    }
+
+    function stopClientTick() {
+        if (cdTick) { clearInterval(cdTick); cdTick = null; }
+    }
+
+    /* ── 间隔调节面板 ── */
+    var cdCurrentInterval = 1800;
+
+    function initIntervalPanel(intervalInfo, presets) {
+        var slider = document.getElementById('cdIntervalSlider');
+        var label = document.getElementById('cdIntervalLabel');
+        var applyBtn = document.getElementById('cdIntervalApplyBtn');
+        var presetContainer = document.getElementById('cdPresetBtns');
+
+        if (intervalInfo) {
+            cdCurrentInterval = intervalInfo.interval_seconds || 1800;
+        }
+        slider.value = cdCurrentInterval;
+        label.textContent = formatIntervalLabel(cdCurrentInterval);
+
+        if (slider._initDone) return;
+        slider._initDone = true;
+
+        slider.addEventListener('input', function() {
+            var val = parseInt(slider.value);
+            label.textContent = formatIntervalLabel(val);
+            applyBtn.style.display = (val !== cdCurrentInterval) ? '' : 'none';
+        });
+
+        applyBtn.addEventListener('click', function() {
+            var val = parseInt(slider.value);
+            applyInterval(val);
+        });
+
+        if (presets && presets.length > 0) {
+            presetContainer.innerHTML = presets.map(function(p) {
+                var active = (p.value === cdCurrentInterval) ? 'style="background:#4f46e5;color:#fff;border-color:#4f46e5;"' : '';
+                return '<button class="cd-preset-btn" ' + active + ' data-val="' + p.value + '">' + p.label + '</button>';
+            }).join('');
+
+            presetContainer.querySelectorAll('.cd-preset-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var val = parseInt(btn.dataset.val);
+                    slider.value = val;
+                    label.textContent = formatIntervalLabel(val);
+                    applyInterval(val);
+                    updatePresetActive(val);
+                });
+            });
+        }
+    }
+
+    function updatePresetActive(val) {
+        document.querySelectorAll('.cd-preset-btn').forEach(function(btn) {
+            if (parseInt(btn.dataset.val) === val) {
+                btn.style.background = '#4f46e5';
+                btn.style.color = '#fff';
+                btn.style.borderColor = '#4f46e5';
+            } else {
+                btn.style.background = '';
+                btn.style.color = '';
+                btn.style.borderColor = '';
+            }
+        });
+    }
+
+    function applyInterval(seconds) {
+        var btn = document.getElementById('cdIntervalApplyBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:0.6rem;height:0.6rem;"></span>';
+
+        fetch('/api/backup/interval', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({interval_seconds: seconds})
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                cdCurrentInterval = seconds;
+                cdTotalInterval = cdCurrentInterval;
+                btn.innerHTML = '<i class="bi bi-check-lg"></i> 应用';
+                btn.style.display = 'none';
+                updatePresetActive(cdCurrentInterval);
+                document.getElementById('cdIntervalLabel').textContent = formatIntervalLabel(cdCurrentInterval);
+                if (typeof showToast === 'function') {
+                    showToast('备份间隔已更新为 ' + formatIntervalLabel(cdCurrentInterval), 'success');
+                }
+                fetchCountdown();
+            } else {
+                btn.innerHTML = '<i class="bi bi-check-lg"></i> 应用';
+                btn.disabled = false;
+                if (typeof showToast === 'function') {
+                    showToast(data.message || '设置失败', 'danger');
+                }
+            }
+        })
+        .catch(function() {
+            btn.innerHTML = '<i class="bi bi-check-lg"></i> 应用';
+            btn.disabled = false;
+            if (typeof showToast === 'function') {
+                showToast('网络错误，请重试', 'danger');
+            }
+        });
+    }
+
+    function formatIntervalLabel(sec) {
+        if (sec < 60) return sec + '秒';
+        if (sec < 3600) return (sec / 60) + '分钟';
+        var h = Math.floor(sec / 3600);
+        var m = Math.round((sec % 3600) / 60);
+        return m > 0 ? h + '小时' + m + '分钟' : h + '小时';
+    }
+
+    function toggleIntervalPanel() {
+        var panel = document.getElementById('cdIntervalPanel');
+        if (panel.style.display === 'none') {
+            panel.style.display = 'block';
+        } else {
+            panel.style.display = 'none';
+        }
+    }
+
+    window.toggleIntervalPanel = toggleIntervalPanel;
+
+    fetchCountdown();
+    startClientTick();
+
+    document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+            if (cdPollTimer) { clearTimeout(cdPollTimer); cdPollTimer = null; }
+            stopClientTick();
+        } else {
+            fetchCountdown();
+            startClientTick();
+        }
+    });
+
+    window.addEventListener('beforeunload', function() {
+        if (cdPollTimer) clearTimeout(cdPollTimer);
+        stopClientTick();
+    });
+})();
+</script>
+{% endblock %}

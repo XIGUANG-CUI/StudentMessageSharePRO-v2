@@ -1,0 +1,204 @@
+# -*- mode: python ; coding: utf-8 -*-
+
+import os
+import sys
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+
+# ====================== 基础配置 ======================
+# 获取 spec 文件所在目录作为项目根路径
+if '__file__' not in locals():
+    spec_file = os.path.abspath(sys.argv[0])
+else:
+    spec_file = os.path.abspath(__file__)
+base_path = os.path.dirname(spec_file)
+block_cipher = None
+
+# ====================== 收集 DLL 二进制文件 ======================
+binaries = []
+
+# SDK 目录下的身份证读卡器 DLL（ctypes 运行时动态加载）
+sdk_dir = os.path.join(base_path, 'sdk')
+if os.path.exists(sdk_dir):
+    for file in os.listdir(sdk_dir):
+        if file.lower().endswith(('.dll', '.so', '.dylib')):
+            binaries.append((os.path.join(sdk_dir, file), 'sdk'))
+
+# ====================== 收集数据文件 ======================
+datas = []
+
+# 1. Jinja2 模板文件（保持子目录结构）
+templates_dir = os.path.join(base_path, 'templates')
+if os.path.exists(templates_dir):
+    for root, dirs, files in os.walk(templates_dir):
+        for file in files:
+            src = os.path.join(root, file)
+            rel = os.path.relpath(root, base_path)
+            datas.append((src, rel))
+
+# 2. 静态资源（CSS / JS）
+static_dir = os.path.join(base_path, 'static')
+if os.path.exists(static_dir):
+    for root, dirs, files in os.walk(static_dir):
+        for file in files:
+            src = os.path.join(root, file)
+            rel = os.path.relpath(root, base_path)
+            datas.append((src, rel))
+
+# 3. SDK 文件（读卡器 DLL + license.dat）
+if os.path.exists(sdk_dir):
+    for file in os.listdir(sdk_dir):
+        datas.append((os.path.join(sdk_dir, file), 'sdk'))
+
+# 4. 数据库文件
+data_dir = os.path.join(base_path, 'data')
+if os.path.exists(data_dir) and os.listdir(data_dir):
+    for file in os.listdir(data_dir):
+        datas.append((os.path.join(data_dir, file), 'data'))
+
+# 5. 数据库备份目录
+backup_dir = os.path.join(base_path, 'databackup')
+if os.path.exists(backup_dir) and os.listdir(backup_dir):
+    for file in os.listdir(backup_dir):
+        datas.append((os.path.join(backup_dir, file), 'databackup'))
+
+# 6. 上传文件临时目录
+uploads_dir = os.path.join(base_path, 'uploads')
+if os.path.exists(uploads_dir) and os.listdir(uploads_dir):
+    for file in os.listdir(uploads_dir):
+        datas.append((os.path.join(uploads_dir, file), 'uploads'))
+
+# 7. 配置文件
+config_file = os.path.join(base_path, 'config.py')
+if os.path.exists(config_file):
+    datas.append((config_file, '.'))
+
+# 8. 版本文件
+version_file = os.path.join(base_path, 'version.txt')
+if os.path.exists(version_file):
+    datas.append((version_file, '.'))
+
+# 9. 图标文件
+for icon_name in ['favicon.ico', 'favicon.png', 'icon.ico', 'icon.png']:
+    icon_path = os.path.join(base_path, icon_name)
+    if os.path.exists(icon_path):
+        datas.append((icon_path, '.'))
+
+# 10. openpyxl 和 qrcode 的隐式依赖数据
+datas += collect_data_files('openpyxl')
+datas += collect_data_files('qrcode')
+
+# ====================== 隐藏导入（防止分析遗漏） ======================
+hiddenimports = []
+
+# openpyxl 全部子模块（Excel 读写需要，约 189 个子模块）
+hiddenimports += collect_submodules('openpyxl')
+
+# qrcode 二维码生成
+hiddenimports += [
+    'qrcode',
+    'qrcode.image.pil',
+]
+
+# PIL/Pillow（托盘图标绘制 + 二维码图片生成）
+hiddenimports += [
+    'PIL',
+    'PIL.Image',
+    'PIL.ImageFile',
+    'PIL.ImageDraw',
+    'PIL.ImageFont',
+    'PIL._imaging',
+]
+
+# pystray 系统托盘（Windows 平台 _win32 后端）
+hiddenimports += [
+    'pystray',
+    'pystray._win32',
+]
+
+# tkinter（启动完成弹窗）
+hiddenimports += [
+    'tkinter',
+    'tkinter.messagebox',
+]
+
+# 项目 services 子模块
+hiddenimports += [
+    'services',
+    'services.backup_service',
+    'services.card_reader',
+]
+
+# 其他必要模块
+hiddenimports += [
+    'ipaddress',       # 局域网 IP 检测
+    'threading',       # 定时备份 daemon 线程
+    'datetime',        # 时间处理
+    'shutil',          # 备份文件复制
+    'sqlite3',         # 数据库引擎
+    'logging.handlers',# 日志轮转
+]
+
+# ====================== 排除模块（减小体积） ======================
+excludes = [
+    'pandas',           # 不再使用，openpyxl 已替代
+    'matplotlib',       # 不在本项目中绘图
+    'numpy',            # pandas 依赖，随 pandas 一起排除
+    'scipy',            # 科学计算，不需要
+    'PyQt5',            # GUI 框架，不需要
+    'wx',               # GUI 框架，不需要
+    'tensorflow',       # ML 框架，不需要
+    'torch',            # ML 框架，不需要
+    'sklearn',          # 机器学习，不需要
+    'notebook',         # Jupyter，不需要
+    'ipython',          # 交互式终端，不需要
+    'prompt_toolkit',   # IPython 依赖
+    'PIL.ImageQt',      # Qt 后端，不需要
+    'PIL.ImageTk',      # ImageTk 不直接使用
+    'PIL._webp',        # WebP 格式，不需要
+    'tkinter.test',     # tkinter 测试
+    'tkinter.ttk',      # ttk 主题组件，不需要
+    'unittest',         # 单元测试框架
+    'test',             # 测试目录
+    'pydoc',            # 文档工具
+    'distutils',        # 已废弃
+    'setuptools',       # 安装工具
+]
+
+# ====================== Analysis 分析配置 ======================
+a = Analysis(
+    ['run_with_tray.py'],
+    pathex=[base_path],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=excludes,
+    noarchive=False,
+    optimize=0,
+)
+pyz = PYZ(a.pure)
+
+# ====================== EXE 生成配置 ======================
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.datas,
+    [],
+    name='学生数据管理系统V1.0',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,                      # 窗口化运行，不显示控制台黑窗
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=os.path.join(base_path, 'favicon.ico'),
+)

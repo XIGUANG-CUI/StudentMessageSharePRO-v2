@@ -1,0 +1,1349 @@
+{% extends "base.html" %}
+
+{% block title %}学籍异动处理 - 学生数据管理系统{% endblock %}
+
+{% block content %}
+<style>
+:root {
+    --sc-primary: #4361ee;
+    --sc-primary-light: #eef1ff;
+    --sc-success: #10b981;
+    --sc-success-light: #ecfdf5;
+    --sc-danger: #ef4444;
+    --sc-danger-light: #fef2f2;
+    --sc-warning: #f59e0b;
+    --sc-warning-light: #fffbeb;
+    --sc-info: #3b82f6;
+    --sc-info-light: #eff6ff;
+    --sc-gray-50: #f9fafb;
+    --sc-gray-100: #f3f4f6;
+    --sc-gray-200: #e5e7eb;
+    --sc-gray-300: #d1d5db;
+    --sc-gray-500: #6b7280;
+    --sc-gray-700: #374151;
+    --sc-gray-900: #111827;
+    --sc-radius: 14px;
+    --sc-radius-sm: 10px;
+    --sc-shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+    --sc-shadow: 0 4px 12px rgba(0,0,0,.06), 0 2px 4px rgba(0,0,0,.04);
+    --sc-shadow-lg: 0 10px 30px rgba(0,0,0,.08), 0 4px 8px rgba(0,0,0,.04);
+    --sc-transition: 200ms cubic-bezier(.4,0,.2,1);
+}
+
+.sc-header {
+    margin-bottom: 1.5rem;
+}
+.sc-header .sc-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--sc-gray-900);
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+.sc-header .sc-title i {
+    color: var(--sc-primary);
+    font-size: 1.4rem;
+}
+.sc-header .sc-subtitle {
+    font-size: .875rem;
+    color: var(--sc-gray-500);
+    margin-top: .25rem;
+}
+
+.sc-card {
+    background: #fff;
+    border: 1px solid var(--sc-gray-200);
+    border-radius: var(--sc-radius);
+    box-shadow: var(--sc-shadow-sm);
+    overflow: hidden;
+}
+.sc-card-header {
+    padding: .875rem 1.25rem;
+    font-weight: 600;
+    font-size: .925rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--sc-gray-100);
+}
+.sc-card-header i {
+    margin-right: .5rem;
+    opacity: .85;
+}
+.sc-card-body {
+    padding: 1.25rem;
+}
+.sc-card-header-primary {
+    background: linear-gradient(135deg, var(--sc-primary), #5b7bf5);
+    color: #fff;
+    border-bottom: none;
+}
+.sc-card-header-dark {
+    background: linear-gradient(135deg, #1e293b, #334155);
+    color: #fff;
+    border-bottom: none;
+}
+
+.sc-search-input-wrap {
+    position: relative;
+}
+.sc-search-input-wrap .sc-search-icon {
+    position: absolute;
+    left: .875rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--sc-gray-500);
+    pointer-events: none;
+    z-index: 2;
+}
+.sc-search-input {
+    width: 100%;
+    height: 48px;
+    padding: 0 2.75rem 0 2.5rem;
+    border: 2px solid var(--sc-gray-200);
+    border-radius: var(--sc-radius-sm);
+    font-size: .95rem;
+    outline: none;
+    transition: border-color var(--sc-transition), box-shadow var(--sc-transition);
+}
+.sc-search-input:focus {
+    border-color: var(--sc-primary);
+    box-shadow: 0 0 0 3px rgba(67,97,238,.12);
+}
+.sc-search-clear {
+    position: absolute;
+    right: .5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--sc-gray-500);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: all var(--sc-transition);
+    z-index: 2;
+}
+.sc-search-clear.visible {
+    opacity: 1;
+    visibility: visible;
+}
+.sc-search-clear:hover {
+    background: var(--sc-gray-200);
+    color: var(--sc-gray-700);
+}
+.sc-search-hint {
+    font-size: .75rem;
+    color: var(--sc-gray-500);
+    margin-top: .5rem;
+    display: flex;
+    align-items: center;
+    gap: .25rem;
+}
+
+.sc-table-wrap {
+    overflow: auto;
+}
+.sc-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .875rem;
+}
+.sc-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+.sc-table thead th {
+    background: var(--sc-gray-50);
+    font-size: .75rem;
+    font-weight: 600;
+    color: var(--sc-gray-500);
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    padding: .75rem 1rem;
+    border-bottom: 2px solid var(--sc-gray-200);
+    white-space: nowrap;
+}
+.sc-table tbody td {
+    padding: .55rem 1rem;
+    border-bottom: 1px solid var(--sc-gray-100);
+    color: var(--sc-gray-700);
+    vertical-align: middle;
+}
+.sc-table tbody tr {
+    transition: background var(--sc-transition);
+}
+.sc-table tbody tr:hover {
+    background: var(--sc-gray-50);
+}
+.sc-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.sc-student-code {
+    font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    font-size: .8125rem;
+    color: var(--sc-gray-500);
+    background: var(--sc-gray-100);
+    padding: .15rem .5rem;
+    border-radius: 4px;
+}
+.sc-student-name {
+    font-weight: 600;
+    color: var(--sc-gray-900);
+}
+.sc-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--sc-primary), #7c5cfc);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .75rem;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-right: .5rem;
+}
+
+.sc-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    padding: .25rem .65rem;
+    border-radius: 20px;
+    font-size: .75rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.sc-badge-success {
+    background: var(--sc-success-light);
+    color: var(--sc-success);
+}
+.sc-badge-danger {
+    background: var(--sc-danger-light);
+    color: var(--sc-danger);
+}
+.sc-badge-warning {
+    background: var(--sc-warning-light);
+    color: var(--sc-warning);
+}
+.sc-badge-info {
+    background: var(--sc-info-light);
+    color: var(--sc-info);
+}
+.sc-badge-secondary {
+    background: var(--sc-gray-100);
+    color: var(--sc-gray-500);
+}
+
+.sc-btn-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .4rem;
+    padding: .45rem 1rem;
+    border-radius: 8px;
+    border: 1px solid var(--sc-gray-200);
+    background: #fff;
+    color: var(--sc-gray-700);
+    font-size: .8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--sc-transition);
+    white-space: nowrap;
+}
+.sc-btn-action:hover {
+    background: var(--sc-gray-50);
+    border-color: var(--sc-gray-300);
+}
+.sc-btn-action-primary {
+    background: var(--sc-primary);
+    color: #fff;
+    border-color: var(--sc-primary);
+}
+.sc-btn-action-primary:hover {
+    background: #3651d4;
+    border-color: #3651d4;
+    color: #fff;
+}
+.sc-btn-action-danger {
+    background: var(--sc-danger);
+    color: #fff;
+    border-color: var(--sc-danger);
+}
+.sc-btn-action-danger:hover {
+    background: #dc2626;
+    border-color: #dc2626;
+    color: #fff;
+}
+.sc-btn-confirm {
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+    padding: .35rem .75rem;
+    border-radius: 6px;
+    border: 1px solid var(--sc-primary);
+    background: var(--sc-primary-light);
+    color: var(--sc-primary);
+    font-size: .8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--sc-transition);
+}
+.sc-btn-confirm:hover {
+    background: var(--sc-primary);
+    color: #fff;
+}
+
+.sc-empty {
+    text-align: center;
+    padding: 3rem 1.5rem;
+}
+.sc-empty-icon {
+    font-size: 2.5rem;
+    color: var(--sc-gray-300);
+    margin-bottom: .75rem;
+}
+.sc-empty-title {
+    font-weight: 600;
+    color: var(--sc-gray-500);
+    margin-bottom: .25rem;
+}
+.sc-empty-desc {
+    font-size: .8125rem;
+    color: var(--sc-gray-500);
+}
+
+.sc-page-badge {
+    font-size: .75rem;
+    background: rgba(255,255,255,.2);
+    padding: .2rem .65rem;
+    border-radius: 12px;
+    font-weight: 500;
+}
+
+/* ===== Modal ===== */
+.sc-modal .modal-content {
+    border: none;
+    border-radius: var(--sc-radius);
+    box-shadow: var(--sc-shadow-lg);
+    overflow: hidden;
+}
+.sc-modal .modal-header {
+    padding: .875rem 1.25rem;
+    font-weight: 700;
+    border-bottom: none;
+}
+.sc-modal .modal-header.modal-header-primary {
+    background: linear-gradient(135deg, var(--sc-primary), #5b7bf5);
+    color: #fff;
+}
+.sc-modal .modal-header.modal-header-dark {
+    background: linear-gradient(135deg, #1e293b, #334155);
+    color: #fff;
+}
+.sc-modal .modal-header .btn-close-white {
+    filter: brightness(0) invert(1);
+}
+.sc-modal .modal-body {
+    padding: 1.5rem;
+}
+
+.sc-change-section {
+    border: 1px solid var(--sc-gray-200);
+    border-radius: var(--sc-radius-sm);
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+}
+.sc-change-section:last-child {
+    margin-bottom: 0;
+}
+.sc-change-section-title {
+    font-size: .875rem;
+    font-weight: 700;
+    color: var(--sc-gray-900);
+    margin-bottom: .75rem;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+.sc-change-section-title i {
+    font-size: 1rem;
+}
+.sc-change-section-desc {
+    font-size: .75rem;
+    color: var(--sc-gray-500);
+    margin-bottom: .75rem;
+}
+
+.sc-form-select {
+    width: 100%;
+    padding: .5rem .75rem;
+    border: 1px solid var(--sc-gray-200);
+    border-radius: 8px;
+    font-size: .875rem;
+    color: var(--sc-gray-700);
+    background: #fff;
+    transition: border-color var(--sc-transition);
+    outline: none;
+}
+.sc-form-select:focus {
+    border-color: var(--sc-primary);
+    box-shadow: 0 0 0 3px rgba(67,97,238,.1);
+}
+
+.sc-student-info-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1.5rem;
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--sc-gray-100);
+}
+.sc-info-label {
+    font-size: .75rem;
+    color: var(--sc-gray-500);
+}
+.sc-info-value {
+    font-size: .875rem;
+    font-weight: 600;
+    color: var(--sc-gray-900);
+}
+
+.sc-danger-zone {
+    border: 2px dashed var(--sc-danger);
+    border-radius: var(--sc-radius-sm);
+    padding: 1rem 1.25rem;
+    background: var(--sc-danger-light);
+}
+.sc-danger-zone .sc-change-section-title {
+    color: var(--sc-danger);
+}
+</style>
+
+<div class="sc-header">
+    <div class="sc-title">
+        <i class="bi bi-arrow-left-right"></i>学籍异动快速处理
+    </div>
+    <div class="sc-subtitle">快速变更学生行政班级、专业信息，或办理退学办结</div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-5">
+        <div class="sc-card mb-3">
+            <div class="sc-card-header sc-card-header-primary">
+                <span><i class="bi bi-person-search"></i>查找学生</span>
+            </div>
+            <div class="sc-card-body">
+                <div class="sc-search-input-wrap">
+                    <i class="bi bi-search sc-search-icon"></i>
+                    <input type="text" class="sc-search-input" id="keywordInput"
+                           placeholder="输入姓名或身份证后四位..."
+                           autocomplete="off">
+                    <button class="sc-search-clear" id="searchClearBtn" onclick="clearSearch()" title="清除">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+                <div class="sc-search-hint">
+                    <i class="bi bi-info-circle"></i>姓名模糊查找 · 身份证后四位精确匹配
+                </div>
+            </div>
+        </div>
+
+        <div class="sc-card">
+            <div class="sc-card-header sc-card-header-dark">
+                <span><i class="bi bi-list-ul"></i>搜索结果</span>
+                <span class="sc-page-badge" id="resultCount">0 条记录</span>
+            </div>
+            <div class="sc-card-body p-0">
+                <div class="sc-table-wrap" style="max-height: 60vh;">
+                    <table class="sc-table">
+                        <thead>
+                            <tr>
+                                <th>学号</th>
+                                <th>身份证号</th>
+                                <th>姓名</th>
+                                <th>班级</th>
+                                <th style="width:80px;">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resultsBody">
+                            <tr>
+                                <td colspan="5">
+                                    <div class="sc-empty">
+                                        <div class="sc-empty-icon">
+                                            <i class="bi bi-search"></i>
+                                        </div>
+                                        <div class="sc-empty-title">开始查找</div>
+                                        <div class="sc-empty-desc">输入姓名或身份证后四位查找学生</div>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-7">
+        <div class="sc-card">
+            <div class="sc-card-header sc-card-header-dark">
+                <span><i class="bi bi-info-circle"></i>学生详情</span>
+            </div>
+            <div class="sc-card-body">
+                <div id="detailPlaceholder">
+                    <div class="sc-empty">
+                        <div class="sc-empty-icon">
+                            <i class="bi bi-person-badge"></i>
+                        </div>
+                        <div class="sc-empty-title">未选择学生</div>
+                        <div class="sc-empty-desc">请先在左侧搜索并点击「异动」按钮选择学生</div>
+                    </div>
+                </div>
+                <div id="detailContent" style="display:none;">
+                    <div class="sc-student-info-row">
+                        <div>
+                            <div class="sc-info-label">学号</div>
+                            <div class="sc-info-value" id="detStudentNo">-</div>
+                        </div>
+                        <div>
+                            <div class="sc-info-label">姓名</div>
+                            <div class="sc-info-value" id="detName">-</div>
+                        </div>
+                        <div>
+                            <div class="sc-info-label">身份证号</div>
+                            <div class="sc-info-value" id="detIdCard">-</div>
+                        </div>
+                        <div>
+                            <div class="sc-info-label">性别</div>
+                            <div class="sc-info-value" id="detGender">-</div>
+                        </div>
+                        <div>
+                            <div class="sc-info-label">当前专业</div>
+                            <div class="sc-info-value" id="detMajor">-</div>
+                        </div>
+                        <div>
+                            <div class="sc-info-label">当前行政班级</div>
+                            <div class="sc-info-value" id="detClass">-</div>
+                        </div>
+                        <div>
+                            <div class="sc-info-label">在校状态</div>
+                            <div class="sc-info-value" id="detStatus">-</div>
+                        </div>
+                        <div>
+                            <div class="sc-info-label">学籍状态</div>
+                            <div class="sc-info-value" id="detRegistrationStatus">-</div>
+                        </div>
+                        <div>
+                            <div class="sc-info-label">学籍异动</div>
+                            <div class="sc-info-value" id="detChangeInfo" style="color:var(--sc-primary);">-</div>
+                        </div>
+                    </div>
+
+                    <div class="sc-change-section">
+                        <div class="sc-change-section-title">
+                            <i class="bi bi-building" style="color:var(--sc-primary);"></i>班级变更
+                        </div>
+                        <div class="sc-change-section-desc">
+                            仅变更行政班级，系统记录异动信息为「异动至此&文件编号」
+                        </div>
+                        <div class="mb-2">
+                            <label class="sc-info-label">目标行政班级</label>
+                            <select class="sc-form-select" id="modalNewClass">
+                                <option value="">请选择目标班级...</option>
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="sc-info-label">班级变更文件编号</label>
+                            <input type="text" class="sc-search-input" id="modalClassFileNo" placeholder="请输入文件编号..." style="height:42px;">
+                        </div>
+                        <button type="button" class="sc-btn-action sc-btn-action-primary" onclick="doClassChange()">
+                            <i class="bi bi-check2-circle"></i>确认变更班级
+                        </button>
+                    </div>
+
+                    <div class="sc-change-section">
+                        <div class="sc-change-section-title">
+                            <i class="bi bi-journal-text" style="color:var(--sc-info);"></i>专业变更
+                        </div>
+                        <div class="sc-change-section-desc">
+                            同时变更行政班级与专业，系统记录异动信息为「专业变更&文件编号」
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="sc-info-label">目标行政班级</label>
+                                <select class="sc-form-select" id="modalMajorNewClass">
+                                    <option value="">请选择目标班级...</option>
+                                </select>
+                            </div>
+                            <div class="col-6">
+                                <label class="sc-info-label">目标专业</label>
+                                <select class="sc-form-select" id="modalNewMajor">
+                                    <option value="">请选择目标专业...</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="sc-info-label">专业变更文件编号</label>
+                            <input type="text" class="sc-search-input" id="modalMajorFileNo" placeholder="请输入文件编号..." style="height:42px;">
+                        </div>
+                        <button type="button" class="sc-btn-action sc-btn-action-primary" onclick="doMajorChange()">
+                            <i class="bi bi-check2-circle"></i>确认变更专业
+                        </button>
+                    </div>
+
+                    <div class="sc-danger-zone">
+                        <div class="sc-change-section-title">
+                            <i class="bi bi-exclamation-triangle-fill"></i>退学办结
+                        </div>
+                        <div class="sc-change-section-desc">
+                            将学生在校状态设置为「退学办结」，并记录异动信息。此操作不可撤销，请谨慎操作。
+                        </div>
+                        <div class="mb-2">
+                            <label class="sc-info-label">退学办结文件编号</label>
+                            <input type="text" class="sc-search-input" id="modalDropoutFileNo" placeholder="请输入文件编号..." style="height:42px;">
+                        </div>
+                        <button type="button" class="sc-btn-action sc-btn-action-danger" onclick="doDropout()">
+                            <i class="bi bi-box-arrow-right"></i>确认退学办结
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="mt-4">
+    <div class="sc-card">
+        <div class="sc-card-header sc-card-header-dark">
+            <span><i class="bi bi-clipboard-check"></i>转学待办表</span>
+            <span class="sc-page-badge" id="tpCount">加载中…</span>
+        </div>
+        <div class="sc-card-body p-0">
+            <div class="sc-table-wrap" style="max-height: 420px; overflow-y: auto;">
+                <table class="sc-table">
+                    <thead>
+                        <tr>
+                            <th>姓名</th>
+                            <th>身份证号</th>
+                            <th>班级</th>
+                            <th>年级</th>
+                            <th>入学年</th>
+                            <th>专业</th>
+                            <th>学校类别</th>
+                            <th>创建时间</th>
+                            <th style="width:110px;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tpTableBody">
+                        <tr><td colspan="9"><div class="sc-empty"><div class="sc-empty-icon"><i class="bi bi-hourglass-split"></i></div><div class="sc-empty-title">加载中…</div></div></td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="d-flex justify-content-center py-2" id="tpPagination"></div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade sc-modal" id="transferModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header modal-header-dark">
+                <h5 class="modal-title"><i class="bi bi-clipboard-check me-2"></i>处理转学</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="sc-student-info-row">
+                    <div>
+                        <div class="sc-info-label">身份证号</div>
+                        <div class="sc-info-value" id="tpModalIdCard">-</div>
+                    </div>
+                    <div>
+                        <div class="sc-info-label">姓名</div>
+                        <div class="sc-info-value" id="tpModalName">-</div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="sc-info-label">学号</label>
+                    <input type="text" class="sc-search-input" id="tpModalStudentNo"
+                           placeholder="请输入学生学号…" style="height:42px;">
+                    <div class="invalid-feedback d-none" id="tpStudentNoError"></div>
+                    <div class="text-info small d-none" id="tpStudentNoInfo" style="margin-top:4px;">
+                        <i class="bi bi-info-circle"></i> 该生已有学号
+                    </div>
+                </div>
+
+                <div class="sc-change-section">
+                    <div class="sc-change-section-title">
+                        <i class="bi bi-arrow-repeat" style="color:var(--sc-primary);"></i>学籍状态变更
+                    </div>
+                    <div class="d-flex gap-2 align-items-center">
+                        <span class="sc-badge sc-badge-warning">未注册</span>
+                        <i class="bi bi-arrow-right"></i>
+                        <span class="sc-badge sc-badge-success">正式学籍</span>
+                    </div>
+                </div>
+
+                <div class="d-flex gap-2 justify-content-end mt-3">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="tpConfirmBtn" onclick="executeTransfer()" disabled>
+                        <i class="bi bi-check2-circle"></i>确认
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade sc-modal" id="confirmModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header modal-header-primary">
+                <h5 class="modal-title"><i class="bi bi-exclamation-triangle me-2"></i>确认操作</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+                <div class="mb-3" id="confirmMsg"></div>
+                <div class="mb-3 d-none" id="confirmSchoolRow">
+                    <label class="form-label small fw-bold">学校类别</label>
+                    <select id="confirmSchool" class="form-select form-select-sm" style="width:140px;margin:0 auto;">
+                        <option value="1">中职</option>
+                        <option value="2">技工</option>
+                    </select>
+                </div>
+                <div class="d-flex gap-2 justify-content-center">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="confirmBtn" onclick="executeChange()">
+                        <i class="bi bi-check2-circle"></i>确认
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+var confirmModal = null;
+var selectedStudent = null;
+var pendingAction = null;
+var pendingData = null;
+var debounceTimer = null;
+var lastKeyword = '';
+
+document.addEventListener('DOMContentLoaded', function() {
+    confirmModal = new bootstrap.Modal(document.getElementById('confirmModal'));
+
+    document.getElementById('keywordInput').addEventListener('input', function() {
+        var val = this.value.trim();
+        document.getElementById('searchClearBtn').classList.toggle('visible', val.length > 0);
+        debounceSearch();
+    });
+
+    document.getElementById('keywordInput').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            performSearch();
+        }
+    });
+
+    loadClassOptions();
+    loadMajorOptions();
+});
+
+function loadClassOptions() {
+    fetch('{{ url_for("lifecycle.api_student_class_options") }}')
+        .then(function(res) { return safeJSON(res); })
+        .then(function(data) {
+            if (!data.classes) return;
+            var opts = data.classes.map(function(c) {
+                return '<option value="' + c + '">' + c + '</option>';
+            }).join('');
+            document.getElementById('modalNewClass').innerHTML = '<option value="">请选择目标班级...</option>' + opts;
+            document.getElementById('modalMajorNewClass').innerHTML = '<option value="">请选择目标班级...</option>' + opts;
+        });
+}
+
+function loadMajorOptions() {
+    fetch('{{ url_for("api.api_get_dicts") }}')
+        .then(function(res) { return safeJSON(res); })
+        .then(function(data) {
+            if (!data.success || !data.grouped_dicts || !data.grouped_dicts.major) return;
+            var opts = data.grouped_dicts.major.map(function(m) {
+                return '<option value="' + m + '">' + m + '</option>';
+            }).join('');
+            document.getElementById('modalNewMajor').innerHTML = '<option value="">请选择目标专业...</option>' + opts;
+        });
+}
+
+function clearSearch() {
+    document.getElementById('keywordInput').value = '';
+    document.getElementById('searchClearBtn').classList.remove('visible');
+    document.getElementById('keywordInput').focus();
+    lastKeyword = '';
+    document.getElementById('resultsBody').innerHTML = '<tr><td colspan="5"><div class="sc-empty"><div class="sc-empty-icon"><i class="bi bi-search"></i></div><div class="sc-empty-title">开始查找</div><div class="sc-empty-desc">输入姓名/拼音或身份证后四位查找学生</div></div></td></tr>';
+    document.getElementById('resultCount').textContent = '0 条记录';
+}
+
+function debounceSearch() {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(performSearch, 200);
+}
+
+function performSearch() {
+    var keyword = document.getElementById('keywordInput').value.trim();
+
+    if (!keyword) {
+        clearSearch();
+        return;
+    }
+
+    if (keyword === lastKeyword) return;
+    lastKeyword = keyword;
+
+    document.getElementById('resultsBody').innerHTML = '<tr><td colspan="5"><div class="sc-empty"><div class="sc-empty-icon sc-loading"><i class="bi bi-hourglass-split"></i></div><div class="sc-empty-title">搜索中...</div></div></td></tr>';
+
+    fetch('{{ url_for("lifecycle.api_student_search_quick") }}?keyword=' + encodeURIComponent(keyword))
+        .then(function(res) { return safeJSON(res); })
+        .then(function(data) {
+            if (data.error) {
+                showToast(data.error, 'warning');
+                renderEmptyResults();
+                return;
+            }
+            renderResults(data.results);
+        })
+        .catch(function(err) {
+            console.error('Search error:', err);
+            showToast('查询失败', 'danger');
+            renderEmptyResults();
+        });
+}
+
+function renderResults(results) {
+    var tbody = document.getElementById('resultsBody');
+    var count = document.getElementById('resultCount');
+
+    if (!results || results.length === 0) {
+        renderEmptyResults();
+        return;
+    }
+
+    count.textContent = results.length + ' 条记录';
+
+    var html = '';
+    for (var i = 0; i < results.length; i++) {
+        var s = results[i];
+        var nameChar = (s.name || '?').charAt(0);
+        html += '<tr>' +
+            '<td><span class="sc-student-code">' + (s.student_no || '-') + '</span></td>' +
+            '<td><span class="sc-student-code">' + (s.id_card || '-') + '</span></td>' +
+            '<td><span class="sc-avatar" style="display:inline-flex;vertical-align:middle;margin-right:.5rem;">' + nameChar + '</span><span class="sc-student-name">' + s.name + '</span></td>' +
+            '<td>' + (s.admin_class || '-') + '</td>' +
+            '<td><button class="sc-btn-confirm" onclick="selectStudent(\'' + s.id_card + '\')"><i class="bi bi-arrow-left-right"></i>异动</button></td>' +
+            '</tr>';
+    }
+    tbody.innerHTML = html;
+}
+
+function renderEmptyResults() {
+    document.getElementById('resultCount').textContent = '0 条记录';
+    document.getElementById('resultsBody').innerHTML = '<tr><td colspan="5"><div class="sc-empty"><div class="sc-empty-icon"><i class="bi bi-emoji-frown"></i></div><div class="sc-empty-title">未找到记录</div><div class="sc-empty-desc">没有找到匹配的学生</div></div></td></tr>';
+}
+
+function selectStudent(idCard) {
+    fetch('{{ url_for("lifecycle.api_student_search_quick") }}?keyword=' + encodeURIComponent(idCard) + '&by_id_card=1')
+        .then(function(res) { return safeJSON(res); })
+        .then(function(data) {
+            if (!data.results || data.results.length === 0) {
+                showToast('未找到该学生', 'warning');
+                return;
+            }
+            var s = data.results[0];
+            selectedStudent = s;
+            document.getElementById('detailPlaceholder').style.display = 'none';
+            document.getElementById('detailContent').style.display = 'block';
+            document.getElementById('detStudentNo').textContent = s.student_no || '-';
+            document.getElementById('detName').textContent = s.name || '-';
+            document.getElementById('detIdCard').textContent = s.id_card || '-';
+            document.getElementById('detGender').textContent = s.gender || '-';
+            document.getElementById('detMajor').textContent = s.major || '-';
+            document.getElementById('detClass').textContent = s.admin_class || '-';
+            document.getElementById('detStatus').textContent = s.attendance_status || '-';
+            document.getElementById('detRegistrationStatus').textContent = s.registration_status || '-';
+            document.getElementById('detChangeInfo').textContent = s.change_info || '-';
+
+            document.getElementById('modalNewClass').value = '';
+            document.getElementById('modalMajorNewClass').value = '';
+            document.getElementById('modalNewMajor').value = '';
+            document.getElementById('modalClassFileNo').value = '';
+            document.getElementById('modalMajorFileNo').value = '';
+            document.getElementById('modalDropoutFileNo').value = '';
+
+            document.getElementById('detailContent').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        })
+        .catch(function(err) {
+            console.error(err);
+            showToast('获取学生信息失败', 'danger');
+        });
+}
+
+function _buildChangeInfo(prefix, fileNo) {
+    var newInfo = prefix + '&' + fileNo;
+    var existing = (selectedStudent.change_info || '').trim();
+    if (existing) {
+        return existing + ';' + newInfo;
+    }
+    return newInfo;
+}
+
+function doClassChange() {
+    var newClass = document.getElementById('modalNewClass').value;
+    var fileNo = document.getElementById('modalClassFileNo').value.trim();
+    if (!newClass) {
+        showToast('请选择目标行政班级', 'warning');
+        return;
+    }
+    if (!fileNo) {
+        showToast('请输入班级变更文件编号', 'warning');
+        return;
+    }
+    if (!selectedStudent) {
+        showToast('请先选择学生', 'warning');
+        return;
+    }
+    if (newClass === selectedStudent.admin_class) {
+        showToast('目标班级与当前班级相同，无需变更', 'warning');
+        return;
+    }
+
+    var changeInfo = _buildChangeInfo('异动至此', fileNo);
+
+    pendingAction = 'class_change';
+    pendingData = {
+        id_card: selectedStudent.id_card,
+        new_class: newClass,
+        change_info: changeInfo
+    };
+
+    document.getElementById('confirmMsg').innerHTML =
+        '<div class="fw-bold mb-1">' + selectedStudent.name + '</div>' +
+        '<div class="text-muted small">班级变更：' + selectedStudent.admin_class + ' → <strong>' + newClass + '</strong></div>' +
+        '<div class="text-muted small mt-1">将记录异动信息：<strong>' + changeInfo + '</strong></div>';
+    document.getElementById('confirmBtn').innerHTML = '<i class="bi bi-check2-circle"></i>确认变更班级';
+    document.getElementById('confirmBtn').disabled = false;
+    confirmModal.show();
+}
+
+function doMajorChange() {
+    var newClass = document.getElementById('modalMajorNewClass').value;
+    var newMajor = document.getElementById('modalNewMajor').value;
+    var fileNo = document.getElementById('modalMajorFileNo').value.trim();
+    if (!newClass) {
+        showToast('请选择目标行政班级', 'warning');
+        return;
+    }
+    if (!newMajor) {
+        showToast('请选择目标专业', 'warning');
+        return;
+    }
+    if (!fileNo) {
+        showToast('请输入专业变更文件编号', 'warning');
+        return;
+    }
+    if (!selectedStudent) {
+        showToast('请先选择学生', 'warning');
+        return;
+    }
+    if (newClass === selectedStudent.admin_class && newMajor === selectedStudent.major) {
+        showToast('目标班级和专业与当前相同，无需变更', 'warning');
+        return;
+    }
+
+    var changeInfo = _buildChangeInfo('专业变更', fileNo);
+
+    var msgParts = [];
+    if (newClass !== selectedStudent.admin_class) {
+        msgParts.push('班级：' + selectedStudent.admin_class + ' → <strong>' + newClass + '</strong>');
+    }
+    if (newMajor !== selectedStudent.major) {
+        msgParts.push('专业：' + (selectedStudent.major || '无') + ' → <strong>' + newMajor + '</strong>');
+    }
+
+    pendingAction = 'major_change';
+    pendingData = {
+        id_card: selectedStudent.id_card,
+        new_class: newClass,
+        new_major: newMajor,
+        change_info: changeInfo
+    };
+
+    if (newMajor === selectedStudent.major) {
+        // 专业未变，无需查询 school
+        document.getElementById('confirmSchoolRow').classList.add('d-none');
+        finishMajorConfirm(msgParts, changeInfo);
+        return;
+    }
+
+    // 查询新专业对应的学校
+    fetch('/api/school/derive?major=' + encodeURIComponent(newMajor))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.derived) {
+                pendingData.school = data.school;
+                document.getElementById('confirmSchoolRow').classList.add('d-none');
+            } else {
+                document.getElementById('confirmSchoolRow').classList.remove('d-none');
+                document.getElementById('confirmSchool').value = '1';
+            }
+            finishMajorConfirm(msgParts, changeInfo);
+        })
+        .catch(function() {
+            document.getElementById('confirmSchoolRow').classList.remove('d-none');
+            document.getElementById('confirmSchool').value = '1';
+            finishMajorConfirm(msgParts, changeInfo);
+        });
+}
+
+function finishMajorConfirm(msgParts, changeInfo) {
+    document.getElementById('confirmMsg').innerHTML =
+        '<div class="fw-bold mb-1">' + selectedStudent.name + '</div>' +
+        '<div class="text-muted small">' + msgParts.join('<br>') + '</div>' +
+        '<div class="text-muted small mt-1">将记录异动信息：<strong>' + changeInfo + '</strong></div>';
+    document.getElementById('confirmBtn').innerHTML = '<i class="bi bi-check2-circle"></i>确认变更专业';
+    document.getElementById('confirmBtn').disabled = false;
+    confirmModal.show();
+}
+
+function doDropout() {
+    var fileNo = document.getElementById('modalDropoutFileNo').value.trim();
+    if (!selectedStudent) {
+        showToast('请先选择学生', 'warning');
+        return;
+    }
+    if (!fileNo) {
+        showToast('请输入退学办结文件编号', 'warning');
+        return;
+    }
+
+    var changeInfo = _buildChangeInfo('退学办结', fileNo);
+
+    pendingAction = 'dropout';
+    pendingData = {
+        id_card: selectedStudent.id_card,
+        change_info: changeInfo
+    };
+
+    document.getElementById('confirmMsg').innerHTML =
+        '<div class="fw-bold mb-1 text-danger">' + selectedStudent.name + '</div>' +
+        '<div class="text-muted small">在校状态将变更为：<strong class="text-danger">退学办结</strong></div>' +
+        '<div class="text-muted small mt-1">将记录异动信息：<strong>' + changeInfo + '</strong></div>' +
+        '<div class="text-danger small mt-2"><i class="bi bi-exclamation-triangle-fill"></i> 此操作不可撤销</div>';
+    document.getElementById('confirmBtn').innerHTML = '<i class="bi bi-box-arrow-right"></i>确认退学办结';
+    document.getElementById('confirmBtn').className = 'btn btn-danger';
+    document.getElementById('confirmBtn').disabled = false;
+    confirmModal.show();
+}
+
+function executeChange() {
+    var btn = document.getElementById('confirmBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>处理中...';
+
+    var body = {
+        action: pendingAction,
+        id_card: pendingData.id_card
+    };
+
+    if (pendingAction === 'class_change') {
+        body.new_class = pendingData.new_class;
+        body.change_info = pendingData.change_info;
+    } else if (pendingAction === 'major_change') {
+        body.new_class = pendingData.new_class;
+        body.new_major = pendingData.new_major;
+        body.change_info = pendingData.change_info;
+        if (pendingData.school) {
+            body.school = pendingData.school;
+        } else {
+            var schoolSelect = document.getElementById('confirmSchool');
+            if (!document.getElementById('confirmSchoolRow').classList.contains('d-none')) {
+                body.school = parseInt(schoolSelect.value);
+            }
+        }
+    } else if (pendingAction === 'dropout') {
+        body.change_info = pendingData.change_info;
+    }
+
+    fetch('{{ url_for("lifecycle.api_student_change_record") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+    })
+        .then(function(res) { return safeJSON(res); })
+        .then(function(data) {
+            confirmModal.hide();
+            if (data.success) {
+                showToast(data.message, 'success');
+                if (selectedStudent) {
+                    selectedStudent.admin_class = data.student ? data.student.admin_class : selectedStudent.admin_class;
+                    selectedStudent.major = data.student ? data.student.major : selectedStudent.major;
+                    selectedStudent.attendance_status = data.student ? data.student.attendance_status : selectedStudent.attendance_status;
+                    selectedStudent.change_info = data.student ? data.student.change_info : selectedStudent.change_info;
+                    document.getElementById('detClass').textContent = selectedStudent.admin_class || '-';
+                    document.getElementById('detMajor').textContent = selectedStudent.major || '-';
+                    document.getElementById('detStatus').textContent = selectedStudent.attendance_status || '-';
+                    document.getElementById('detChangeInfo').textContent = selectedStudent.change_info || '-';
+                }
+                document.getElementById('modalNewClass').value = '';
+                document.getElementById('modalMajorNewClass').value = '';
+                document.getElementById('modalNewMajor').value = '';
+                document.getElementById('modalClassFileNo').value = '';
+                document.getElementById('modalMajorFileNo').value = '';
+                document.getElementById('modalDropoutFileNo').value = '';
+                clearSearch();
+                loadTransferPending(1);
+            } else {
+                showToast(data.message || '操作失败', 'danger');
+            }
+            btn.innerHTML = '<i class="bi bi-check2-circle"></i>确认';
+            btn.className = 'btn btn-primary';
+            btn.disabled = false;
+        })
+        .catch(function(err) {
+            confirmModal.hide();
+            console.error(err);
+            showToast('操作失败', 'danger');
+            btn.innerHTML = '<i class="bi bi-check2-circle"></i>确认';
+            btn.className = 'btn btn-primary';
+            btn.disabled = false;
+        });
+}
+
+document.getElementById('confirmModal').addEventListener('hidden.bs.modal', function() {
+    pendingAction = null;
+    pendingData = null;
+    document.getElementById('confirmSchoolRow').classList.add('d-none');
+    var btn = document.getElementById('confirmBtn');
+    btn.innerHTML = '<i class="bi bi-check2-circle"></i>确认';
+    btn.className = 'btn btn-primary';
+    btn.disabled = false;
+});
+
+var transferModal = null;
+var tpCurrentStudent = null;
+var tpCheckTimer = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    transferModal = new bootstrap.Modal(document.getElementById('transferModal'));
+    document.getElementById('tpModalStudentNo').addEventListener('input', function() {
+        var val = this.value.trim();
+        var errorEl = document.getElementById('tpStudentNoError');
+        var confirmBtn = document.getElementById('tpConfirmBtn');
+
+        document.getElementById('tpStudentNoInfo').classList.add('d-none');
+
+        if (tpCheckTimer) clearTimeout(tpCheckTimer);
+
+        if (!val) {
+            errorEl.classList.add('d-none');
+            confirmBtn.disabled = true;
+            return;
+        }
+
+        tpCheckTimer = setTimeout(function() {
+            checkStudentNo(val);
+        }, 400);
+    });
+
+    loadTransferPending(1);
+});
+
+function openTransferModal(student) {
+    tpCurrentStudent = student;
+    document.getElementById('tpModalIdCard').textContent = student.id_card || '-';
+    document.getElementById('tpModalName').textContent = student.name || '-';
+    document.getElementById('tpModalStudentNo').value = student.student_no || '';
+    document.getElementById('tpStudentNoError').classList.add('d-none');
+    document.getElementById('tpStudentNoError').classList.remove('d-block');
+    var infoEl = document.getElementById('tpStudentNoInfo');
+    var confirmBtn = document.getElementById('tpConfirmBtn');
+
+    if (student.student_no && /^\d{6}$/.test(student.student_no)) {
+        infoEl.classList.remove('d-none');
+        confirmBtn.disabled = false;
+    } else {
+        infoEl.classList.add('d-none');
+        confirmBtn.disabled = !(student.student_no && /^\d{6}$/.test(student.student_no));
+    }
+    transferModal.show();
+}
+
+function checkStudentNo(studentNo) {
+    var errorEl = document.getElementById('tpStudentNoError');
+    var confirmBtn = document.getElementById('tpConfirmBtn');
+
+    if (!/^\d{6}$/.test(studentNo)) {
+        errorEl.textContent = '学号需为6位数字';
+        errorEl.classList.remove('d-none');
+        errorEl.classList.add('d-block');
+        confirmBtn.disabled = true;
+        return;
+    }
+
+    fetch('{{ url_for("lifecycle.api_check_student_no") }}?student_no=' + encodeURIComponent(studentNo))
+        .then(function(r) { return safeJSON(r); })
+        .then(function(data) {
+            if (data.exists) {
+                errorEl.textContent = data.message || '学号已存在';
+                errorEl.classList.remove('d-none');
+                errorEl.classList.add('d-block');
+                confirmBtn.disabled = true;
+            } else {
+                errorEl.classList.add('d-none');
+                errorEl.classList.remove('d-block');
+                confirmBtn.disabled = false;
+            }
+        })
+        .catch(function() {
+            errorEl.textContent = '校验失败，请重试';
+            errorEl.classList.remove('d-none');
+            errorEl.classList.add('d-block');
+            confirmBtn.disabled = true;
+        });
+}
+
+function executeTransfer() {
+    if (!tpCurrentStudent) return;
+    var studentNo = document.getElementById('tpModalStudentNo').value.trim();
+    if (!studentNo) return;
+    if (!/^\d{6}$/.test(studentNo)) {
+        showToast('学号需为6位数字', 'warning');
+        return;
+    }
+    var btn = document.getElementById('tpConfirmBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>提交中…';
+
+    fetch('{{ url_for("lifecycle.api_transfer_pending_process") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            student_id: tpCurrentStudent.id,
+            student_no: studentNo
+        })
+    })
+        .then(function(r) { return safeJSON(r); })
+        .then(function(data) {
+            transferModal.hide();
+            if (data.success) {
+                showToast(data.message, 'success');
+                loadTransferPending(tpCurrentPage || 1);
+            } else {
+                showToast(data.message || '处理失败', 'danger');
+            }
+            btn.innerHTML = '<i class="bi bi-check2-circle"></i>确认';
+            btn.disabled = false;
+        })
+        .catch(function(err) {
+            transferModal.hide();
+            console.error(err);
+            showToast('处理失败', 'danger');
+            btn.innerHTML = '<i class="bi bi-check2-circle"></i>确认';
+            btn.disabled = false;
+        });
+}
+
+var tpCurrentPage = 1;
+
+function loadTransferPending(page) {
+    tpCurrentPage = page;
+    var tbody = document.getElementById('tpTableBody');
+    tbody.innerHTML = '<tr><td colspan="9"><div class="sc-empty"><div class="sc-empty-icon sc-loading"><i class="bi bi-hourglass-split"></i></div><div class="sc-empty-title">加载中…</div></div></td></tr>';
+
+    fetch('{{ url_for("lifecycle.api_transfer_pending_students") }}?page=' + page)
+        .then(function(r) { return safeJSON(r); })
+        .then(function(data) {
+            var students = data.students || [];
+            document.getElementById('tpCount').textContent = '共 ' + (data.total || 0) + ' 人';
+
+            if (students.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="9"><div class="sc-empty"><div class="sc-empty-icon"><i class="bi bi-emoji-smile"></i></div><div class="sc-empty-title">暂无待办</div><div class="sc-empty-desc">没有入学形式为转学生且学籍状态为未注册的学生</div></div></td></tr>';
+                document.getElementById('tpPagination').innerHTML = '';
+                return;
+            }
+
+            var html = '';
+            for (var i = 0; i < students.length; i++) {
+                var s = students[i];
+                var escIdCard = (s.id_card || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                var escName = (s.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                var escStudentNo = (s.student_no || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                var schoolLabel = s.school == 1 ? '中职' : (s.school == 2 ? '技工' : (s.school || '-'));
+                var createdTime = s.created_at ? s.created_at.substr(0, 16) : '-';
+                html += '<tr>' +
+                    '<td><span class="sc-student-name">' + (s.name || '-') + '</span></td>' +
+                    '<td><span class="sc-student-code">' + (s.id_card || '-') + '</span></td>' +
+                    '<td>' + (s.admin_class || '-') + '</td>' +
+                    '<td>' + (s.grade || '-') + '</td>' +
+                    '<td>' + (s.enrollment_year || '-') + '</td>' +
+                    '<td>' + (s.major || '-') + '</td>' +
+                    '<td>' + schoolLabel + '</td>' +
+                    '<td>' + createdTime + '</td>' +
+                    '<td><button class="sc-btn-confirm" onclick="openTransferModal({id:' + s.id + ',id_card:\'' + escIdCard + '\',name:\'' + escName + '\',student_no:\'' + escStudentNo + '\'})"><i class="bi bi-check2-circle"></i>处理转学</button></td>' +
+                    '</tr>';
+            }
+            tbody.innerHTML = html;
+
+            var pagingHtml = '';
+            if (data.pages > 1) {
+                pagingHtml += '<ul class="pagination pagination-sm mb-0">';
+                if (data.page > 1) {
+                    pagingHtml += '<li class="page-item"><a class="page-link" href="javascript:loadTransferPending(' + (data.page - 1) + ')">上一页</a></li>';
+                }
+                for (var p = 1; p <= data.pages; p++) {
+                    if (p === data.page) {
+                        pagingHtml += '<li class="page-item active"><span class="page-link">' + p + '</span></li>';
+                    } else if (p <= 3 || p > data.pages - 3 || (p >= data.page - 1 && p <= data.page + 1)) {
+                        pagingHtml += '<li class="page-item"><a class="page-link" href="javascript:loadTransferPending(' + p + ')">' + p + '</a></li>';
+                    } else if (p === 4 || p === data.pages - 2) {
+                        pagingHtml += '<li class="page-item disabled"><span class="page-link">…</span></li>';
+                    }
+                }
+                if (data.page < data.pages) {
+                    pagingHtml += '<li class="page-item"><a class="page-link" href="javascript:loadTransferPending(' + (data.page + 1) + ')">下一页</a></li>';
+                }
+                pagingHtml += '</ul>';
+            }
+            document.getElementById('tpPagination').innerHTML = pagingHtml;
+        })
+        .catch(function() {
+            document.getElementById('tpTableBody').innerHTML = '<tr><td colspan="9"><div class="sc-empty"><div class="sc-empty-icon"><i class="bi bi-exclamation-triangle"></i></div><div class="sc-empty-title">加载失败</div><div class="sc-empty-desc"><a href="javascript:loadTransferPending(1)">点击重试</a></div></div></td></tr>';
+            document.getElementById('tpCount').textContent = '加载失败';
+            document.getElementById('tpPagination').innerHTML = '';
+        });
+}
+
+document.getElementById('transferModal').addEventListener('hidden.bs.modal', function() {
+    tpCurrentStudent = null;
+    document.getElementById('tpModalStudentNo').value = '';
+    document.getElementById('tpStudentNoError').classList.add('d-none');
+    document.getElementById('tpStudentNoError').classList.remove('d-block');
+    document.getElementById('tpStudentNoInfo').classList.add('d-none');
+    var btn = document.getElementById('tpConfirmBtn');
+    btn.innerHTML = '<i class="bi bi-check2-circle"></i>确认';
+    btn.disabled = true;
+    if (tpCheckTimer) clearTimeout(tpCheckTimer);
+});
+</script>
+{% endblock %}

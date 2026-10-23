@@ -1,0 +1,237 @@
+"""models 包 — 数据访问层（P1-C 拆分）。
+聚合导出所有公共函数，保持 `from models import get_students` 向后兼容。
+子模块：db / users / students / lifecycle / attendance / stats / dicts / export_template / logs"""
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+from models.db import (
+    _exclude_graduated_clause,
+    _non_graduated_where,
+    get_db,
+    init_db,
+    migrate_attendance_id_card,
+    migrate_attendance_status,
+    migrate_attendance_dates
+)
+
+from models.users import (
+    create_user,
+    get_user_by_username,
+    get_user_by_id,
+    get_all_users,
+    update_user,
+    toggle_user_status
+)
+
+from models.students import (
+    _to_null_if_empty,
+    create_student,
+    create_student_with_conn,
+    get_student_by_id,
+    get_student_by_id_card,
+    get_student_by_student_no,
+    get_student_by_national_no,
+    get_public_roster,
+    update_student,
+    update_student_insurance,
+    batch_update_student_insurance,
+    soft_delete_student,
+    clear_all_students,
+    get_deleted_students,
+    get_deleted_student_count,
+    restore_student,
+    permanently_delete_student,
+    restore_all_deleted_students,
+    permanently_delete_all_deleted_students,
+    _build_student_where_clause,
+    get_students,
+    get_dropout_students,
+    get_dropout_students_all,
+    get_transfer_pending_students
+)
+
+from models.lifecycle import (
+    get_graduated_students,
+    get_graduated_students_all,
+    get_graduated_list_grades,
+    get_graduation_eligible_students,
+    get_graduation_eligible_classes,
+    process_graduation,
+    undo_graduation,
+    get_graduation_distinct_grades,
+    get_internship_eligible_students,
+    get_internship_eligible_classes,
+    process_internship,
+    undo_internship,
+    get_internship_grades,
+    get_internship_processed_students,
+    get_internship_processed_grades
+)
+
+from models.attendance import (
+    record_attendance_date,
+    get_attendance_dates,
+    get_attendance_record,
+    batch_upsert_attendance,
+    get_attendance_records_by_date,
+    get_student_absence_records,
+    get_student_latest_absence,
+    get_available_attendance_dates,
+    get_attendance_pivot_data,
+    delete_attendance_before_date,
+    delete_attendance_for_class,
+    get_pending_leave_students,
+    update_attendance_status_from_latest_attendance
+)
+
+from models.stats import (
+    get_stats,
+    get_filter_values,
+    get_classes_by_grade,
+    get_class_comparison,
+    get_class_comparison_detail
+)
+
+from models.dicts import (
+    get_all_classes_with_counts,
+    get_students_by_class,
+    get_all_grades,
+    get_enrollment_years,
+    sync_enrollment_years_to_dicts,
+    get_grades_by_enrollment_year,
+    get_dicts,
+    get_grouped_dicts,
+    add_dict,
+    get_dict_by_type_value,
+    delete_dict,
+    batch_import_dicts,
+    has_photo,
+    get_students_with_photo_status
+)
+
+from models.export_template import (
+    create_template,
+    get_template,
+    get_all_templates,
+    delete_template,
+    save_field_mapping,
+    get_field_mappings_by_template,
+    get_field_mapping,
+    delete_field_mapping,
+    add_export_history,
+    get_export_history,
+    clear_export_history
+)
+
+from models.logs import (
+    log_update,
+    get_update_logs,
+    batch_update_students,
+    update_sync_timestamp,
+    get_last_update_time
+)
+
+__all__ = [
+    '_exclude_graduated_clause',
+    '_non_graduated_where',
+    'get_db',
+    'init_db',
+    'migrate_attendance_id_card',
+    'migrate_attendance_status',
+    'migrate_attendance_dates',
+    'create_user',
+    'get_user_by_username',
+    'get_user_by_id',
+    'get_all_users',
+    'update_user',
+    'toggle_user_status',
+    '_to_null_if_empty',
+    'create_student',
+    'create_student_with_conn',
+    'get_student_by_id',
+    'get_student_by_id_card',
+    'get_student_by_student_no',
+    'get_student_by_national_no',
+    'get_public_roster',
+    'update_student',
+    'update_student_insurance',
+    'batch_update_student_insurance',
+    'soft_delete_student',
+    'clear_all_students',
+    'get_deleted_students',
+    'get_deleted_student_count',
+    'restore_student',
+    'permanently_delete_student',
+    'restore_all_deleted_students',
+    'permanently_delete_all_deleted_students',
+    '_build_student_where_clause',
+    'get_students',
+    'get_dropout_students',
+    'get_dropout_students_all',
+    'get_transfer_pending_students',
+    'get_graduated_students',
+    'get_graduated_students_all',
+    'get_graduated_list_grades',
+    'get_graduation_eligible_students',
+    'get_graduation_eligible_classes',
+    'process_graduation',
+    'undo_graduation',
+    'get_graduation_distinct_grades',
+    'get_internship_eligible_students',
+    'get_internship_eligible_classes',
+    'process_internship',
+    'undo_internship',
+    'get_internship_grades',
+    'get_internship_processed_students',
+    'get_internship_processed_grades',
+    'record_attendance_date',
+    'get_attendance_dates',
+    'get_attendance_record',
+    'batch_upsert_attendance',
+    'get_attendance_records_by_date',
+    'get_student_absence_records',
+    'get_student_latest_absence',
+    'get_available_attendance_dates',
+    'get_attendance_pivot_data',
+    'delete_attendance_before_date',
+    'delete_attendance_for_class',
+    'get_pending_leave_students',
+    'update_attendance_status_from_latest_attendance',
+    'get_stats',
+    'get_filter_values',
+    'get_classes_by_grade',
+    'get_class_comparison',
+    'get_class_comparison_detail',
+    'get_all_classes_with_counts',
+    'get_students_by_class',
+    'get_all_grades',
+    'get_enrollment_years',
+    'sync_enrollment_years_to_dicts',
+    'get_grades_by_enrollment_year',
+    'get_dicts',
+    'get_grouped_dicts',
+    'add_dict',
+    'get_dict_by_type_value',
+    'delete_dict',
+    'batch_import_dicts',
+    'has_photo',
+    'get_students_with_photo_status',
+    'create_template',
+    'get_template',
+    'get_all_templates',
+    'delete_template',
+    'save_field_mapping',
+    'get_field_mappings_by_template',
+    'get_field_mapping',
+    'delete_field_mapping',
+    'add_export_history',
+    'get_export_history',
+    'clear_export_history',
+    'log_update',
+    'get_update_logs',
+    'batch_update_students',
+    'update_sync_timestamp',
+    'get_last_update_time',
+]

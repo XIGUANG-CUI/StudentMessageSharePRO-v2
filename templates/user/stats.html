@@ -1,0 +1,550 @@
+{% extends "base.html" %}
+
+{% block title %}统计面板 - 学生数据管理系统{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-bar-chart-fill"></i> 统计面板</h2>
+    
+    <div class="d-flex gap-2">
+        <div class="btn-group">
+            {% if allowed_schools | length > 1 %}
+            <a href="{{ url_for('user.user_stats', registration_status=current_registration) if current_registration else url_for('user.user_stats') }}" class="btn btn-outline-secondary {{ 'active' if not current_school else '' }}">全部</a>
+            {% endif %}
+            {% if '1' in allowed_schools %}
+            <a href="{{ url_for('user.user_stats', school=1, registration_status=current_registration) if current_registration else url_for('user.user_stats', school=1) }}" class="btn btn-outline-secondary {{ 'active' if current_school == '1' else '' }}">中职</a>
+            {% endif %}
+            {% if '2' in allowed_schools %}
+            <a href="{{ url_for('user.user_stats', school=2, registration_status=current_registration) if current_registration else url_for('user.user_stats', school=2) }}" class="btn btn-outline-secondary {{ 'active' if current_school == '2' else '' }}">技工</a>
+            {% endif %}
+        </div>
+        <div class="btn-group">
+            <a href="{{ url_for('user.user_stats', school=current_school) if current_school else url_for('user.user_stats') }}" class="btn btn-outline-secondary {{ 'active' if not current_registration else '' }}">全部</a>
+            <a href="{{ url_for('user.user_stats', registration_status='正式学籍', school=current_school) if current_school else url_for('user.user_stats', registration_status='正式学籍') }}" class="btn btn-outline-secondary {{ 'active' if current_registration == '正式学籍' else '' }}">正式学籍</a>
+            <a href="{{ url_for('user.user_stats', registration_status='未注册', school=current_school) if current_school else url_for('user.user_stats', registration_status='未注册') }}" class="btn btn-outline-secondary {{ 'active' if current_registration == '未注册' else '' }}">未注册</a>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card text-white bg-primary">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title">学生总数</h6>
+                        <h3 class="card-text mb-0">{{ stats.total }}</h3>
+                    </div>
+                    <i class="bi bi-people-fill" style="font-size: 2.5rem;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card text-white bg-success">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title">在校人数</h6>
+                        <h3 class="card-text mb-0">{{ stats.attendance_in }}</h3>
+                    </div>
+                    <i class="bi bi-person-check-fill" style="font-size: 2.5rem;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card text-white bg-warning">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title">未在校人数</h6>
+                        <h3 class="card-text mb-0">{{ stats.attendance_out }}</h3>
+                    </div>
+                    <i class="bi bi-person-x-fill" style="font-size: 2.5rem;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card text-white bg-info">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title">正式学籍</h6>
+                        <h3 class="card-text mb-0">{{ stats.registration_registered }}</h3>
+                    </div>
+                    <i class="bi bi-person-badge-fill" style="font-size: 2.5rem;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-5 mb-4">
+        <div class="card h-100">
+            <div class="card-header py-2">
+                <h6 class="card-title mb-0"><i class="bi bi-bar-chart"></i> 年级人数分布</h6>
+            </div>
+            <div class="card-body">
+                <canvas id="gradeChart" style="max-height: 280px;"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-7 mb-4">
+        <div class="card border-start border-info border-4 shadow-sm h-100">
+            <div class="card-header py-2 bg-light">
+                <h6 class="card-title mb-0 text-info"><i class="bi bi-bar-chart me-1"></i>{{ stats.last_attendance_date }} 学生出勤率</h6>
+            </div>
+            <div class="card-body p-2">
+                <canvas id="attendanceRateChart" style="max-height: 280px;"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-5 mb-4">
+        <div class="card h-100">
+            <div class="card-header py-2">
+                <h6 class="card-title mb-0"><i class="bi bi-bar-chart"></i> 专业人数分布</h6>
+            </div>
+            <div class="card-body">
+                <canvas id="majorChart" style="max-height: 280px;"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-7 mb-4">
+        <div class="row g-3 h-100">
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-header py-2">
+                        <h6 class="card-title mb-0"><i class="bi bi-pie-chart"></i> 性别比例</h6>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="genderChart" style="max-height: 280px;"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-header py-2">
+                        <h6 class="card-title mb-0"><i class="bi bi-pie-chart"></i> 学籍状态分布</h6>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="registrationChart" style="max-height: 280px;"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-header py-2">
+                        <h6 class="card-title mb-0"><i class="bi bi-pie-chart"></i> 在校状态分布</h6>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="attendanceChart" style="max-height: 280px;"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-header py-2">
+                        <h6 class="card-title mb-0"><i class="bi bi-pie-chart"></i> {{ stats.last_attendance_date }} 出勤点名</h6>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="todayAttendancePieChart" style="max-height: 280px;"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6 mb-4">
+        <div class="card border-start border-primary border-4 shadow-sm h-100" id="adminClassDistCard">
+            <div class="card-header py-2 d-flex justify-content-between align-items-center bg-light">
+                <h6 class="card-title mb-0 text-primary"><i class="bi bi-table me-1"></i>行政班级分布 <small class="text-muted">({{ stats.class_detail | length }} 个班)</small></h6>
+                <button type="button" class="btn btn-light btn-sm rounded-pill no-print" onclick="printCard('adminClassDistCard')" title="打印">
+                    <i class="bi bi-printer"></i>
+                </button>
+            </div>
+            <div class="card-body p-2">
+                <div class="table-responsive" style="max-height: 520px; overflow-y: auto;">
+                    <table class="table table-sm table-bordered align-middle mb-0">
+                        <thead class="table-light sticky-top small text-uppercase fw-semibold">
+                            <tr>
+                                <th>班级</th>
+                                <th>男</th>
+                                <th>女</th>
+                                <th>专业</th>
+                                <th>人数</th>
+                                <th>总</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for cls in stats.class_detail %}
+                            {% set majors = cls.majors or [{'major': '-', 'count': '-'}] %}
+                            {% set row_count = majors | length %}
+                            {% for m in majors %}
+                            <tr>
+                                {% if loop.first %}
+                                <td rowspan="{{ row_count }}"><strong>{{ cls.admin_class }}</strong></td>
+                                <td rowspan="{{ row_count }}" class="text-center">{{ cls.male }}</td>
+                                <td rowspan="{{ row_count }}" class="text-center">{{ cls.female }}</td>
+                                {% endif %}
+                                <td>{{ m.major }}</td>
+                                <td class="text-center">{{ m.count }}</td>
+                                {% if loop.first %}
+                                <td rowspan="{{ row_count }}" class="text-center"><strong>{{ cls.total }}</strong></td>
+                                {% endif %}
+                            </tr>
+                            {% endfor %}
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="table-info fw-bold">
+                                <td>合计</td>
+                                <td class="text-center">{{ stats.class_detail_total_male }}</td>
+                                <td class="text-center">{{ stats.class_detail_total_female }}</td>
+                                <td>-</td>
+                                <td class="text-center">-</td>
+                                <td class="text-center">{{ stats.class_detail_grand_total }}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6 mb-4">
+        <div class="card border-start border-success border-4 shadow-sm h-100" id="virtualClassDistCard">
+            <div class="card-header py-2 d-flex justify-content-between align-items-center bg-light">
+                <h6 class="card-title mb-0 text-success"><i class="bi bi-diagram-3 me-1"></i>虚拟班级分布 <small class="text-muted">({{ stats.virtual_class_detail | length }} 个班)</small></h6>
+                <button type="button" class="btn btn-light btn-sm rounded-pill no-print" onclick="printCard('virtualClassDistCard')" title="打印">
+                    <i class="bi bi-printer"></i>
+                </button>
+            </div>
+            <div class="card-body p-2">
+                <div class="table-responsive" style="max-height: 520px; overflow-y: auto;">
+                    <table class="table table-sm table-bordered align-middle mb-0">
+                        <thead class="table-light sticky-top small text-uppercase fw-semibold">
+                            <tr>
+                                <th>班级</th>
+                                <th>男</th>
+                                <th>女</th>
+                                <th>专业</th>
+                                <th>人数</th>
+                                <th>总</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for cls in stats.virtual_class_detail %}
+                            {% set majors = cls.majors or [{'major': '-', 'count': '-'}] %}
+                            {% set row_count = majors | length %}
+                            {% for m in majors %}
+                            <tr>
+                                {% if loop.first %}
+                                <td rowspan="{{ row_count }}"><strong>{{ cls.virtual_class }}</strong></td>
+                                <td rowspan="{{ row_count }}" class="text-center">{{ cls.male }}</td>
+                                <td rowspan="{{ row_count }}" class="text-center">{{ cls.female }}</td>
+                                {% endif %}
+                                <td>{{ m.major }}</td>
+                                <td class="text-center">{{ m.count }}</td>
+                                {% if loop.first %}
+                                <td rowspan="{{ row_count }}" class="text-center"><strong>{{ cls.total }}</strong></td>
+                                {% endif %}
+                            </tr>
+                            {% endfor %}
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="table-info fw-bold">
+                                <td>合计</td>
+                                <td class="text-center">{{ stats.virtual_class_detail_total_male }}</td>
+                                <td class="text-center">{{ stats.virtual_class_detail_total_female }}</td>
+                                <td>-</td>
+                                <td class="text-center">-</td>
+                                <td class="text-center">{{ stats.virtual_class_detail_grand_total }}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const gradeData = {{ stats.grade_distribution | tojson }};
+const majorData = {{ stats.major_distribution | tojson }};
+const genderData = {{ stats.gender_distribution | tojson }};
+const registrationBySchool = {{ stats.registration_by_school | tojson }};
+const attendanceData = {{ stats.attendance_status_distribution | tojson }};
+const attendanceByClass = {{ stats.attendance_by_class | tojson }};
+const todayAttendanceByClass = {{ stats.today_attendance_by_class | tojson }};
+const todayAttendancePieData = [
+    { status: '出勤', count: {{ stats.today_attendance_present }} },
+    { status: '缺勤', count: {{ stats.today_attendance_absent }} }
+];
+
+const getPieBg = (labels, map) => labels.map(l => map[l] || 'rgba(200,200,200,0.8)');
+const getPieBorder = (labels, map) => labels.map(l => map[l] || 'rgba(150,150,150,1)');
+
+const genderColorMap = { '男': 'rgba(54, 162, 235, 0.85)', '女': 'rgba(255, 105, 180, 0.85)' };
+const genderBorderMap = { '男': 'rgba(54, 162, 235, 1)', '女': 'rgba(255, 105, 180, 1)' };
+
+const registrationColorMap = { '正式学籍': 'rgba(144, 238, 144, 0.85)', '未注册': 'rgba(255, 255, 150, 0.9)' };
+const registrationBorderMap = { '正式学籍': 'rgba(60, 179, 113, 1)', '未注册': 'rgba(218, 165, 32, 1)' };
+
+const attendanceColorMap = { '在校': 'rgba(0, 206, 209, 0.85)', '非在校': 'rgba(248, 248, 248, 0.95)' };
+const attendanceBorderMap = { '在校': 'rgba(0, 180, 180, 1)', '非在校': 'rgba(180, 180, 180, 1)' };
+
+const todayAttColorMap = { '出勤': 'rgba(40, 167, 69, 0.85)', '缺勤': 'rgba(220, 53, 69, 0.85)' };
+const todayAttBorderMap = { '出勤': 'rgba(40, 167, 69, 1)', '缺勤': 'rgba(220, 53, 69, 1)' };
+
+Chart.register(ChartDataLabels);
+
+new Chart(document.getElementById('gradeChart'), {
+    type: 'bar',
+    data: {
+        labels: gradeData.map(d => d.grade),
+        datasets: [{
+            label: '人数',
+            data: gradeData.map(d => d.count),
+            backgroundColor: 'rgba(54, 162, 235, 0.8)',
+            borderColor: 'rgba(54, 162, 235, 1)',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: { display: false },
+            datalabels: { anchor: 'end', align: 'top', font: { weight: 'bold' }, formatter: v => v }
+        },
+        scales: {
+            y: { beginAtZero: true, grace: '15%' }
+        }
+    }
+});
+
+new Chart(document.getElementById('majorChart'), {
+    type: 'bar',
+    data: {
+        labels: majorData.map(d => d.major),
+        datasets: [{
+            label: '人数',
+            data: majorData.map(d => d.count),
+            backgroundColor: 'rgba(255, 99, 132, 0.8)',
+            borderColor: 'rgba(255, 99, 132, 1)',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: { display: false },
+            datalabels: { anchor: 'end', align: 'top', font: { weight: 'bold' }, formatter: v => v }
+        },
+        scales: {
+            y: { beginAtZero: true, grace: '10%' }
+        }
+    }
+});
+
+new Chart(document.getElementById('genderChart'), {
+    type: 'pie',
+    data: {
+        labels: genderData.map(d => d.gender),
+        datasets: [{
+            data: genderData.map(d => d.count),
+            backgroundColor: getPieBg(genderData.map(d => d.gender), genderColorMap),
+            borderColor: getPieBorder(genderData.map(d => d.gender), genderBorderMap),
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: { position: 'bottom' },
+            datalabels: {
+                color: '#333',
+                font: { weight: 'bold', size: 13 },
+                formatter: (v) => v
+            }
+        }
+    }
+});
+
+new Chart(document.getElementById('registrationChart'), {
+    type: 'pie',
+    data: {
+        labels: registrationBySchool.map(d => d.school_name + '-' + d.registration_status),
+        datasets: [{
+            data: registrationBySchool.map(d => d.count),
+            backgroundColor: registrationBySchool.map(function(d) {
+                var reg = d.registration_status;
+                if (reg === '正式学籍') return 'rgba(144, 238, 144, 0.85)';
+                if (reg === '未注册') return 'rgba(255, 255, 150, 0.9)';
+                return 'rgba(200,200,200,0.8)';
+            }),
+            borderColor: registrationBySchool.map(function(d) {
+                var reg = d.registration_status;
+                if (reg === '正式学籍') return 'rgba(60, 179, 113, 1)';
+                if (reg === '未注册') return 'rgba(218, 165, 32, 1)';
+                return 'rgba(150,150,150,1)';
+            }),
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: {
+                position: 'bottom',
+                labels: {
+                    generateLabels: function(chart) {
+                        var data = chart.data;
+                        var ds = data.datasets[0];
+                        var seen = {};
+                        var result = [];
+                        data.labels.forEach(function(label, i) {
+                            var key = ds.backgroundColor[i];
+                            if (!seen[key]) {
+                                seen[key] = true;
+                                result.push({
+                                    text: data.labels[i].split('-')[1],
+                                    fillStyle: ds.backgroundColor[i],
+                                    strokeStyle: ds.borderColor[i],
+                                    lineWidth: ds.borderWidth,
+                                    hidden: chart.getDatasetMeta(0).data[i] ? chart.getDatasetMeta(0).data[i].hidden : false,
+                                    index: i
+                                });
+                            }
+                        });
+                        return result;
+                    }
+                }
+            },
+            datalabels: {
+                color: '#333',
+                font: { weight: 'bold', size: 13 },
+                formatter: (v) => v
+            }
+        }
+    }
+});
+
+new Chart(document.getElementById('attendanceChart'), {
+    type: 'pie',
+    data: {
+        labels: attendanceData.map(d => d.attendance_status),
+        datasets: [{
+            data: attendanceData.map(d => d.count),
+            backgroundColor: getPieBg(attendanceData.map(d => d.attendance_status), attendanceColorMap),
+            borderColor: getPieBorder(attendanceData.map(d => d.attendance_status), attendanceBorderMap),
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: { position: 'bottom' },
+            datalabels: {
+                color: '#333',
+                font: { weight: 'bold', size: 13 },
+                formatter: (v) => v
+            }
+        }
+    }
+});
+
+new Chart(document.getElementById('todayAttendancePieChart'), {
+    type: 'pie',
+    data: {
+        labels: todayAttendancePieData.map(d => d.status),
+        datasets: [{
+            data: todayAttendancePieData.map(d => d.count),
+            backgroundColor: getPieBg(todayAttendancePieData.map(d => d.status), todayAttColorMap),
+            borderColor: getPieBorder(todayAttendancePieData.map(d => d.status), todayAttBorderMap),
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: { position: 'bottom' },
+            datalabels: {
+                color: '#333',
+                font: { weight: 'bold', size: 13 },
+                formatter: (v) => v
+            }
+        }
+    }
+});
+</script>
+<script>
+new Chart(document.getElementById('attendanceRateChart'), {
+    type: 'bar',
+    data: {
+        labels: todayAttendanceByClass.map(function(d) { return d.admin_class; }),
+        datasets: [{
+            label: '出勤率 (%)',
+            data: todayAttendanceByClass.map(function(d) {
+                return d.total_students > 0 ? Math.round(d.present / d.total_students * 1000) / 10 : 0;
+            }),
+            backgroundColor: 'rgba(23, 162, 184, 0.7)',
+            borderColor: 'rgba(23, 162, 184, 1)',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        scales: {
+            x: {
+                ticks: { maxRotation: 45, font: { size: 10 } }
+            },
+            y: {
+                min: 0,
+                max: 100,
+                ticks: {
+                    callback: function(v) { return v + '%'; },
+                    font: { size: 11 }
+                }
+            }
+        },
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                callbacks: {
+                    label: function(ctx) {
+                        var row = todayAttendanceByClass[ctx.dataIndex];
+                        return row.present + ' / ' + row.total_students + ' (' + (ctx.raw) + '%)';
+                    }
+                }
+            }
+        }
+    }
+});
+</script>
+<script>
+function printCard(id) {
+    document.body.classList.add('printing-card');
+    document.body.setAttribute('data-print-id', id);
+    window.print();
+    document.body.classList.remove('printing-card');
+    document.body.removeAttribute('data-print-id');
+}
+</script>
+{% endblock %}
