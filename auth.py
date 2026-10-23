@@ -122,7 +122,7 @@ def create_session(user):
     session['username'] = user['username']
     session['role'] = user['role']
     session['display_name'] = user.get('display_name', user['username'])
-    session['school_visible'] = user.get('school_visible', '1,2')
+    session['school_visible'] = user.get('school_visible') or ''
     session['fields_visible'] = user.get('fields_visible', '[]')
     session['grade_visible'] = user.get('grade_visible', '*')
     if user['role'] == 'admin':
@@ -166,9 +166,13 @@ def check_school_permission(school_type):
     if _is_insurance_role():
         return True
 
-    school_visible = session.get('school_visible', '1,2')
-    visible_schools = [s.strip() for s in school_visible.split(',')]
-    return str(school_type) in visible_schools
+    codes = models.parse_visible_school_codes(session.get('school_visible'))
+    if codes is None:
+        return True
+    try:
+        return int(school_type) in codes
+    except (TypeError, ValueError):
+        return False
 
 def check_grade_permission(grade):
     """检查当前用户是否有权访问指定年级的数据。"""
@@ -192,17 +196,35 @@ def apply_permission_filters(filters):
     if filters is None:
         filters = {}
 
-    school_visible = session.get('school_visible', '1,2')
-    if 'school' not in filters:
-        if school_visible and school_visible != '*':
-            school_list = [int(s.strip()) for s in school_visible.split(',') if s.strip()]
-            if len(school_list) == 1:
-                filters['school'] = school_list[0]
-            elif len(school_list) > 1:
-                filters['school'] = school_list
+    codes = models.parse_visible_school_codes(session.get('school_visible'))
+    if codes is not None:
+        requested = filters.get('school')
+        if requested not in (None, '', []):
+            # 请求的学校编码必须与可见范围取交集，防止越权查询
+            wanted = requested if isinstance(requested, list) else [requested]
+            allowed = []
+            for value in wanted:
+                try:
+                    value = int(value)
+                except (TypeError, ValueError):
+                    continue
+                if value in codes and value not in allowed:
+                    allowed.append(value)
+            if len(allowed) == 1:
+                filters['school'] = allowed[0]
+            elif allowed:
+                filters['school'] = allowed
+            else:
+                filters['school'] = [-1]  # 无交集：返回空集
+        elif len(codes) == 1:
+            filters['school'] = codes[0]
+        elif codes:
+            filters['school'] = codes
+        else:
+            filters['school'] = [-1]  # 无可见学校：返回空集
 
-    grade_visible = session.get('grade_visible', '*')
-    if grade_visible and grade_visible != '*' and 'grade' not in filters:
+    grade_visible = session.get('grade_visible') or '*'
+    if grade_visible != '*' and 'grade' not in filters:
         grade_list = [g.strip() for g in grade_visible.split(',') if g.strip()]
         if len(grade_list) == 1:
             filters['grade'] = grade_list[0]
@@ -210,6 +232,31 @@ def apply_permission_filters(filters):
             filters['grade'] = grade_list
 
     return filters
+
+def effective_school_visible(requested=None):
+    """返回下拉筛选应使用的学校范围（CSV 字符串，None 表示不限制）。
+
+    admin 直接使用请求值；普通用户必须落在 school_visible 范围内，
+    请求越权时回退为可见范围。-1 表示无可见学校（查询结果为空）。
+    """
+    if session.get('role') == 'admin':
+        return requested or None
+
+    codes = models.parse_visible_school_codes(session.get('school_visible'))
+    if codes is None:
+        return requested or None
+
+    if requested:
+        try:
+            req = int(requested)
+        except (TypeError, ValueError):
+            req = None
+        if req is not None and req in codes:
+            return str(req)
+
+    if not codes:
+        return '-1'
+    return ','.join(str(c) for c in codes)
 
 def get_visible_fields():
     """获取当前用户可见的字段列表（admin 返回 ['*'] 表示全部可见）。"""

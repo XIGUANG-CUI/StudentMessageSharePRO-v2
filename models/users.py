@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 
 def create_user(username, password_hash, role='user', display_name=None, 
-                school_visible='1,2', fields_visible='[]', grade_visible='*'):
+                school_visible='*', fields_visible='[]', grade_visible='*'):
     """创建用户。 参数: username, password_hash, role, display_name, school_visible, ..."""
     conn = get_db()
     cursor = conn.cursor()

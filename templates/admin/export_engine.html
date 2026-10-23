@@ -233,8 +233,9 @@
                                 <label class="form-label small">学校类别</label>
                                 <select class="form-select form-select-sm" id="fSchool">
                                     <option value="">全部</option>
-                                    <option value="1">中职</option>
-                                    <option value="2">技工</option>
+                                    {% for st in school_types %}
+                                    <option value="{{ st.code }}">{{ st.name }}{% if not st.is_active %}（已停用）{% endif %}</option>
+                                    {% endfor %}
                                 </select>
                             </div>
                             <div class="col-md-3">
@@ -620,8 +621,6 @@
             admin_class: '行政班级', registration_status: '学籍状态',
             attendance_status: '在校状态', name: '姓名', search: '搜索'
         };
-        const valueMap = { school: { '1': '中职', '2': '技工' } };
-
         const keys = Object.keys(filter).filter(k => filter[k]);
         if (keys.length === 0) {
             container.innerHTML = '<span class="text-muted small">未设置筛选条件（将导出全部未删除且非毕业的学生数据）</span>';
@@ -630,7 +629,7 @@
 
         container.innerHTML = keys.map(k => {
             let val = filter[k];
-            if (valueMap[k] && valueMap[k][val]) val = valueMap[k][val];
+            if (k === 'school') val = schoolName(val) || val;
             return `<span class="ee-filter-tag">${nameMap[k] || k}: <strong>${escapeHtml(String(val))}</strong></span>`;
         }).join('');
     }

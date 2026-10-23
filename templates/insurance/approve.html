@@ -253,11 +253,10 @@
             .then(function(data) {
                 document.getElementById('iaSummaryGrandTotal').textContent = data.grand_total || 0;
                 var html = '';
-                var schoolNames = {'1': '中职', '2': '技工'};
                 for (var sk in data.schools) {
                     var s = data.schools[sk];
                     if (s.total === 0) continue;
-                    html += '<div class="ia-summary-school">' + (schoolNames[sk] || sk) + '（' + s.total + '人）</div>';
+                    html += '<div class="ia-summary-school">' + (window.schoolName(sk) || sk) + '（' + s.total + '人）</div>';
                     for (var i = 0; i < s.students.length; i++) {
                         var d = s.students[i];
                         html += '<div class="ia-summary-row student"><span class="ia-summary-label">' + d.label + '</span><span class="ia-summary-count">' + d.count + '</span></div>';

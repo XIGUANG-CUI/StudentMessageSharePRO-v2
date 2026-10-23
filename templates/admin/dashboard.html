@@ -24,8 +24,9 @@
         </button>
         <div class="btn-group">
             <a href="{{ url_for('admin.admin_dashboard', registration_status=current_registration) if current_registration else url_for('admin.admin_dashboard') }}" class="btn btn-outline-secondary {{ 'active' if not current_school else '' }}">全部</a>
-            <a href="{{ url_for('admin.admin_dashboard', school=1, registration_status=current_registration) if current_registration else url_for('admin.admin_dashboard', school=1) }}" class="btn btn-outline-secondary {{ 'active' if current_school == '1' else '' }}">中职</a>
-            <a href="{{ url_for('admin.admin_dashboard', school=2, registration_status=current_registration) if current_registration else url_for('admin.admin_dashboard', school=2) }}" class="btn btn-outline-secondary {{ 'active' if current_school == '2' else '' }}">技工</a>
+            {% for st in school_types %}
+            <a href="{{ url_for('admin.admin_dashboard', school=st.code, registration_status=current_registration) if current_registration else url_for('admin.admin_dashboard', school=st.code) }}" class="btn btn-outline-secondary {{ 'active' if current_school == st.code | string else '' }}">{{ st.name }}{% if not st.is_active %}（已停用）{% endif %}</a>
+            {% endfor %}
         </div>
         <div class="btn-group">
             <a href="{{ url_for('admin.admin_dashboard', school=current_school) if current_school else url_for('admin.admin_dashboard') }}" class="btn btn-outline-secondary {{ 'active' if not current_registration else '' }}">全部</a>

@@ -512,10 +512,14 @@ def api_insurance_approve_summary():
            ORDER BY s.school, s.supervisor_flag'''
     ).fetchall()
 
-    by_school = {1: {'students': [], 'interns': [], 'total': 0}, 2: {'students': [], 'interns': [], 'total': 0}}
+    # 按 school_types 动态初始化分组，新增学校类别也能显示汇总
+    by_school = {st['code']: {'students': [], 'interns': [], 'total': 0}
+                 for st in models.get_school_types()}
 
     for r in rows:
-        school = r[0] or 1
+        school = r[0]
+        if school not in by_school:
+            by_school[school] = {'students': [], 'interns': [], 'total': 0}
         flag = r[1]
         count = r[2]
         kind = '学平险' if '学平险' in flag else '实习就业险'
@@ -535,7 +539,7 @@ def api_insurance_approve_summary():
 
     return jsonify({
         'schools': {str(k): v for k, v in by_school.items()},
-        'grand_total': sum(by_school[s]['total'] for s in [1, 2])
+        'grand_total': sum(v['total'] for v in by_school.values())
     })
 
 
@@ -677,9 +681,10 @@ def api_insurance_todo_tree():
 
     students = [dict(r) for r in rows]
 
-    schools = {1: [], 2: []}
+    # 按 school_types 动态初始化分组，新增学校类别也能归入待办树
+    schools = {st['code']: [] for st in models.get_school_types()}
     for s in students:
-        school = s.get('school') or 1
+        school = s.get('school')
         if school not in schools:
             schools[school] = []
         schools[school].append(s)

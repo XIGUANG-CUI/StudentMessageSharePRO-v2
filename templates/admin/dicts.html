@@ -6,63 +6,119 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h2><i class="bi bi-book"></i> 字典管理</h2>
-        <p class="text-muted mb-0">管理系统字典数据，用于学生信息的选项</p>
-    </div>
-    <div class="d-flex gap-2">
-        <button class="btn btn-primary" id="addDictBtn">
-            <i class="bi bi-plus-circle"></i> 添加字典项
-        </button>
-        <button class="btn btn-success" id="importDictBtn">
-            <i class="bi bi-upload"></i> 批量导入
-        </button>
-        <button class="btn btn-info" id="exportDictBtn">
-            <i class="bi bi-download"></i> 导出
-        </button>
-        <button class="btn btn-outline-secondary" id="refreshDictBtn">
-            <i class="bi bi-arrow-clockwise"></i> 刷新
-        </button>
+        <p class="text-muted mb-0">管理系统字典数据与学校类别</p>
     </div>
 </div>
 
-<div class="row g-3 mb-3">
-    <div class="col-md-6">
-        {% with _fh_type='import', _fh_title='字典批量导入说明', _fh_icon='bi-upload', _fh_template_url='#', _fh_fields=['dict_type','dict_value'], _fh_note='Excel 模板包含两列：dict_type（字典类型）和 dict_value（字典值）。同一 type 下 value 不可重复。下载模板后填写上传即可。' %}
-        {% include '_field_help.html' %}
-        {% endwith %}
-    </div>
-    <div class="col-md-6">
-        {% with _fh_type='export', _fh_title='字典数据导出说明', _fh_icon='bi-download',
-            _fh_fields=['dict_type','dict_value'],
-            _fh_note='导出所有字典类型及对应值的完整列表（Excel 格式），不含自动生成的入学年份类型。' %}
-        {% include '_field_help.html' %}
-        {% endwith %}
-    </div>
-</div>
+<ul class="nav nav-tabs" id="dictTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="generalDictTabBtn" data-bs-toggle="tab" data-bs-target="#generalDictTab"
+                type="button" role="tab" aria-controls="generalDictTab" aria-selected="true">
+            <i class="bi bi-list-ul"></i> 通用字典
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="schoolTypeTabBtn" data-bs-toggle="tab" data-bs-target="#schoolTypeTab"
+                type="button" role="tab" aria-controls="schoolTypeTab" aria-selected="false">
+            <i class="bi bi-building"></i> 学校类别
+        </button>
+    </li>
+</ul>
 
-<div class="card">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="mb-0">字典列表</h5>
-        <div class="d-flex align-items-center gap-2">
-            <input type="text" class="form-control form-control-sm" style="width:200px;" id="dictSearch" placeholder="搜索字典类型或值...">
-            <select class="form-select form-select-sm" style="width:auto;" id="dictTypeFilter">
-                <option value="">全部类型</option>
-            </select>
+<div class="tab-content pt-3">
+    <div class="tab-pane fade show active" id="generalDictTab" role="tabpanel" aria-labelledby="generalDictTabBtn">
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                {% with _fh_type='import', _fh_title='字典批量导入说明', _fh_icon='bi-upload', _fh_template_url='#', _fh_fields=['dict_type','dict_value'], _fh_note='Excel 模板包含两列：dict_type（字典类型）和 dict_value（字典值）。同一 type 下 value 不可重复。下载模板后填写上传即可。' %}
+                {% include '_field_help.html' %}
+                {% endwith %}
+            </div>
+            <div class="col-md-6">
+                {% with _fh_type='export', _fh_title='字典数据导出说明', _fh_icon='bi-download',
+                    _fh_fields=['dict_type','dict_value'],
+                    _fh_note='导出所有字典类型及对应值的完整列表（Excel 格式），不含自动生成的入学年份类型。' %}
+                {% include '_field_help.html' %}
+                {% endwith %}
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h5 class="mb-0">字典列表</h5>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <input type="text" class="form-control form-control-sm" style="width:200px;" id="dictSearch" placeholder="搜索字典类型或值...">
+                    <select class="form-select form-select-sm" style="width:auto;" id="dictTypeFilter">
+                        <option value="">全部类型</option>
+                    </select>
+                    <button class="btn btn-sm btn-primary" id="addDictBtn">
+                        <i class="bi bi-plus-circle"></i> 添加字典项
+                    </button>
+                    <button class="btn btn-sm btn-success" id="importDictBtn">
+                        <i class="bi bi-upload"></i> 批量导入
+                    </button>
+                    <button class="btn btn-sm btn-info" id="exportDictBtn">
+                        <i class="bi bi-download"></i> 导出
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" id="refreshDictBtn">
+                        <i class="bi bi-arrow-clockwise"></i> 刷新
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>字典类型</th>
+                                <th>字典值</th>
+                                <th>创建时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dictsTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
-    <div class="card-body">
-        <div class="table-responsive">
-            <table class="table table-hover">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>字典类型</th>
-                        <th>字典值</th>
-                        <th>创建时间</th>
-                        <th>操作</th>
-                    </tr>
-                </thead>
-                <tbody id="dictsTableBody"></tbody>
-            </table>
+
+    <div class="tab-pane fade" id="schoolTypeTab" role="tabpanel" aria-labelledby="schoolTypeTabBtn">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h5 class="mb-0">学校类别列表</h5>
+                <div class="d-flex align-items-center gap-2">
+                    <button class="btn btn-sm btn-primary" id="addSchoolTypeBtn">
+                        <i class="bi bi-plus-circle"></i> 新增学校类别
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" id="refreshSchoolTypeBtn">
+                        <i class="bi bi-arrow-clockwise"></i> 刷新
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info py-2">
+                    <small>
+                        <i class="bi bi-info-circle"></i>
+                        编码为整数且创建后不可修改、不再复用；被学生或用户权限引用的类别只能停用，不能删除。
+                        停用后不影响历史数据的显示。
+                    </small>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th style="width:90px;">编码</th>
+                                <th>名称</th>
+                                <th style="width:110px;">状态</th>
+                                <th style="width:190px;">创建时间</th>
+                                <th style="width:260px;">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="schoolTypesTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -153,6 +209,51 @@
         </div>
     </div>
 </div>
+
+<div class="modal fade" id="schoolTypeFormModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="schoolTypeModalTitle">新增学校类别</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="schoolTypeCode" class="form-label">编码 *</label>
+                    <input type="number" class="form-control" id="schoolTypeCode" min="1" step="1">
+                    <div class="form-text">编码为整数，创建后不可修改；建议使用系统给出的下一个可用编码。</div>
+                </div>
+                <div class="mb-3">
+                    <label for="schoolTypeName" class="form-label">名称 *</label>
+                    <input type="text" class="form-control" id="schoolTypeName" maxlength="50">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="saveSchoolTypeBtn">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="schoolTypeDeleteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">确认删除</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-1">确定要删除学校类别 <strong id="deleteSchoolTypeLabel"></strong> 吗？</p>
+                <p class="text-muted mb-0"><small>被学生（含回收站）或用户权限引用的类别无法删除，请改用停用。</small></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteSchoolTypeBtn">确认删除</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -160,14 +261,78 @@
 var addModal = null;
 var importModal = null;
 var deleteModal = null;
+var schoolTypeFormModal = null;
+var schoolTypeDeleteModal = null;
+var schoolTypesCache = [];
+var suggestedSchoolTypeCode = null;
+var schoolTypeEditMode = 'create';
+var schoolTypeEditingCode = null;
+var pendingDeleteSchoolTypeCode = null;
 
 document.addEventListener('DOMContentLoaded', function() {
     addModal = new bootstrap.Modal(document.getElementById('dictFormModal'));
     importModal = new bootstrap.Modal(document.getElementById('importDictModal'));
     deleteModal = new bootstrap.Modal(document.getElementById('deleteConfirmModal'));
+    schoolTypeFormModal = new bootstrap.Modal(document.getElementById('schoolTypeFormModal'));
+    schoolTypeDeleteModal = new bootstrap.Modal(document.getElementById('schoolTypeDeleteModal'));
 
     loadDicts();
     loadDictTypes();
+    loadSchoolTypes();
+
+    document.getElementById('addSchoolTypeBtn').addEventListener('click', function() {
+        openSchoolTypeForm('create', null);
+    });
+
+    document.getElementById('refreshSchoolTypeBtn').addEventListener('click', function() {
+        loadSchoolTypes();
+    });
+
+    document.getElementById('saveSchoolTypeBtn').addEventListener('click', saveSchoolType);
+
+    document.getElementById('confirmDeleteSchoolTypeBtn').addEventListener('click', function() {
+        if (pendingDeleteSchoolTypeCode === null) return;
+        var btn = this;
+        btn.disabled = true;
+        fetch('/api/school-types/' + pendingDeleteSchoolTypeCode, {method: 'DELETE'})
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    showToast(data.message || '学校类别删除成功', 'success');
+                    schoolTypeDeleteModal.hide();
+                    loadSchoolTypes();
+                } else {
+                    showToast(data.message, 'danger');
+                }
+            })
+            .catch(function() {
+                showToast('删除失败，请重试', 'danger');
+            })
+            .finally(function() {
+                btn.disabled = false;
+            });
+    });
+
+    document.getElementById('schoolTypesTableBody').addEventListener('click', function(e) {
+        var renameBtn = e.target.closest('.school-type-rename-btn');
+        if (renameBtn) {
+            openSchoolTypeForm('edit', findSchoolType(renameBtn.getAttribute('data-code')));
+            return;
+        }
+        var toggleBtn = e.target.closest('.school-type-toggle-btn');
+        if (toggleBtn) {
+            toggleSchoolType(toggleBtn.getAttribute('data-code'));
+            return;
+        }
+        var deleteBtn = e.target.closest('.school-type-delete-btn');
+        if (deleteBtn) {
+            var item = findSchoolType(deleteBtn.getAttribute('data-code'));
+            if (!item) return;
+            pendingDeleteSchoolTypeCode = item.code;
+            document.getElementById('deleteSchoolTypeLabel').textContent = item.code + ' - ' + item.name;
+            schoolTypeDeleteModal.show();
+        }
+    });
 
     document.getElementById('addDictBtn').addEventListener('click', function() {
         document.getElementById('dictForm').reset();
@@ -377,6 +542,155 @@ function escapeHtml(str) {
     var div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+}
+
+function loadSchoolTypes() {
+    fetch('/api/school-types')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.success) {
+                showToast(data.message || '学校类别加载失败', 'danger');
+                return;
+            }
+            schoolTypesCache = data.school_types || [];
+            suggestedSchoolTypeCode = data.suggested_code;
+            renderSchoolTypes(schoolTypesCache);
+        })
+        .catch(function() {
+            showToast('学校类别加载失败，请刷新重试', 'danger');
+        });
+}
+
+function renderSchoolTypes(list) {
+    var tbody = document.getElementById('schoolTypesTableBody');
+    tbody.innerHTML = '';
+
+    if (!list || list.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">暂无学校类别</td></tr>';
+        return;
+    }
+
+    list.forEach(function(t) {
+        var row = document.createElement('tr');
+        if (!t.is_active) row.className = 'text-muted';
+        var status = t.is_active
+            ? '<span class="badge bg-success">启用</span>'
+            : '<span class="badge bg-secondary">已停用</span>';
+        var toggleText = t.is_active ? '停用' : '启用';
+        var toggleClass = t.is_active ? 'btn-outline-warning' : 'btn-outline-success';
+        row.innerHTML =
+            '<td>' + t.code + '</td>' +
+            '<td>' + escapeHtml(t.name) + '</td>' +
+            '<td>' + status + '</td>' +
+            '<td>' + (t.created_at || '-') + '</td>' +
+            '<td>' +
+            '<button class="btn btn-sm btn-outline-primary me-1 school-type-rename-btn" data-code="' + t.code + '">' +
+            '<i class="bi bi-pencil"></i> 改名</button>' +
+            '<button class="btn btn-sm ' + toggleClass + ' me-1 school-type-toggle-btn" data-code="' + t.code + '">' +
+            '<i class="bi bi-power"></i> ' + toggleText + '</button>' +
+            '<button class="btn btn-sm btn-outline-danger school-type-delete-btn" data-code="' + t.code + '">' +
+            '<i class="bi bi-trash"></i> 删除</button>' +
+            '</td>';
+        tbody.appendChild(row);
+    });
+}
+
+function findSchoolType(code) {
+    code = parseInt(code, 10);
+    for (var i = 0; i < schoolTypesCache.length; i++) {
+        if (schoolTypesCache[i].code === code) return schoolTypesCache[i];
+    }
+    return null;
+}
+
+function openSchoolTypeForm(mode, item) {
+    if (mode !== 'create' && !item) return;
+    schoolTypeEditMode = mode;
+    schoolTypeEditingCode = item ? item.code : null;
+    var codeInput = document.getElementById('schoolTypeCode');
+    var nameInput = document.getElementById('schoolTypeName');
+    document.getElementById('schoolTypeModalTitle').textContent =
+        mode === 'create' ? '新增学校类别' : '修改学校类别名称';
+    if (mode === 'create') {
+        codeInput.value = suggestedSchoolTypeCode || '';
+        codeInput.disabled = false;
+        nameInput.value = '';
+    } else {
+        codeInput.value = item.code;
+        codeInput.disabled = true;
+        nameInput.value = item.name;
+    }
+    schoolTypeFormModal.show();
+}
+
+function saveSchoolType() {
+    var name = document.getElementById('schoolTypeName').value.trim();
+    if (!name) {
+        showToast('名称不能为空', 'danger');
+        return;
+    }
+
+    var payload;
+    if (schoolTypeEditMode === 'create') {
+        var code = parseInt(document.getElementById('schoolTypeCode').value, 10);
+        if (!code || code <= 0) {
+            showToast('编码必须为正整数', 'danger');
+            return;
+        }
+        payload = {action: 'create', code: code, name: name};
+    } else {
+        payload = {action: 'update', code: schoolTypeEditingCode, name: name};
+    }
+
+    var btn = document.getElementById('saveSchoolTypeBtn');
+    btn.disabled = true;
+    fetch('/api/school-types', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showToast(data.message || '保存成功', 'success');
+                schoolTypeFormModal.hide();
+                loadSchoolTypes();
+            } else {
+                showToast(data.message, 'danger');
+            }
+        })
+        .catch(function() {
+            showToast('保存失败，请重试', 'danger');
+        })
+        .finally(function() {
+            btn.disabled = false;
+        });
+}
+
+function toggleSchoolType(code) {
+    var item = findSchoolType(code);
+    if (!item) return;
+    fetch('/api/school-types', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            action: 'update',
+            code: item.code,
+            is_active: item.is_active ? 0 : 1
+        })
+    })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showToast(item.is_active ? '已停用该学校类别' : '已启用该学校类别', 'success');
+                loadSchoolTypes();
+            } else {
+                showToast(data.message, 'danger');
+            }
+        })
+        .catch(function() {
+            showToast('操作失败，请重试', 'danger');
+        });
 }
 </script>
 {% endblock %}

@@ -719,8 +719,9 @@
                 <div class="mb-3 d-none" id="confirmSchoolRow">
                     <label class="form-label small fw-bold">学校类别</label>
                     <select id="confirmSchool" class="form-select form-select-sm" style="width:140px;margin:0 auto;">
-                        <option value="1">中职</option>
-                        <option value="2">技工</option>
+                        {% for st in school_types if st.is_active %}
+                        <option value="{{ st.code }}">{{ st.name }}</option>
+                        {% endfor %}
                     </select>
                 </div>
                 <div class="d-flex gap-2 justify-content-center">
@@ -1289,7 +1290,7 @@ function loadTransferPending(page) {
                 var escIdCard = (s.id_card || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
                 var escName = (s.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
                 var escStudentNo = (s.student_no || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-                var schoolLabel = s.school == 1 ? '中职' : (s.school == 2 ? '技工' : (s.school || '-'));
+                var schoolLabel = schoolName(s.school) || '-';
                 var createdTime = s.created_at ? s.created_at.substr(0, 16) : '-';
                 html += '<tr>' +
                     '<td><span class="sc-student-name">' + (s.name || '-') + '</span></td>' +

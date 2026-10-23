@@ -168,7 +168,7 @@ def init_db():
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'user',
             display_name TEXT,
-            school_visible TEXT DEFAULT '1,2',
+            school_visible TEXT DEFAULT '*',
             fields_visible TEXT DEFAULT '[]',
             grade_visible TEXT DEFAULT '*',
             is_active INTEGER DEFAULT 1,
@@ -236,6 +236,16 @@ def init_db():
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_dict_type ON dicts(dict_type)')
 
+    # ========== 学校类别字典表（编码稳定不复用，不建外键，引用校验在服务层）==========
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS school_types (
+            code INTEGER PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            is_active INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
     # ========== 模板导出引擎表 ==========
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS export_templates (
@@ -302,6 +312,11 @@ def init_db():
 
     conn.commit()
     conn.close()
+
+    # 学校类别种子化：仅当表为空时写入 config.SCHOOL_TYPES（1=中职 / 2=技工）
+    # 局部导入避免模块级循环依赖
+    from models.school_types import seed_school_types
+    seed_school_types()
 
 def migrate_attendance_id_card():
     """数据库迁移：出勤id身份证（幂等，列已存在则跳过）。"""

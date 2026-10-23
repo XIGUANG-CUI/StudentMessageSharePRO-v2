@@ -68,6 +68,22 @@ def _cleanup_db(db_conn):
         pass
 
 
+@pytest.fixture
+def school_type_3(app, db_conn):
+    """临时新增学校类别 3（技师学院），测试结束清理，避免影响其他用例。"""
+    from models.school_types import create_school_type
+    from models.db import get_db
+
+    create_school_type(3, '技师学院')
+    yield 3
+    conn = get_db()
+    try:
+        conn.execute('DELETE FROM school_types WHERE code = 3')
+        conn.commit()
+    finally:
+        conn.close()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _final_cleanup():
     """session 结束时清理临时目录。"""

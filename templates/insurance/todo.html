@@ -71,28 +71,19 @@
         <div class="it-batch-bar">
             <h6><i class="bi bi-card-list me-1"></i>批量办结</h6>
             <p class="text-muted small mb-2">分别操作学平险与实习就业险学生，办结后自动移出待办列表。</p>
+            {% for st in school_types %}
             <div class="mb-2">
-                <small class="text-muted fw-bold">中职</small>
+                <small class="text-muted fw-bold">{{ st.name }}{% if not st.is_active %}（已停用）{% endif %}</small>
                 <div class="d-flex gap-2 mt-1">
-                    <button class="btn btn-sm btn-primary flex-fill" id="itBatchZzStudent">
+                    <button class="btn btn-sm btn-primary flex-fill it-batch-btn" data-school="{{ st.code }}" data-type="student">
                         <i class="bi bi-shield-check"></i> 学平险
                     </button>
-                    <button class="btn btn-sm btn-purple flex-fill" id="itBatchZzIntern" style="background:#6f42c1;color:#fff">
+                    <button class="btn btn-sm btn-purple flex-fill it-batch-btn" data-school="{{ st.code }}" data-type="intern" style="background:#6f42c1;color:#fff">
                         <i class="bi bi-briefcase"></i> 实习就业险
                     </button>
                 </div>
             </div>
-            <div>
-                <small class="text-muted fw-bold">技工</small>
-                <div class="d-flex gap-2 mt-1">
-                    <button class="btn btn-sm btn-primary flex-fill" id="itBatchJgStudent">
-                        <i class="bi bi-shield-check"></i> 学平险
-                    </button>
-                    <button class="btn btn-sm btn-purple flex-fill" id="itBatchJgIntern" style="background:#6f42c1;color:#fff">
-                        <i class="bi bi-briefcase"></i> 实习就业险
-                    </button>
-                </div>
-            </div>
+            {% endfor %}
         </div>
     </div>
 </div>
@@ -101,7 +92,7 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="bi bi-check2-circle me-1"></i>批量办结 — <span id="itModalLabel">中职 学平险</span></h5>
+                <h5 class="modal-title"><i class="bi bi-check2-circle me-1"></i>批量办结 — <span id="itModalLabel">待办</span></h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -201,10 +192,17 @@
         return String(v);
     }
 
-    function schoolName(school) {
-        if (school === 1) return '中职';
-        if (school === 2) return '技工';
-        return '';
+    // 学校名称统一由 base.html 注入的 window.schoolName(code) 解析
+    var schoolName = window.schoolName;
+
+    // 学校分组顺序：以 school_types 为准，并兜底合并数据中出现的其它编码
+    function schoolCodes() {
+        var codes = (window.SCHOOL_TYPES || []).map(function(t) { return t.code; });
+        for (var k in treeData) {
+            var code = parseInt(k, 10);
+            if (!isNaN(code) && codes.indexOf(code) === -1) codes.push(code);
+        }
+        return codes;
     }
 
     function flagChip(flag) {
@@ -226,7 +224,7 @@
 
     function renderTree() {
         var container = document.getElementById('itTreeContainer');
-        var schoolKeys = [1, 2];
+        var schoolKeys = schoolCodes();
         var hasAny = false;
 
         for (var ki = 0; ki < schoolKeys.length; ki++) {
@@ -277,7 +275,7 @@
 
     function updateCount() {
         var total = 0;
-        var schoolKeys = [1, 2];
+        var schoolKeys = schoolCodes();
         for (var ki = 0; ki < schoolKeys.length; ki++) {
             var students = treeData[schoolKeys[ki]] || [];
             total += students.length;
@@ -445,20 +443,10 @@
         }, 300);
     });
 
-    document.getElementById('itBatchZzStudent').addEventListener('click', function() {
-        showCompleteModal(1, 'student');
-    });
-
-    document.getElementById('itBatchZzIntern').addEventListener('click', function() {
-        showCompleteModal(1, 'intern');
-    });
-
-    document.getElementById('itBatchJgStudent').addEventListener('click', function() {
-        showCompleteModal(2, 'student');
-    });
-
-    document.getElementById('itBatchJgIntern').addEventListener('click', function() {
-        showCompleteModal(2, 'intern');
+    document.querySelector('.it-batch-bar').addEventListener('click', function(e) {
+        var btn = e.target.closest('.it-batch-btn');
+        if (!btn) return;
+        showCompleteModal(parseInt(btn.dataset.school, 10), btn.dataset.type);
     });
 
     document.getElementById('itExportBtn').addEventListener('click', function() {

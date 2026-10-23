@@ -197,11 +197,8 @@
 
     function formatVal(v) { return escapeHtml(v || ''); }
 
-    function schoolName(school) {
-        if (school === 1) return '中职';
-        if (school === 2) return '技工';
-        return '';
-    }
+    // 学校名称统一由 base.html 注入的 window.schoolName(code) 解析
+    var schoolName = window.schoolName;
 
     function supervisorFlagChip(flag) {
         if (!flag || flag === '') return '<span class="ir-chip ir-chip-pending">待处理</span>';

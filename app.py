@@ -215,7 +215,7 @@ def init_admin_user():
             password_hash=password_hash,
             role='admin',
             display_name='系统管理员',
-            school_visible='1,2',
+            school_visible='*',
             fields_visible='["*"]',
             grade_visible='*'
         )
@@ -251,6 +251,17 @@ def inject_css_version():
     except Exception:
         css_mtime = int(time.time())
     return {'css_version': css_mtime}
+
+@app.context_processor
+def inject_school_types():
+    """context_processor：注入学校类别字典（含停用项）到模板。"""
+    try:
+        school_types = models.get_school_types()
+    except Exception as e:
+        logger.debug("获取学校类别失败，回退配置默认值: %s", e, exc_info=True)
+        school_types = [{'code': c, 'name': n, 'is_active': 1, 'created_at': None}
+                        for c, n in sorted(config.SCHOOL_TYPES.items())]
+    return {'school_types': school_types}
 
 @app.context_processor
 def inject_current_enrollment_year():

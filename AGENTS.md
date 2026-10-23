@@ -205,10 +205,11 @@ run_with_tray.py (310行)  启动入口：系统托盘 + 单实例锁 + 数据�
 ## 数据库
 
 - **引擎**：SQLite3，WAL 模式，busy_timeout=5000，cache_size=-8000（8MB），synchronous=NORMAL
-- **12 张表**：students（39 列）、users、update_logs、sync_timestamp、attendance_records、attendance_dates、dicts、export_templates、export_field_mappings、export_history、schema_version
+- **12 张表**：students（39 列）、users、update_logs、sync_timestamp、attendance_records、attendance_dates、dicts、school_types、export_templates、export_field_mappings、export_history、schema_version
 - **迁移管理**：`schema_version` 表，首次运行推断版本（v0/v1/v2），幂等 ALTER TABLE
 - **连接管理**：请求级复用（`models/db.py` `_RequestDB` 包装器，close 为 no-op，`app.teardown_appcontext` 统一清理）
 - **共享过滤函数**：`models/db.py` 导出 `_exclude_graduated_clause()` / `_non_graduated_where()`，供 stats/dicts/attendance 等子模块排除毕业学生
+- **学校类别字典（school_types）**：`students.school` 仍是编码，不做外键；名称统一由 `models/school_types.py` 解析（异常时回退 `config.SCHOOL_TYPES`）。新增类别后，学生筛选/编辑/查询统计/毕业查询/导出引擎/用户权限/保险页面与导入校验白名单均自动生效，禁止在代码里硬编码 `1`/`2` 名称。停用类别不出现在新增/编辑下拉，但历史数据仍可解析；被学生或用户权限引用的类别禁止删除
 - **路径**：开发环境 `data/student.db`，打包后 `user_data/data/student.db`（通过 `USER_DATA_DIR` 环境变量分离）
 - **备份**：`services/backup_service.py` AB 轮换（student_A.db / student_B.db），双策略（SQLite backup API → 文件复制兜底），完整性与空文件校验
 

@@ -61,6 +61,7 @@
     }
     .gq-badge-school.bg-school-1 { background: #2563eb; }
     .gq-badge-school.bg-school-2 { background: #d97706; }
+    .gq-badge-school.bg-school-other { background: #6b7280; }
     .gq-empty { text-align: center; padding: 3rem 1.5rem; }
     .gq-count {
         font-size: .85rem; color: var(--gq-gray-500); margin-left: .5rem;
@@ -88,8 +89,9 @@
             <label for="gqSchool">学校类别</label>
             <select id="gqSchool" class="form-select form-select-sm" style="width:130px;" onchange="onSchoolChange()">
                 <option value="">全部学校</option>
-                <option value="1">中职</option>
-                <option value="2">技工</option>
+                {% for st in school_types %}
+                <option value="{{ st.code }}">{{ st.name }}{% if not st.is_active %}（已停用）{% endif %}</option>
+                {% endfor %}
             </select>
         </div>
         <div>
@@ -155,7 +157,7 @@
 {% block scripts %}
 <script>
 (function() {
-    var SCHOOL_LABELS = {1: '中职', 2: '技工'};
+    // 学校类别名称统一由 base.html 注入的 schoolName(code) 解析
 
     // 上次查询返回的列配置（用于重置时设置 colspan）
     var _lastColumnCount = 13;
@@ -292,8 +294,9 @@
                 return esc(s.major);
             case 'school': {
                 var school = s.school || 1;
-                var label = SCHOOL_LABELS[school] || '-';
-                return '<span class="gq-badge-school bg-school-' + school + '">' + label + '</span>';
+                var label = schoolName(school) || '-';
+                var badgeClass = (school === 1 || school === 2) ? ('bg-school-' + school) : 'bg-school-other';
+                return '<span class="gq-badge-school ' + badgeClass + '">' + label + '</span>';
             }
             case 'registration_status':
                 return '<span class="gq-badge-graduated">' + esc(s.registration_status) + '</span>';
@@ -379,7 +382,7 @@
             case 'admin_class': return csvSafe(s.admin_class);
             case 'grade': return csvSafe(s.grade);
             case 'major': return csvSafe(s.major);
-            case 'school': return csvSafe(SCHOOL_LABELS[s.school] || '');
+            case 'school': return csvSafe(schoolName(s.school));
             case 'registration_status': return csvSafe(s.registration_status);
             case 'attendance_status': return csvSafe(s.attendance_status);
             case 'gender': return csvSafe(s.gender);

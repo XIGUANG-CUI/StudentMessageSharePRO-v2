@@ -5,6 +5,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
+import models
 from models.users import create_user, get_user_by_username, get_user_by_id, get_all_users, update_user, toggle_user_status
 from models.students import (
     create_student, get_student_by_id_card, get_student_by_student_no,
@@ -172,3 +173,42 @@ class TestDictOperations:
         """获取入学年份列表。"""
         years = get_enrollment_years()
         assert isinstance(years, list)
+
+
+class TestSchoolTypeCode3Chain:
+    """新增学校类别 3 后的筛选、统计与名称解析回归。"""
+
+    def _create(self, suffix, school):
+        create_student({
+            'student_no': f'SC3{suffix}', 'name': f'学生{suffix}',
+            'id_card': f'11010119900307{suffix}1', 'gender': '男',
+            'major': f'专业{suffix}', 'admin_class': f'26班级{suffix}',
+            'grade': '2026级', 'enrollment_year': 2026, 'school': school,
+        })
+
+    def test_filter_by_school_3(self, app, db_conn, school_type_3):
+        """school=3 筛选只返回 3 类学生。"""
+        self._create('001', 1)
+        self._create('002', 3)
+        result = get_students({'school': 3}, page=1, per_page=100)
+        assert result['total'] == 1
+        assert result['students'][0]['school'] == 3
+
+    def test_filter_multi_school_includes_3(self, app, db_conn, school_type_3):
+        """多选学校包含 3 时三类都能筛出。"""
+        self._create('003', 1)
+        self._create('004', 3)
+        result = get_students({'school': [1, 3]}, page=1, per_page=100)
+        assert result['total'] == 2
+
+    def test_stats_total_for_school_3(self, app, db_conn, school_type_3):
+        """统计面板 school=3 的合计与筛选一致。"""
+        from models.stats import get_stats
+        self._create('005', 1)
+        self._create('006', 3)
+        stats = get_stats({'school': 3})
+        assert stats['total'] == 1
+
+    def test_summary_by_school_name(self, app, db_conn, school_type_3):
+        """学校类别名称映射可用于统计/导出展示。"""
+        assert models.get_school_type_map().get(3) == '技师学院'

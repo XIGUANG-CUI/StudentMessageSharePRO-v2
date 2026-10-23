@@ -3,6 +3,7 @@ import re
 import logging
 from datetime import datetime
 from models.db import get_db, _exclude_graduated_clause
+from models.school_types import get_school_type_map, parse_visible_school_codes
 # 注意：natural_key 不在顶层导入，因 utils.py 顶层 import models 会循环依赖。
 # 各函数内已有懒加载：from utils import natural_key as _natural_key（P2-2）
 
@@ -164,11 +165,15 @@ def get_stats(filters=None):
     cursor.execute(f'SELECT registration_status, COUNT(*) as count FROM students WHERE {where_sql} GROUP BY registration_status', params)
     registration_status_distribution = [dict(row) for row in cursor.fetchall()]
 
-    cursor.execute(f'''SELECT CASE school WHEN 1 THEN '中职' WHEN 2 THEN '技工' ELSE '未知' END as school_name,
-                              registration_status, COUNT(*) as count
+    cursor.execute(f'''SELECT school, registration_status, COUNT(*) as count
                        FROM students WHERE {where_sql}
                        GROUP BY school, registration_status ORDER BY school, registration_status''', params)
-    registration_by_school = [dict(row) for row in cursor.fetchall()]
+    school_names = get_school_type_map()
+    registration_by_school = []
+    for row in cursor.fetchall():
+        item = dict(row)
+        item['school_name'] = school_names.get(item.pop('school'), '未知')
+        registration_by_school.append(item)
 
     cursor.execute(f"""SELECT admin_class,
                               COUNT(*) as total,
@@ -267,6 +272,20 @@ def get_stats(filters=None):
         'last_attendance_date': attendance_date
     }
 
+def _apply_school_visible(where_clauses, params, school_visible):
+    """按 school_visible 追加学校过滤条件；'*' 或空值表示不限制。"""
+    codes = parse_visible_school_codes(school_visible)
+    if codes is None:
+        return
+    if not codes:
+        # 权限值存在但无有效编码：视为无可见学校
+        where_clauses.append('1 = 0')
+        return
+    placeholders = ','.join(['?' for _ in codes])
+    where_clauses.append(f'school IN ({placeholders})')
+    params.extend(codes)
+
+
 def get_filter_values(school_visible=None, grade_visible=None):
     """获取筛选values。 参数: school_visible, grade_visible"""
     conn = get_db()
@@ -274,12 +293,8 @@ def get_filter_values(school_visible=None, grade_visible=None):
     
     where_clauses = ['is_deleted = 0', _exclude_graduated_clause()]
     params = []
-    
-    if school_visible:
-        school_list = [int(s.strip()) for s in school_visible.split(',')]
-        placeholders = ','.join(['?' for _ in school_list])
-        where_clauses.append(f'school IN ({placeholders})')
-        params.extend(school_list)
+
+    _apply_school_visible(where_clauses, params, school_visible)
     
     if grade_visible and grade_visible != '*':
         grade_list = [g.strip() for g in grade_visible.split(',')]
@@ -349,12 +364,8 @@ def get_classes_by_grade(grade, school_visible=None):
     
     where_clauses = ['is_deleted = 0', _exclude_graduated_clause(), 'grade = ?']
     params = [grade]
-    
-    if school_visible:
-        school_list = [int(s.strip()) for s in school_visible.split(',')]
-        placeholders = ','.join(['?' for _ in school_list])
-        where_clauses.append(f'school IN ({placeholders})')
-        params.extend(school_list)
+
+    _apply_school_visible(where_clauses, params, school_visible)
     
     where_sql = ' AND '.join(where_clauses)
     

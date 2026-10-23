@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timedelta
 from models.db import get_db, _exclude_graduated_clause
 from models.logs import update_sync_timestamp
+from models.school_types import get_school_type_map
 
 logger = logging.getLogger(__name__)
 
@@ -360,14 +361,16 @@ def get_deleted_students():
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT s.*,
-               CASE WHEN s.school = 1 THEN '中职' WHEN s.school = 2 THEN '技工' ELSE '' END AS school_name
+        SELECT s.*
         FROM students s
         WHERE s.is_deleted = 1
         ORDER BY s.updated_at DESC
     ''')
     rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
+    school_names = get_school_type_map()
+    for r in rows:
+        r['school_name'] = school_names.get(r.get('school'), '')
     return rows
 
 def get_deleted_student_count():

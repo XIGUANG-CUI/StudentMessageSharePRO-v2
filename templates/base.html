@@ -202,6 +202,29 @@
     <script src="{{ url_for('static', filename='vendor/bootstrap.bundle.min.js') }}"></script>
     <script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
     <script src="{{ url_for('static', filename='vendor/chartjs-plugin-datalabels.min.js') }}"></script>
+    <script>
+    /* 学校类别字典（由 school_types 表注入，前端统一用 schoolName(code) 解析） */
+    window.SCHOOL_TYPES = {{ school_types | tojson }};
+    window.schoolName = function(code) {
+        var list = window.SCHOOL_TYPES || [];
+        for (var i = 0; i < list.length; i++) {
+            if (String(list[i].code) === String(code)) return list[i].name;
+        }
+        return code === null || code === undefined || code === '' ? '' : String(code);
+    };
+    /* 学校下拉模式切换：默认只显示启用类别；keepCode 用于编辑历史数据，保留该项（含已停用） */
+    window.setSchoolSelectMode = function(selectEl, keepCode) {
+        if (!selectEl) return;
+        var keep = keepCode === null || keepCode === undefined ? '' : String(keepCode);
+        for (var i = 0; i < selectEl.options.length; i++) {
+            var opt = selectEl.options[i];
+            if (!opt.value) continue;
+            var show = opt.getAttribute('data-active') === '1' || opt.value === keep;
+            opt.hidden = !show;
+            opt.disabled = !show;
+        }
+    };
+    </script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     {% block scripts %}{% endblock %}
 

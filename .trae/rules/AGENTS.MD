@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-这是一个基于 **Flask + SQLite + Bootstrap 5** 的学生数据管理系统（StudentMessageSharePRO），支持中职/技工学校的学生信息管理、Excel 批量导入/更新、多维度查询统计、手机端出勤点名、保险管理、毕业/实习管理、退学处理、模板导出引擎，以及基于角色的多层级权限管理。
+这是一个基于 **Flask + SQLite + Bootstrap 5** 的学生数据管理系统（StudentMessageSharePRO），支持多学校类别（默认中职/技工，可在字典管理中动态新增）的学生信息管理、Excel 批量导入/更新、多维度查询统计、手机端出勤点名、保险管理、毕业/实习管理、退学处理、模板导出引擎，以及基于角色的多层级权限管理。
 
 - **技术栈**：Python 3.10+ / Flask 3.0 / Bootstrap 5.3 / SQLite (WAL模式) / Chart.js / openpyxl / qrcode[pil] / python-docx
 - **启动方式**：`python run_with_tray.py`（带系统托盘图标，**推荐**）或 `python app.py`
@@ -17,7 +17,8 @@
 |---------|------------|---------|
 | 2026-06-27 | 全量同步代码（保险/毕业/实习/导出引擎/拼音/退学/转学/备份额度/安全防护等模块补充） | AI Agent 全量扫描 |
 | 2026-06-27 | 细节增强：字段赋值规则/路由鉴权列/代码位置引用/工具函数签名/业务规则状态机 | AI Agent 细节补充 |
-| 2026-09-10 | 新增公开班级花名册页；新增公开页面口令校验机制（PUBLIC_ACCESS_KEY + 限流 scope 隔离），控制台按钮改为带口令链接 ⭐ | AI Agent 细节补充 |
+| 2026-09-10 | 新增公开班级花名册页；新增公开页面口令校验机制（PUBLIC_ACCESS_KEY + 限流 scope 隔离），控制台按钮改为带口令链接 ⭐ |
+| 2026-10-23 | 新增学校类别字典化：`school_types` 表 + 服务层 + 字典页「学校类别」页签；学生/查询/统计/毕业/导出引擎/用户权限/保险页面动态化；停用语义与删除保护；导入校验白名单动态化 ⭐ | AI Agent 细节补充 |
 
 ---
 
@@ -147,7 +148,7 @@ StudentMessageSharePRO/
 | 权限维度 | admin | 其他角色（出勤/财务/保险/普通） | 代码位置 |
 |---|---|---|---|
 | 字段可见性 | 全部字段 | 按 `fields_visible` 白名单过滤；空值默认仅 9 个基础字段（学号/姓名/性别/年龄/专业/行政班级/年级/学籍状态/在校状态） | `auth.py:214-252` `filter_student_data()` / `get_visible_fields()` |
-| 学校可见性 | 全校 | 按 `school_visible`（默认 `1,2`）过滤 | `auth.py:162-171` `check_school_permission()` |
+| 学校可见性 | 全校 | 按 `school_visible` 过滤；空值或 `*` 表示不限制 | `auth.py` `check_school_permission()` / `parse_visible_school_codes()` |
 | 年级可见性 | 全年级 | 按 `grade_visible`（默认 `*`）过滤 | `auth.py:173-185` `check_grade_permission()` |
 | 敏感字段脱敏 | 不脱敏 | 身份证 `前3+********+后4`；电话 `前3+****+后4` | `auth.py:254-267` `mask_sensitive_data()` |
 
@@ -179,7 +180,7 @@ StudentMessageSharePRO/
 | student_phone | TEXT | 学生电话 | 同 `parent_phone` 校验规则 |
 | grade | TEXT | 年级 | 如 `2023级`，新增时自动推导（初中毕业时间→session年份），转学生自动-1 |
 | enrollment_year | INTEGER | 入学年份 | 新增时从 session `enrollment_year` 写入，编辑不可变，非admin被过滤 |
-| school | INTEGER NOT NULL | 学校类型 | 枚举 `1`=中职 / `2`=技工，新增时由 `_derive_school(major)` 推导 |
+| school | INTEGER NOT NULL | 学校类别编码 | 取值来自 `school_types` 字典（默认 `1`=中职 / `2`=技工），新增时由 `_derive_school(major)` 推导，未推导出则取首个启用类别 |
 | registration_status | TEXT | 学籍状态 | 枚举：`正式学籍`/`未注册`/`毕业`，新增默认 `'未注册'` |
 | attendance_status | TEXT | 在校状态 | 枚举：`在校`/`非在校`/`托管`/`待销假`/`退学办结` |
 | photo_url | TEXT | 照片 | URL或Base64，由身份证读卡器拍照填充 |
@@ -220,6 +221,22 @@ StudentMessageSharePRO/
 - 前端 `<datalist>` + 异步加载 `/api/dicts`
 - 批量导入通过 `/api/dicts/batch` Excel 文件上传
 
+### school_types（学校类别字典表）⭐新增
+
+| 字段 | 类型 | 业务含义 | 赋值规则 |
+|---|---|---|---|
+| code | INTEGER PK | 学校类别编码 | 手动指定，稳定不复用 |
+| name | TEXT NOT NULL UNIQUE | 类别名称（如 `中职`/`技工`） | 不可重名 |
+| is_active | INTEGER | 启用状态 | `1`=启用 / `0`=停用 |
+| created_at | TIMESTAMP | 创建时间 | 自动 |
+
+- 服务层：`models/school_types.py`（`get_school_types()` / `get_school_type_map()` / `get_school_type_name()` / `create_school_type()` / `update_school_type()` / `delete_school_type()` / `seed_school_types()`）
+- 仅当表为空时从 `config.SCHOOL_TYPES` 种子化 1/2，避免把管理员主动删除的类别重新加回
+- `students.school` 与 `users.school_visible` 仍存编码，不建外键；名称解析走服务层，字典异常时回退 `config.SCHOOL_TYPES`
+- 停用语义：新增/编辑下拉只显示启用类别，历史数据保留原类别并标注「（已停用）」
+- 删除保护：被 `students.school` 或 `users.school_visible` 引用的类别不允许删除
+- 前端：`app.py` context_processor 注入 `school_types`；`base.html` 注入 `window.SCHOOL_TYPES` + `schoolName(code)`
+
 ### users（用户表）
 
 | 字段 | 类型 | 业务含义 | 赋值规则 |
@@ -229,7 +246,7 @@ StudentMessageSharePRO/
 | password_hash | TEXT | PBKDF2+HMAC+SHA256 哈希 | `werkzeug.security.generate_password_hash()` |
 | role | TEXT | 角色 | `admin`/`user`/`attendance`/`finance_chief`/`finance_staff`/`insurance_officer` |
 | display_name | TEXT | 显示名称 | 用于操作日志和UI显示 |
-| school_visible | TEXT | 可见学校 | `"1,2"` 逗号分隔；`"*"` 表示无限制 |
+| school_visible | TEXT | 可见学校 | 学校类别编码逗号分隔（如 `"1,2"`）；空值或 `"*"` 表示不限制 |
 | fields_visible | TEXT | 可见字段 | JSON数组如 `["学生姓名","学号"]` 或 `["*"]`，控制 `filter_student_data()` |
 | grade_visible | TEXT | 可见年级 | `"*"` 或 `"2024,2025"`，控制 `check_grade_permission()` |
 | is_active | INTEGER | 启用状态 | `1`=启用 / `0`=禁用 |
@@ -408,6 +425,9 @@ StudentMessageSharePRO/
 | `/api/dicts/batch` | POST | 🛡️JSON | Excel批量导入字典 | fetch + FormData |
 | `/api/dicts/export` | GET | 🛡️admin装饰器 | 导出字典 Excel | 浏览器下载 |
 | `/api/dicts/template` | GET | 🛡️admin装饰器 | 下载字典导入模板 | 浏览器下载 |
+| `/api/school-types` | GET | 🛡️JSON | 获取学校类别列表（含停用项） | fetch → 学校类别页签/下拉 |
+| `/api/school-types` | POST | 🛡️JSON | 新增/改名/停用启用学校类别（`action: create/update`） | fetch → 字典页 |
+| `/api/school-types/<code>` | DELETE | 🛡️JSON | 删除学校类别（被学生或用户权限引用时拒绝） | fetch DELETE |
 | `/api/enrollment-years` | GET | 🛡️JSON | 获取入学年份列表 | fetch |
 | `/api/year/select` | POST | 🛡️JSON | 写入session的enrollment_year | fetch POST |
 | `/api/year/create` | POST | 🛡️JSON | 创建新入学年份 | fetch POST |

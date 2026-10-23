@@ -133,6 +133,21 @@ from models.logs import (
     get_last_update_time
 )
 
+from models.school_types import (
+    get_school_types,
+    parse_visible_school_codes,
+    get_school_type_map,
+    get_school_type_name,
+    get_school_type,
+    get_next_school_type_code,
+    create_school_type,
+    update_school_type,
+    delete_school_type,
+    count_school_type_references,
+    append_code_to_admin_visibility,
+    seed_school_types
+)
+
 __all__ = [
     '_exclude_graduated_clause',
     '_non_graduated_where',
@@ -234,4 +249,16 @@ __all__ = [
     'batch_update_students',
     'update_sync_timestamp',
     'get_last_update_time',
+    'get_school_types',
+    'parse_visible_school_codes',
+    'get_school_type_map',
+    'get_school_type_name',
+    'get_school_type',
+    'get_next_school_type_code',
+    'create_school_type',
+    'update_school_type',
+    'delete_school_type',
+    'count_school_type_references',
+    'append_code_to_admin_visibility',
+    'seed_school_types',
 ]

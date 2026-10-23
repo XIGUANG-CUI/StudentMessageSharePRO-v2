@@ -318,7 +318,8 @@ def create_import_template():
     ws.column_dimensions['AC'].width = 12
     
     ws.cell(row=1, column=30, value='填写说明：')
-    ws.cell(row=2, column=30, value='学校类型：1=中职，2=技工')
+    school_hint = '，'.join(f"{st['code']}={st['name']}" for st in models.get_school_types())
+    ws.cell(row=2, column=30, value=f'学校类型（填编码）：{school_hint}')
     ws.cell(row=3, column=30, value='学籍状态：正式学籍/未注册')
     ws.cell(row=4, column=30, value='在校状态：在校/非在校/托管')
     ws.cell(row=5, column=30, value='入学年份：填写如2023，不填则默认0')
@@ -454,7 +455,10 @@ def validate_import_data(data):
     """校验导入数据数据。 参数: data"""
     results = []
     errors = []
-    
+
+    # 学校类型白名单取自 school_types 字典，新增类别无需改代码即可导入
+    valid_school_codes = [str(st['code']) for st in models.get_school_types()]
+
     seen_student_nos = {}
     seen_national_nos = {}
     seen_id_cards = {}
@@ -522,9 +526,9 @@ def validate_import_data(data):
                 result['errors'].append('国网学籍号已存在')
         
         if school_type:
-            if str(school_type) not in ['1', '2']:
+            if str(school_type) not in valid_school_codes:
                 result['valid'] = False
-                result['errors'].append('学校类型必须是1或2')
+                result['errors'].append(f'学校类型必须是: {", ".join(valid_school_codes)}')
         else:
             result['errors'].append('学校类型不能为空')
             result['valid'] = False
@@ -738,8 +742,10 @@ def format_datetime(dt):
     return str(dt)
 
 def get_school_type_name(school_type):
-    """获取学校type姓名。 参数: school_type"""
-    return config.SCHOOL_TYPES.get(int(school_type), '未知')
+    """获取学校类别名称（以 school_types 字典为准，config.SCHOOL_TYPES 作兜底）。 参数: school_type"""
+    # 局部导入避免 utils ↔ models 循环依赖
+    from models import get_school_type_name as _get_name
+    return _get_name(school_type) or '未知'
 
 def parse_filters_from_request(request):
     """解析筛选条件fromrequest。 参数: request"""
@@ -911,25 +917,35 @@ def school_visible_contains(school_visible, school):
 _school_major_cache = {}
 
 def _derive_school(major):
-    """从已有学生数据推导学校类别。返回 (school, derived)"""
+    """从已有学生数据推导学校类别。返回 (school, derived)
+
+    推导结果必须是启用中的学校类别；专业匹配到已停用类别或专业跨学校时，
+    返回默认类别且 derived=False，由调用方要求人工选择。
+    """
     major = (major or '').strip()
+    enabled_codes = [st['code'] for st in models.get_school_types(active_only=True)]
+    default_code = enabled_codes[0] if enabled_codes else 1
+
     if not major:
-        return 1, False
-    if major in _school_major_cache:
-        return _school_major_cache[major], True
-    try:
-        conn = models.get_db()
-        row = conn.execute(
-            'SELECT DISTINCT school FROM students WHERE major=? AND school IS NOT NULL AND school>0 ORDER BY school LIMIT 1',
-            (major,)
-        ).fetchone()
-    except Exception:
-        row = None
-    if row:
-        val = row[0]
-        _school_major_cache[major] = val
-        return val, True
-    return 1, False
+        return default_code, False
+
+    if major not in _school_major_cache:
+        try:
+            conn = models.get_db()
+            row = conn.execute(
+                'SELECT DISTINCT school FROM students WHERE major=? AND school IS NOT NULL AND school>0 ORDER BY school LIMIT 1',
+                (major,)
+            ).fetchone()
+        except Exception:
+            row = None
+        if not row:
+            return default_code, False
+        _school_major_cache[major] = row[0]
+
+    val = _school_major_cache[major]
+    if enabled_codes and val not in enabled_codes:
+        return default_code, False
+    return val, True
 
 def _get_card_reader_ws_url():
     """从配置文件读取读卡器 WebSocket 地址，不存在则返回默认值"""

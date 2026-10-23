@@ -22,9 +22,24 @@ def user_query():
     if school_value:
         school_param = ','.join(str(s) for s in school_value) if isinstance(school_value, list) else str(school_value)
     else:
-        school_param = session.get('school_visible', '1,2')
-    grade_visible = session.get('grade_visible', '*')
+        school_param = session.get('school_visible') or ''
+    grade_visible = session.get('grade_visible') or '*'
     filter_values = models.get_filter_values(school_param, grade_visible)
+
+    # 学校筛选下拉：admin 显示全部类别，普通用户仅显示已授权类别
+    if session.get('role') == 'admin':
+        visible_codes = [st['code'] for st in models.get_school_types()]
+    else:
+        visible_codes = models.parse_visible_school_codes(session.get('school_visible'))
+        if visible_codes is None:
+            visible_codes = [st['code'] for st in models.get_school_types()]
+    school_names = models.get_school_type_map()
+    allowed_schools = [{'code': str(c), 'name': school_names.get(c, str(c))} for c in visible_codes]
+
+    current_school = filters.get('school')
+    if isinstance(current_school, list):
+        current_school = str(current_school[0]) if len(current_school) == 1 else ''
+    current_school = str(current_school) if current_school else ''
     
     visible_fields = auth.get_visible_fields()
 
@@ -74,7 +89,9 @@ def user_query():
                           visible_fields=visible_fields,
                           visible_columns=visible_columns,
                           current_filters=filters or {},
-                          current_mode=current_mode)
+                          current_mode=current_mode,
+                          allowed_schools=allowed_schools,
+                          current_school=current_school)
 
 @bp.route('/user/stats')
 @auth.login_required
@@ -82,17 +99,21 @@ def user_stats():
     """统计。"""
     school_filter = request.args.get('school', '')
     registration_filter = request.args.get('registration_status', '')
-    school_visible = session.get('school_visible', '1,2')
-    if not school_visible:
-        school_visible = '1,2'
-    allowed_schools = [s.strip() for s in school_visible.split(',') if s.strip()]
+    if session.get('role') == 'admin':
+        visible_codes = [st['code'] for st in models.get_school_types()]
+    else:
+        visible_codes = models.parse_visible_school_codes(session.get('school_visible'))
+        if visible_codes is None:
+            visible_codes = [st['code'] for st in models.get_school_types()]
+    school_names = models.get_school_type_map()
+    allowed_codes = [str(c) for c in visible_codes]
+    allowed_schools = [{'code': str(c), 'name': school_names.get(c, str(c))} for c in visible_codes]
     
-    if school_filter and school_filter in allowed_schools:
+    if school_filter and school_filter in allowed_codes:
         filters = {'school': int(school_filter)}
     else:
         filters = auth.apply_permission_filters({})
-        if not school_filter:
-            school_filter = ''
+        school_filter = ''
     
     if registration_filter in ('正式学籍', '未注册'):
         filters['registration_status'] = registration_filter

@@ -90,8 +90,10 @@
                 <div class="col-md-4">
                     <label class="form-label small">学校类型 <span class="text-danger">*</span></label>
                     <select name="school" class="form-select form-select-sm" required>
-                        <option value="1" {{ 'selected' if student and student.school == 1 else '' }}>中职</option>
-                        <option value="2" {{ 'selected' if student and student.school == 2 else '' }}>技工</option>
+                        {% for st in school_types %}
+                        <option value="{{ st.code }}" data-active="{{ 1 if st.is_active else 0 }}"
+                                {{ 'selected' if student and student.school == st.code else '' }}>{{ st.name }}{% if not st.is_active %}（已停用）{% endif %}</option>
+                        {% endfor %}
                     </select>
                 </div>
                 <div class="col-md-4">
@@ -235,6 +237,16 @@
 <script>window.CARD_READER_WS_URL = '{{ card_reader_ws_url }}';</script>
 <script src="{{ url_for('static', filename='js/card_reader.js') }}"></script>
 <script>
+/* 新增学生只显示启用学校类别；编辑历史数据时保留当前（可能已停用）的类别 */
+(function() {
+    var schoolSel = document.querySelector('select[name="school"]');
+    {% if student %}
+    setSchoolSelectMode(schoolSel, '{{ student.school }}');
+    {% else %}
+    setSchoolSelectMode(schoolSel, '');
+    {% endif %}
+})();
+
 document.getElementById('idCard').addEventListener('input', function() {
     this.value = this.value.toUpperCase();
 });

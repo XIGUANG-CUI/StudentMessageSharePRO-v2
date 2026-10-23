@@ -780,15 +780,13 @@
 
           <div class="mb-3">
             <label class="form-label fw-semibold">可见学校类型</label>
-            <div class="d-flex gap-3">
+            <div class="d-flex flex-wrap gap-3">
+              {% for st in school_types %}
               <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="school_visible" value="1" id="addSchool1" checked>
-                <label class="form-check-label" for="addSchool1">中职</label>
+                <input class="form-check-input" type="checkbox" name="school_visible" value="{{ st.code }}" id="addSchool{{ st.code }}" data-active="{{ 1 if st.is_active else 0 }}" {% if st.is_active %}checked{% endif %}>
+                <label class="form-check-label" for="addSchool{{ st.code }}">{{ st.name }}{% if not st.is_active %}（已停用）{% endif %}</label>
               </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="school_visible" value="2" id="addSchool2" checked>
-                <label class="form-check-label" for="addSchool2">技工</label>
-              </div>
+              {% endfor %}
             </div>
           </div>
 
@@ -860,15 +858,13 @@
 
           <div class="mb-3">
             <label class="form-label fw-semibold">可见学校类型</label>
-            <div class="d-flex gap-3">
+            <div class="d-flex flex-wrap gap-3" id="editSchoolCheckboxes">
+              {% for st in school_types %}
               <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="school_visible" value="1" id="editSchool1">
-                <label class="form-check-label" for="editSchool1">中职</label>
+                <input class="form-check-input" type="checkbox" name="school_visible" value="{{ st.code }}" id="editSchool{{ st.code }}" data-active="{{ 1 if st.is_active else 0 }}">
+                <label class="form-check-label" for="editSchool{{ st.code }}">{{ st.name }}{% if not st.is_active %}（已停用）{% endif %}</label>
               </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="school_visible" value="2" id="editSchool2">
-                <label class="form-check-label" for="editSchool2">技工</label>
-              </div>
+              {% endfor %}
             </div>
           </div>
 
@@ -1166,9 +1162,12 @@
     document.getElementById('editGradeVisible').value = user.grade_visible;
     document.getElementById('editFieldsVisible').value = user.fields_visible;
 
-    var schools = user.school_visible.split(',');
-    document.getElementById('editSchool1').checked = schools.indexOf('1') !== -1;
-    document.getElementById('editSchool2').checked = schools.indexOf('2') !== -1;
+    var raw = user.school_visible || '';
+    var unrestricted = raw === '' || raw === '*';
+    var codes = raw.split(',').map(function(s) { return s.trim(); });
+    document.querySelectorAll('#editSchoolCheckboxes input[name="school_visible"]').forEach(function(cb) {
+      cb.checked = unrestricted ? cb.getAttribute('data-active') === '1' : codes.indexOf(cb.value) !== -1;
+    });
 
     updateEditFieldCheckboxes();
     updateEditGradeCheckboxes();

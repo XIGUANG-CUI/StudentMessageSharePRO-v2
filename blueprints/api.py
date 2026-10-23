@@ -773,6 +773,82 @@ def api_dict_template():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
+@bp.route('/api/school-types', methods=['GET'])
+def api_get_school_types():
+    """获取学校类别列表（含停用项）。"""
+    auth_error = _require_admin_json()
+    if auth_error:
+        return auth_error
+    try:
+        rows = models.get_school_types()
+        return jsonify({
+            'success': True,
+            'school_types': rows,
+            'suggested_code': models.get_next_school_type_code()
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@bp.route('/api/school-types', methods=['POST'])
+def api_save_school_type():
+    """新增/改名/停用启用学校类别（action: create | update）。"""
+    auth_error = _require_admin_json()
+    if auth_error:
+        return auth_error
+    try:
+        data = request.get_json(silent=True) or {}
+        action = (data.get('action') or 'create').strip()
+        code = data.get('code')
+
+        if action == 'create':
+            created = models.create_school_type(code, data.get('name'))
+            # 新类别自动追加到 admin 可见范围，避免管理员看不到新类别数据
+            models.append_code_to_admin_visibility(created['code'])
+            return jsonify({'success': True, 'message': '学校类别创建成功'})
+
+        if action == 'update':
+            is_active = data.get('is_active')
+            if is_active is not None:
+                if is_active in (True, 1, '1'):
+                    is_active = 1
+                elif is_active in (False, 0, '0'):
+                    is_active = 0
+                else:
+                    return jsonify({'success': False, 'message': '启用状态参数无效'}), 400
+            ok = models.update_school_type(
+                code,
+                name=data.get('name'),
+                is_active=is_active
+            )
+            if not ok:
+                return jsonify({'success': False, 'message': '学校类别不存在'}), 404
+            return jsonify({'success': True, 'message': '学校类别更新成功'})
+
+        return jsonify({'success': False, 'message': '不支持的操作'}), 400
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@bp.route('/api/school-types/<int:code>', methods=['DELETE'])
+def api_delete_school_type(code):
+    """删除学校类别（仅未被学生或用户权限引用时允许）。"""
+    auth_error = _require_admin_json()
+    if auth_error:
+        return auth_error
+    try:
+        ok = models.delete_school_type(code)
+        if not ok:
+            return jsonify({'success': False, 'message': '学校类别不存在'}), 404
+        return jsonify({'success': True, 'message': '学校类别删除成功'})
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 @bp.route('/api/stats')
 def api_stats():
     """统计。"""
@@ -817,16 +893,7 @@ def api_filters_options():
     school = request.args.get('school', '')
     grade = request.args.get('grade', '')
 
-    if session.get('role') == 'admin':
-        base_school_visible = school if school else None
-        base_grade_visible = '*'
-    else:
-        session_school = session.get('school_visible', '1,2')
-        if school and utils.school_visible_contains(session_school, school):
-            base_school_visible = school
-        else:
-            base_school_visible = session_school if session_school else '1,2'
-        base_grade_visible = session.get('grade_visible', '*')
+    base_school_visible = auth.effective_school_visible(school)
 
     filter_values = models.get_filter_values(school_visible=base_school_visible, grade_visible='*')
 
@@ -850,15 +917,8 @@ def api_filters_classes():
     grade = request.args.get('grade', '')
     school = request.args.get('school', '')
 
-    if session.get('role') == 'admin':
-        school_visible = school if school else None
-    else:
-        session_school = session.get('school_visible', '1,2')
-        if school and utils.school_visible_contains(session_school, school):
-            school_visible = school
-        else:
-            school_visible = session_school if session_school else '1,2'
-    
+    school_visible = auth.effective_school_visible(school)
+
     if grade:
         classes = models.get_classes_by_grade(grade, school_visible)
     else:
@@ -872,8 +932,8 @@ def api_filters_classes():
 def api_filters_majors():
     """筛选专业。"""
     school = request.args.get('school', '')
-    school_visible = school if school else session.get('school_visible', '1,2')
-    grade_visible = session.get('grade_visible', '*')
+    school_visible = auth.effective_school_visible(school)
+    grade_visible = session.get('grade_visible') or '*'
     filter_values = models.get_filter_values(school_visible, grade_visible)
     return jsonify({'majors': filter_values['majors']})
 
@@ -882,8 +942,8 @@ def api_filters_majors():
 def api_filters_virtual_classes():
     """筛选虚拟班级。"""
     school = request.args.get('school', '')
-    school_visible = school if school else session.get('school_visible', '1,2')
-    grade_visible = session.get('grade_visible', '*')
+    school_visible = auth.effective_school_visible(school)
+    grade_visible = session.get('grade_visible') or '*'
     filter_values = models.get_filter_values(school_visible, grade_visible)
     return jsonify({'virtual_classes': filter_values['virtual_classes']})
 
@@ -892,7 +952,7 @@ def api_filters_virtual_classes():
 def api_grades():
     """年级。"""
     school = request.args.get('school', '')
-    school_visible = school if school else session.get('school_visible', '1,2')
+    school_visible = auth.effective_school_visible(school)
     filter_values = models.get_filter_values(school_visible, grade_visible='*')
     return jsonify({'grades': filter_values['grades']})
 

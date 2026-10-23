@@ -139,8 +139,9 @@
                             <label class="form-label"><i class="bi bi-building"></i> 学校类型</label>
                             <select name="school" id="schoolSelect" class="form-select">
                                 <option value="">全部</option>
-                                <option value="1" {{ 'selected' if current_filters.get('school') == 1 else '' }}>中职</option>
-                                <option value="2" {{ 'selected' if current_filters.get('school') == 2 else '' }}>技工</option>
+                                {% for st in allowed_schools %}
+                                <option value="{{ st.code }}" {{ 'selected' if current_school == st.code else '' }}>{{ st.name }}</option>
+                                {% endfor %}
                             </select>
                         </div>
                         <div class="col-md-3">

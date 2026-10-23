@@ -11,6 +11,7 @@ from auth import (
     create_session, clear_session, check_field_permission,
     check_school_permission, _is_insurance_role,
     apply_permission_filters, get_visible_fields,
+    effective_school_visible,
 )
 
 
@@ -116,6 +117,20 @@ class TestSchoolPermission:
             assert check_school_permission(2) is True
             assert _is_insurance_role() is True
 
+    def test_new_school_3_denied_without_grant(self, app):
+        """school_visible 不含 3 时无权访问 3 的数据。"""
+        with app.test_request_context():
+            session['role'] = 'attendance'
+            session['school_visible'] = '1,2'
+            assert check_school_permission(3) is False
+
+    def test_new_school_3_allowed_after_grant(self, app):
+        """授予 3 后可访问 3 的数据。"""
+        with app.test_request_context():
+            session['role'] = 'attendance'
+            session['school_visible'] = '1,2,3'
+            assert check_school_permission(3) is True
+
 
 class TestApplyPermissionFilters:
     """权限过滤测试。"""
@@ -137,3 +152,50 @@ class TestApplyPermissionFilters:
             result = apply_permission_filters({})
             assert 'school' in result
             assert result['school'] == 1
+
+    def test_requested_school_3_blocked_when_not_visible(self, app):
+        """越权请求 school=3 时取交集为空，返回空集。"""
+        with app.test_request_context():
+            session['role'] = 'attendance'
+            session['school_visible'] = '1,2'
+            session['grade_visible'] = '*'
+            result = apply_permission_filters({'school': '3'})
+            assert result['school'] == [-1]
+
+    def test_requested_school_3_allowed_when_visible(self, app):
+        """school_visible 含 3 时保留请求的 3。"""
+        with app.test_request_context():
+            session['role'] = 'attendance'
+            session['school_visible'] = '1,2,3'
+            session['grade_visible'] = '*'
+            result = apply_permission_filters({'school': '3'})
+            assert result['school'] == 3
+
+
+class TestEffectiveSchoolVisible:
+    """下拉学校范围计算测试。"""
+
+    def test_admin_passthrough(self, app):
+        with app.test_request_context():
+            session['role'] = 'admin'
+            assert effective_school_visible('3') == '3'
+            assert effective_school_visible() is None
+
+    def test_granted_school_3(self, app):
+        with app.test_request_context():
+            session['role'] = 'attendance'
+            session['school_visible'] = '1,2,3'
+            assert effective_school_visible('3') == '3'
+            assert effective_school_visible() == '1,2,3'
+
+    def test_requested_school_3_falls_back(self, app):
+        with app.test_request_context():
+            session['role'] = 'attendance'
+            session['school_visible'] = '1,2'
+            assert effective_school_visible('3') == '1,2'
+
+    def test_empty_visibility_unrestricted(self, app):
+        with app.test_request_context():
+            session['role'] = 'attendance'
+            session['school_visible'] = ''
+            assert effective_school_visible('3') == '3'

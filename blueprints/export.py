@@ -314,8 +314,8 @@ def api_export_available_fields():
                 sample['age'] = ''
         else:
             sample['age'] = ''
-        # 学校类型转换
-        sample['_school_name'] = config.SCHOOL_TYPES.get(sample.get('school'), '')
+        # 学校类型转换（以 school_types 字典为准）
+        sample['_school_name'] = models.get_school_type_name(sample.get('school'))
 
     return jsonify({
         'success': True,
@@ -511,6 +511,7 @@ def api_export_preview():
     filter_data = _get_export_filter_from_session()
     students = _apply_filter_to_query(filter_data)
     preview_students = students[:5]
+    school_names = models.get_school_type_map()
 
     preview_rows = []
     for student in preview_students:
@@ -525,7 +526,7 @@ def api_export_preview():
                 student['age'] = ''
         else:
             student['age'] = ''
-        student['_school_name'] = config.SCHOOL_TYPES.get(student.get('school'), '')
+        student['_school_name'] = school_names.get(student.get('school'), '')
 
         for m in mappings:
             ph = m.get('placeholder', '')
@@ -568,6 +569,7 @@ def _export_xlsx(template_path, students, mappings):
     from copy import copy
     wb = load_workbook(template_path)
     pattern = re.compile(r'\$\{([^}]+)\}')
+    school_names = models.get_school_type_map()
 
     for ws in wb.worksheets:
         # 收集需要替换的单元格
@@ -607,7 +609,7 @@ def _export_xlsx(template_path, students, mappings):
                     student['age'] = ''
             else:
                 student['age'] = ''
-            student['_school_name'] = config.SCHOOL_TYPES.get(student.get('school'), '')
+            student['_school_name'] = school_names.get(student.get('school'), '')
 
             current_row = template_row + idx
 
@@ -797,6 +799,7 @@ def _export_docx(template_path, students, mappings):
     from docx.oxml.ns import qn
 
     pattern = re.compile(r'\$\{([^}]+)\}')
+    school_names = models.get_school_type_map()
 
     doc = Document(template_path)
     body = doc.element.body
@@ -824,7 +827,7 @@ def _export_docx(template_path, students, mappings):
                 student['age'] = ''
         else:
             student['age'] = ''
-        student['_school_name'] = config.SCHOOL_TYPES.get(student.get('school'), '')
+        student['_school_name'] = school_names.get(student.get('school'), '')
 
         if idx > 0:
             _insert(_page_break_paragraph())

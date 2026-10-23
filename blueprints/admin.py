@@ -55,6 +55,11 @@ def _safe_str(value):
         return ''
     return str(value).strip() if isinstance(value, str) else str(value)
 
+def _default_school_code():
+    """未指定学校类别时的默认值：首个启用类别。"""
+    types = models.get_school_types(active_only=True)
+    return types[0]['code'] if types else 1
+
 def _build_year_filter():
     """build年份筛选。"""
     filters = {}
@@ -362,7 +367,7 @@ def _build_form_student():
         'parent_phone': request.form.get('parent_phone', '').strip(),
         'student_phone': request.form.get('student_phone', '').strip(),
         'grade': request.form.get('grade', '').strip(),
-        'school': int(request.form.get('school', '1')),
+        'school': int(request.form.get('school') or _default_school_code()),
         'registration_status': request.form.get('registration_status', '正式学籍'),
         'attendance_status': request.form.get('attendance_status', '在校'),
         'issue_authority': request.form.get('issue_authority', '').strip(),
@@ -626,6 +631,9 @@ def admin_import_confirm():
         'errors': []
     }
     
+    # 后台线程退出请求上下文后无法访问 current_app，提前取出上传目录
+    upload_folder = current_app.config['UPLOAD_FOLDER']
+
     def do_import():
         """后台执行导入的 worker 函数。"""
         success_count = 0
@@ -711,7 +719,7 @@ def admin_import_confirm():
             if os.path.exists(import_data_file):
                 os.remove(import_data_file)
             if original_filename:
-                filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], original_filename)
+                filepath = os.path.join(upload_folder, original_filename)
                 if os.path.exists(filepath):
                     os.remove(filepath)
         finally:
@@ -1085,11 +1093,11 @@ def export_attendance_excel():
     for idx in range(len(dates)):
         ws.column_dimensions[get_column_letter(info_cols + 1 + idx)].width = 12
 
-    from config import SCHOOL_TYPES
+    school_names = models.get_school_type_map()
 
     row_num = 2
     for student in students:
-        school_name = SCHOOL_TYPES.get(student['school'], '') if student['school'] else ''
+        school_name = school_names.get(student['school'], '') if student['school'] else ''
         ws.cell(row=row_num, column=1, value=student['student_no'] or '').alignment = cell_align
         ws.cell(row=row_num, column=1).border = thin_border
         ws.cell(row=row_num, column=2, value=student['name']).alignment = cell_align
@@ -1157,6 +1165,9 @@ def admin_users():
             grade_visible = request.form.get('grade_visible', '*')
             fields_visible = request.form.get('fields_visible', '[]')
             
+            if not school_visible:
+                flash('请至少选择一个可见学校类型', 'danger')
+                return redirect(url_for('.admin_users'))
             if len(password) < 6:
                 flash('密码长度不能少于6位', 'danger')
                 return redirect(url_for('.admin_users'))
@@ -1185,6 +1196,10 @@ def admin_users():
             grade_visible = request.form.get('grade_visible', '*')
             fields_visible = request.form.get('fields_visible', '[]')
             
+            if not school_visible:
+                flash('请至少选择一个可见学校类型', 'danger')
+                return redirect(url_for('.admin_users'))
+
             models.update_user(user_id, display_name=display_name, role=role,
                               school_visible=school_visible, grade_visible=grade_visible,
                               fields_visible=fields_visible)
