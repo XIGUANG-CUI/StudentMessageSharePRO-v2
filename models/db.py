@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS dm_match_batch (
     total INTEGER DEFAULT 0,
     status TEXT DEFAULT 'running',
     stats_json TEXT DEFAULT '',
+    source_headers TEXT DEFAULT '',
     created_by TEXT DEFAULT '',
     is_deleted INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -75,6 +76,7 @@ CREATE TABLE IF NOT EXISTS dm_match_result (
     engine1_detail TEXT,
     engine2_detail TEXT,
     decision_path TEXT,
+    raw_row TEXT DEFAULT '',
     source TEXT DEFAULT 'batch',
     is_deleted INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -286,6 +288,15 @@ def init_db():
     for statement in DISTRICT_MATCH_DDL.split(';'):
         if statement.strip():
             cursor.execute(statement)
+
+    # 上传清单匹配：留存原始表头与整行，导出时原样带回上传表单的列
+    for table, column, col_def in (
+            ('dm_match_batch', 'source_headers', "TEXT DEFAULT ''"),
+            ('dm_match_result', 'raw_row', "TEXT DEFAULT ''")):
+        try:
+            cursor.execute(f'ALTER TABLE {table} ADD COLUMN {column} {col_def}')
+        except sqlite3.OperationalError:
+            pass
 
     # 历史映射种子：仅当表为空时写入一次，之后以表内记录为准
     try:

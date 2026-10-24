@@ -286,12 +286,14 @@ def _apply_school_visible(where_clauses, params, school_visible):
     params.extend(codes)
 
 
-def get_filter_values(school_visible=None, grade_visible=None):
-    """获取筛选values。 参数: school_visible, grade_visible"""
+def get_filter_values(school_visible=None, grade_visible=None, include_graduated=False):
+    """获取筛选values。 参数: school_visible, grade_visible, include_graduated"""
     conn = get_db()
     cursor = conn.cursor()
     
-    where_clauses = ['is_deleted = 0', _exclude_graduated_clause()]
+    where_clauses = ['is_deleted = 0']
+    if not include_graduated:
+        where_clauses.append(_exclude_graduated_clause())
     params = []
 
     _apply_school_visible(where_clauses, params, school_visible)

@@ -100,6 +100,8 @@ def to_result_row(student, result):
         "engine1_result": result.engine1_detail,
         "engine2_result": result.engine2_detail,
         "remark": result.decision_path,
+        # 上传清单：整行原始数据（JSON），导出时原样带回上传表单的列
+        "raw_row": student.get("raw_row"),
     }
 
 

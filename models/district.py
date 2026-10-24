@@ -27,6 +27,13 @@ logger = logging.getLogger(__name__)
 # 字典库与数据包路径（0.2 #3：由 DATABASE_PATH 推导，禁用 config._USER_DATA_DIR）
 DISTRICT_DB_PATH = os.path.join(os.path.dirname(config.DATABASE_PATH),
                                 constants.DISTRICT_DB_FILENAME)
+
+# 学生取数白名单（与 blueprints/export.py 模板导出引擎保持一致）
+_STUDENT_FILTER_FIELDS = (
+    "school", "grade", "major", "admin_class", "virtual_class",
+    "registration_status", "attendance_status", "gender", "ethnicity",
+    "enrollment_year", "major_direction", "admission_type",
+)
 _PACK_CANDIDATES = (
     os.path.join(getattr(config, "BASE_DIR", os.path.dirname(__file__)),
                  "data", constants.DISTRICT_PACK_FILENAME),
@@ -181,6 +188,25 @@ def _load_cache(conn):
         logger.info("区划字典缓存加载完成：%s 行，耗时 %.2fs",
                     len(by_code), time.time() - started)
         return _CACHE
+
+
+_HISTORY_COLUMNS = ("old_code", "new_code", "old_name", "new_name",
+                    "change_type", "change_date", "remark")
+
+
+def _clean_history_fields(data):
+    """历史映射入参清洗：统一去空白、None 转空串。"""
+    data = data or {}
+    return {key: ("" if data.get(key) is None else str(data.get(key)).strip())
+            for key in _HISTORY_COLUMNS}
+
+
+def _validate_history_fields(fields):
+    """旧码/新码 或 旧名/新名 必须成对，否则引擎无法建立有效映射。"""
+    if not ((fields["old_code"] and fields["new_code"]) or
+            (fields["old_name"] and fields["new_name"])):
+        raise ValueError("旧码/新码 或 旧名/新名 需成对填写")
+    return fields
 
 
 def _load_history(conn):
@@ -389,9 +415,103 @@ class DistrictRepository:
     def get_history_code_map(self):
         return dict(_load_history(self.conn)["code"])
 
-    def list_history(self):
-        _load_history(self.conn)
-        return list(_HISTORY["rows"])
+    def list_history(self, search=None):
+        """历史映射列表（直查表，支持搜索；只返回未删除记录）。"""
+        sql = ("SELECT id, old_code, new_code, old_name, new_name, change_type, "
+               "change_date, remark, is_deleted, created_at FROM dm_history_mapping "
+               "WHERE is_deleted = 0")
+        args = []
+        keyword = (search or "").strip()
+        if keyword:
+            like = "%" + keyword + "%"
+            sql += (" AND (old_code LIKE ? OR new_code LIKE ? OR old_name LIKE ? "
+                    "OR new_name LIKE ? OR remark LIKE ?)")
+            args.extend([like] * 5)
+        sql += " ORDER BY id"
+        return [_adapt(r) for r in self.conn.execute(sql, args).fetchall()]
+
+    def get_history(self, history_id):
+        row = self.conn.execute(
+            "SELECT id, old_code, new_code, old_name, new_name, change_type, "
+            "change_date, remark, is_deleted FROM dm_history_mapping WHERE id = ?",
+            (history_id,)).fetchone()
+        return _adapt(row)
+
+    def create_history(self, data):
+        """新增历史映射；旧码+旧名 或 旧名+新名 成对校验，写后清缓存。"""
+        fields = _validate_history_fields(_clean_history_fields(data))
+        if self._find_history(fields):
+            raise ValueError("相同旧码/旧名的映射已存在")
+        self.conn.execute(
+            "INSERT INTO dm_history_mapping "
+            "(old_code, new_code, old_name, new_name, change_type, change_date, "
+            " remark, is_deleted) VALUES (?,?,?,?,?,?,?,0)",
+            tuple(fields[k] for k in _HISTORY_COLUMNS))
+        self.conn.commit()
+        invalidate_cache()
+        row = self.conn.execute("SELECT last_insert_rowid()").fetchone()
+        return int(row[0]) if row else None
+
+    def update_history(self, history_id, data):
+        if not self.get_history(history_id):
+            raise ValueError("映射不存在")
+        fields = _validate_history_fields(_clean_history_fields(data))
+        self.conn.execute(
+            "UPDATE dm_history_mapping SET old_code = ?, new_code = ?, old_name = ?, "
+            "new_name = ?, change_type = ?, change_date = ?, remark = ? WHERE id = ?",
+            tuple(fields[k] for k in _HISTORY_COLUMNS) + (history_id,))
+        self.conn.commit()
+        invalidate_cache()
+
+    def delete_history(self, history_id):
+        """软删除（is_deleted = 1），不物理删除。"""
+        if not self.get_history(history_id):
+            raise ValueError("映射不存在")
+        self.conn.execute(
+            "UPDATE dm_history_mapping SET is_deleted = 1 WHERE id = ?", (history_id,))
+        self.conn.commit()
+        invalidate_cache()
+
+    def bulk_import_history(self, rows):
+        """批量导入（按 旧码+旧名 命中则更新，否则新增）。"""
+        created = updated = skipped = 0
+        errors = []
+        for index, raw in enumerate(rows, start=1):
+            try:
+                fields = _validate_history_fields(_clean_history_fields(raw))
+            except ValueError as exc:
+                skipped += 1
+                if len(errors) < 20:
+                    errors.append({"row": index, "message": str(exc)})
+                continue
+            hit = self._find_history(fields)
+            if hit:
+                self.conn.execute(
+                    "UPDATE dm_history_mapping SET new_code = ?, new_name = ?, "
+                    "change_type = ?, change_date = ?, remark = ? WHERE id = ?",
+                    (fields["new_code"], fields["new_name"], fields["change_type"],
+                     fields["change_date"], fields["remark"], hit["id"]))
+                updated += 1
+            else:
+                self.conn.execute(
+                    "INSERT INTO dm_history_mapping "
+                    "(old_code, new_code, old_name, new_name, change_type, "
+                    " change_date, remark, is_deleted) VALUES (?,?,?,?,?,?,?,0)",
+                    tuple(fields[k] for k in _HISTORY_COLUMNS))
+                created += 1
+        self.conn.commit()
+        invalidate_cache()
+        return {"total": len(rows), "created": created, "updated": updated,
+                "skipped": skipped, "errors": errors}
+
+    def _find_history(self, fields):
+        """按 旧码+旧名 查未删除记录（两个字段都可能为空）。"""
+        row = self.conn.execute(
+            "SELECT id FROM dm_history_mapping WHERE is_deleted = 0 "
+            "AND COALESCE(old_code, '') = ? AND COALESCE(old_name, '') = ? "
+            "ORDER BY id LIMIT 1",
+            (fields["old_code"], fields["old_name"])).fetchone()
+        return _adapt(row) if row else None
 
     def district_stats(self):
         """字典统计：总行数、各级行数、更新时间、文件大小。"""
@@ -427,10 +547,11 @@ class DistrictRepository:
         return stats
 
     # ---------------- 批次 / 结果（dm_* 在 student.db，可写）
-    def create_batch(self, batch_no, source, total, created_by):
+    def create_batch(self, batch_no, source, total, created_by, source_headers=""):
         self.conn.execute(
-            "INSERT INTO dm_match_batch (batch_no, source, total, status, created_by) "
-            "VALUES (?,?,?, 'running', ?)", (batch_no, source, total, created_by))
+            "INSERT INTO dm_match_batch (batch_no, source, total, status, "
+            "source_headers, created_by) VALUES (?,?,?, 'running', ?, ?)",
+            (batch_no, source, total, source_headers or "", created_by))
         self.conn.commit()
         row = self.conn.execute(
             "SELECT id FROM dm_match_batch WHERE batch_no = ?", (batch_no,)).fetchone()
@@ -488,6 +609,23 @@ class DistrictRepository:
             "DELETE FROM dm_match_result WHERE batch_id = ?", (batch_id,))
         self.conn.commit()
 
+    def purge_batch(self, batch_id):
+        """导出完成后彻底清除批次及其结果（物理删除，批次记录只保留到导出前）。"""
+        self.conn.execute(
+            "DELETE FROM dm_match_result WHERE batch_id = ?", (batch_id,))
+        self.conn.execute(
+            "DELETE FROM dm_match_batch WHERE id = ?", (batch_id,))
+        self.conn.commit()
+
+    def delete_on_demand_results(self, student_id):
+        """清理同一学生的历史按需匹配结果，避免单学生重匹配无限追加。"""
+        if not student_id:
+            return
+        self.conn.execute(
+            "DELETE FROM dm_match_result WHERE student_id = ? AND source = 'on_demand'",
+            (student_id,))
+        self.conn.commit()
+
     def insert_results_batch(self, rows, chunk=500):
         if not rows:
             return 0
@@ -495,8 +633,8 @@ class DistrictRepository:
                "(batch_id, student_id, student_name, id_card, address, "
                " province_code, province_name, city_code, city_name, "
                " district_code, district_name, match_status, engine1_detail, "
-               " engine2_detail, decision_path, source) "
-               "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+               " engine2_detail, decision_path, raw_row, source) "
+               "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
         values = [
             (r.get("batch_id"), r.get("student_id"), r.get("student_name"),
              r.get("id_card"), r.get("address"),
@@ -506,6 +644,7 @@ class DistrictRepository:
              r.get("match_status"), r.get("engine1_result") or r.get("engine1_detail"),
              r.get("engine2_result") or r.get("engine2_detail"),
              r.get("remark") or r.get("decision_path"),
+             r.get("raw_row") or "",
              r.get("source") or "batch")
             for r in rows
         ]
@@ -579,6 +718,69 @@ class DistrictRepository:
         sql += " ORDER BY id"
         cur = self.conn.execute(sql, args)
         return [_adapt(r) for r in cur.fetchall()]
+
+    def students_by_filter(self, filters=None, include_graduated=False,
+                           student_ids=None):
+        """按筛选条件取全部学生（用于批量匹配），口径对齐模板导出引擎。
+
+        filters 仅接受 _STUDENT_FILTER_FIELDS 白名单字段（相等匹配）；
+        search 匹配姓名/学号/拼音/身份证，name 匹配姓名/拼音。
+        include_graduated=False 时排除毕业生（复用 _non_graduated_where()）；
+        is_deleted=0 始终生效。
+        """
+        where_sql, args = self._student_filter_where(
+            filters, include_graduated, student_ids)
+        sql = ("SELECT students.id AS student_id, students.name AS student_name, "
+               "students.id_card, students.address FROM students WHERE "
+               + where_sql + " ORDER BY students.id")
+        return [_adapt(r) for r in self.conn.execute(sql, args).fetchall()]
+
+    def _student_filter_where(self, filters=None, include_graduated=False,
+                              student_ids=None):
+        """拼装学生筛选 WHERE（白名单字段 + 关键词 + 指定 id），返回 (sql, args)。"""
+        filters = filters if isinstance(filters, dict) else {}
+        where = [_non_graduated_where()] if not include_graduated else ["is_deleted = 0"]
+        args = []
+        for field in _STUDENT_FILTER_FIELDS:
+            val = filters.get(field)
+            if isinstance(val, str):
+                val = val.strip()
+            if val not in (None, ""):
+                where.append(f"students.{field} = ?")
+                args.append(val)
+        search = str(filters.get("search") or "").strip()
+        if search:
+            where.append("(students.name LIKE ? OR students.student_no LIKE ? "
+                         "OR students.name_pinyin LIKE ? OR students.id_card LIKE ?)")
+            args.extend([f"%{search}%"] * 4)
+        name = str(filters.get("name") or "").strip()
+        if name:
+            where.append("(students.name LIKE ? OR students.name_pinyin LIKE ?)")
+            args.extend([f"%{name}%"] * 2)
+        if student_ids:
+            placeholders = ",".join("?" for _ in student_ids)
+            where.append(f"students.id IN ({placeholders})")
+            args.extend(student_ids)
+        return " AND ".join(where), args
+
+    def list_students_page(self, filters=None, include_graduated=False,
+                           page=1, size=100):
+        """分页预览筛选范围内的学生（只读，不写任何表）。"""
+        where_sql, args = self._student_filter_where(filters, include_graduated)
+        total = int(self.conn.execute(
+            "SELECT COUNT(1) FROM students WHERE " + where_sql, args).fetchone()[0])
+        page = max(1, int(page or 1))
+        size = max(1, min(500, int(size or 100)))
+        offset = (page - 1) * size
+        sql = ("SELECT students.id AS student_id, students.student_no, "
+               "students.name AS student_name, students.id_card, students.address, "
+               "students.school, students.grade, students.admin_class, "
+               "students.registration_status, students.attendance_status "
+               "FROM students WHERE " + where_sql +
+               " ORDER BY students.id LIMIT ? OFFSET ?")
+        items = [_adapt(r) for r in self.conn.execute(
+            sql, args + [size, offset]).fetchall()]
+        return {"total": total, "page": page, "size": size, "items": items}
 
 
 # ------------------------------------------------------------------ 录入联动
@@ -719,6 +921,7 @@ def ensure_student_district(student_id, refresh=False):
     }, result)
     row["batch_id"] = None
     row["source"] = "on_demand"
+    repo.delete_on_demand_results(student_id)
     repo.insert_single_result(row)
     return {
         "district_province_name": result.province_name or "",
@@ -760,20 +963,48 @@ def _json(obj):
 
 
 # ------------------------------------------------------------------ 写 students（唯一批量入口）
-def backfill_students(only_empty=True, limit=None, on_progress=None):
+# 待补全判定：省/市/县代码或匹配状态任一为空（含毕业生，只要 7 列不完整就该补）
+_BACKFILL_MISSING_SQL = (
+    "(district_province_code IS NULL OR district_province_code = '') "
+    "OR (district_city_code IS NULL OR district_city_code = '') "
+    "OR (district_county_code IS NULL OR district_county_code = '') "
+    "OR (district_match_status IS NULL OR district_match_status = '')"
+)
+
+
+def _backfill_where(only_empty):
+    """only_empty 时的候选条件；False 表示全量重算。"""
+    return " AND (" + _BACKFILL_MISSING_SQL + ")" if only_empty else ""
+
+
+def _backfill_pending(conn, only_empty, after_id=None):
+    """统计待补全条数；after_id 非空时只统计游标之后的。"""
+    sql = "SELECT COUNT(1) FROM students WHERE is_deleted = 0"
+    params = ()
+    if after_id is not None:
+        sql += " AND id > ?"
+        params = (int(after_id),)
+    sql += _backfill_where(only_empty)
+    return int(conn.execute(sql, params).fetchone()[0] or 0)
+
+
+def backfill_students(only_empty=True, limit=None, after_id=0, on_progress=None):
     """批量补全区划：只 UPDATE 7 列，不动 updated_at，不写 other 列。
 
-    only_empty=True 时只处理区县代码为空的学生。
+    only_empty=True 时只处理 7 列中关键列有缺失的学生（不排除毕业生）。
+    after_id 为游标：只处理 id 大于它的学生；返回 last_id 供下次续跑，
+    避免每次都从最小 id 重来（早期未匹配成功的学生会一直占住配额）。
+    返回 remaining（游标之后待补条数）与 pending_total（全部待补条数）。
     """
     conn = get_db()
+    after_id = int(after_id or 0)
     sql = ("SELECT id, id_card, address FROM students "
-           "WHERE is_deleted = 0")
-    if only_empty:
-        sql += " AND (district_county_code IS NULL OR district_county_code = '')"
+           "WHERE is_deleted = 0 AND id > ?")
+    sql += _backfill_where(only_empty)
     sql += " ORDER BY id"
     if limit:
         sql += f" LIMIT {int(limit)}"
-    rows = [_adapt(r) for r in conn.execute(sql).fetchall()]
+    rows = [_adapt(r) for r in conn.execute(sql, (after_id,)).fetchall()]
     total = len(rows)
     updated = 0
     failed = 0
@@ -818,7 +1049,15 @@ def backfill_students(only_empty=True, limit=None, on_progress=None):
         updated += len(chunk)
     if on_progress:
         on_progress(total, total)
-    return {"total": total, "updated": updated, "failed": failed}
+    last_id = rows[-1]["id"] if rows else after_id
+    return {
+        "total": total,
+        "updated": updated,
+        "failed": failed,
+        "last_id": last_id,
+        "remaining": _backfill_pending(conn, only_empty, after_id=last_id),
+        "pending_total": _backfill_pending(conn, only_empty),
+    }
 
 
 # ------------------------------------------------------------------ 字典导入 / 状态

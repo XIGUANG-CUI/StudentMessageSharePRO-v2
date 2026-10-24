@@ -43,3 +43,11 @@ ${主管标记}          → supervisor_flag
 ${申报日期}          → declaration_date
 ${保单更新日期}      → insurance_update_date
 ${学费总体情况}      → tuition_status
+
+${省}                → district_province_name（区划匹配自动生成）
+${省区划代码}        → district_province_code（12 位，如 230000000000）
+${市}                → district_city_name（区划匹配自动生成）
+${市区划代码}        → district_city_code（12 位，如 230100000000）
+${县}                → district_county_name（区划匹配自动生成）
+${县区划代码}        → district_county_code（12 位，如 230105000000）
+${匹配状态}          → district_match_status（正确 / 已解析 / 需复核 / 无匹配 等）

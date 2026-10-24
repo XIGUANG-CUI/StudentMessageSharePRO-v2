@@ -173,9 +173,12 @@ def test_backfill_only_empty_keeps_values(loaded_dict, db_conn):
         "VALUES ('乙', '230104199001010033', '黑龙江省哈尔滨市道外区', '', 1, 2026, "
         "'正式学籍', '在校')")
     db_conn.execute(
-        "INSERT INTO students (name, id_card, address, district_county_code, "
+        "INSERT INTO students (name, id_card, address, district_province_name, "
+        "district_province_code, district_city_name, district_city_code, "
+        "district_county_name, district_county_code, district_match_status, "
         "school, enrollment_year, registration_status, attendance_status) "
-        "VALUES ('丙', '110108199001010044', '', '110108000000', 1, 2026, "
+        "VALUES ('丙', '110108199001010044', '', '北京市', '110000000000', '市辖区', "
+        "'110100000000', '海淀区', '110108000000', '正确', 1, 2026, "
         "'正式学籍', '在校')")
     db_conn.commit()
     before = db_conn.execute(
@@ -183,6 +186,7 @@ def test_backfill_only_empty_keeps_values(loaded_dict, db_conn):
         "WHERE name='丙'").fetchone()
     result = dm.backfill_students(only_empty=True, limit=100)
     assert result["updated"] >= 1
+    # 7 列已完整的行不参与回填
     after = db_conn.execute(
         "SELECT district_county_code, district_province_name FROM students "
         "WHERE name='丙'").fetchone()
@@ -190,3 +194,29 @@ def test_backfill_only_empty_keeps_values(loaded_dict, db_conn):
     filled = db_conn.execute(
         "SELECT district_county_code FROM students WHERE name='乙'").fetchone()
     assert filled[0] == "230104000000"
+    assert result["pending_total"] == 0
+
+
+def test_backfill_cursor_and_remaining(loaded_dict, db_conn):
+    """游标续跑：每轮只处理 after_id 之后的行，并回传剩余待补条数。"""
+    ids = []
+    for idx in range(3):
+        db_conn.execute(
+            "INSERT INTO students (name, id_card, address, school, enrollment_year, "
+            "registration_status, attendance_status) "
+            "VALUES (?, ?, '', 1, 2026, '正式学籍', '在校')",
+            ("游标%d" % idx, "23010419900101%04d" % idx))
+        ids.append(db_conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+    db_conn.commit()
+
+    first = dm.backfill_students(only_empty=True, limit=2)
+    assert first["total"] == 2
+    assert first["last_id"] == ids[1]
+    assert first["remaining"] == 1
+    assert first["pending_total"] == 1
+
+    second = dm.backfill_students(only_empty=True, limit=2, after_id=first["last_id"])
+    assert second["total"] == 1
+    assert second["last_id"] == ids[2]
+    assert second["remaining"] == 0
+    assert second["pending_total"] == 0

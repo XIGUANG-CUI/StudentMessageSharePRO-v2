@@ -139,7 +139,11 @@ def read_input_rows(path, limit=None):
 
 
 def iter_input_rows(path, id_card_col, address_col):
-    """流式读取全量输入行，产出 (row_no, id_card, address)。"""
+    """流式读取全量输入行，产出 (row_no, id_card, address, row_dict)。
+
+    row_dict 保留该行所有列（列名 -> 文本值），供导出时原样带回上传表单；
+    两者都为空的行（空行）跳过。
+    """
     ext = os.path.splitext(path)[1].lower()
 
     def _pick(header, raw, col):
@@ -167,7 +171,7 @@ def iter_input_rows(path, id_card_col, address_col):
                 address = _pick(header, raw, address_col)
                 if not id_card and not address:
                     continue
-                yield n, id_card, address
+                yield n, id_card, address, _row_to_dict(header, raw)
         finally:
             wb.close()
         return
@@ -186,7 +190,7 @@ def iter_input_rows(path, id_card_col, address_col):
                     address = _pick(header, raw, address_col)
                     if not id_card and not address:
                         continue
-                    yield n, id_card, address
+                    yield n, id_card, address, _row_to_dict(header, raw)
                 return
         except UnicodeDecodeError:
             continue

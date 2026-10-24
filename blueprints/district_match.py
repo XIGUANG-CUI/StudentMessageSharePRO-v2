@@ -18,6 +18,7 @@ import auth
 import config
 from auth import _require_admin_json, _require_login_json
 from models import district as district_model
+from models import get_filter_values
 from services.district_match import exporter, importer, runner
 from services.district_match import pack as pack_mod
 
@@ -120,7 +121,9 @@ def _result_payload(result):
 @auth.admin_required
 def page():
     """区划匹配页面（仅 admin）。"""
-    return render_template("admin/district_match.html")
+    # 筛选下拉选项：包含毕业生，便于勾选「包含毕业学生」后按年级/班级筛选
+    filter_values = get_filter_values(include_graduated=True)
+    return render_template("admin/district_match.html", filter_values=filter_values)
 
 
 # ------------------------------------------------------------------ 单条查询
@@ -175,6 +178,28 @@ def preview():
                 pass
 
 
+@bp.route("/api/district-match/students", methods=["POST"])
+def students_preview():
+    """预览“取学生（可筛选）”的匹配范围（分页，只读，不写任何表）。"""
+    err = _require_admin_json()
+    if err:
+        return err
+    payload = request.get_json(silent=True) or {}
+    raw_filters = payload.get("filters")
+    filters = raw_filters if isinstance(raw_filters, dict) else {}
+    include_graduated = bool(payload.get("include_graduated"))
+    try:
+        page_no = max(1, int(payload.get("page") or 1))
+    except (TypeError, ValueError):
+        page_no = 1
+    try:
+        size = int(payload.get("size") or 100)
+    except (TypeError, ValueError):
+        size = 100
+    repo = district_model.DistrictRepository()
+    return _ok(repo.list_students_page(filters, include_graduated, page_no, size))
+
+
 @bp.route("/api/district-match/batch", methods=["POST"])
 def batch():
     err = _require_admin_json()
@@ -187,6 +212,8 @@ def batch():
     try:
         source = "upload"
         student_ids = []
+        filters = {}
+        include_graduated = False
         id_card_col = address_col = None
         if request.files.get("file"):
             staging = _save_upload(request.files["file"])
@@ -198,6 +225,9 @@ def batch():
             payload = request.get_json(silent=True) or {}
             source = payload.get("source") or "students"
             student_ids = payload.get("student_ids") or []
+            raw_filters = payload.get("filters")
+            filters = raw_filters if isinstance(raw_filters, dict) else {}
+            include_graduated = bool(payload.get("include_graduated"))
             if source != "students":
                 raise ValueError("缺少上传文件或 source 参数")
     except ValueError as exc:
@@ -212,8 +242,11 @@ def batch():
         district_model.warm_cache(conn)
         repo = district_model.DistrictRepository(conn)
         if source != "upload":
-            students = repo.non_graduated_students(student_ids or None)
+            students = repo.students_by_filter(filters, include_graduated,
+                                               student_ids or None)
             total = len(students)
+            if total == 0:
+                raise ValueError("筛选条件下没有学生，请调整筛选范围后重试")
             batch_no = "B" + uuid.uuid4().hex[:8].upper()
             batch_id = repo.create_batch(batch_no, "students", total, created_by)
             _update_progress(progress_id, total=total, phase="匹配中")
@@ -240,8 +273,14 @@ def batch():
         # 上传清单
         rows = list(importer.iter_input_rows(staging, id_card_col, address_col))
         total = len(rows)
+        # 留存上传表单原始表头，导出时把匹配结果追加在这些列之后
+        try:
+            headers, _sample = importer.read_input_rows(staging, limit=1)
+        except Exception:
+            headers = []
         batch_no = "B" + uuid.uuid4().hex[:8].upper()
-        batch_id = repo.create_batch(batch_no, "upload", total, created_by)
+        batch_id = repo.create_batch(batch_no, "upload", total, created_by,
+                                     source_headers=json.dumps(headers, ensure_ascii=False))
         _update_progress(progress_id, total=total, phase="匹配中")
 
         def on_progress(done, all_count, stats):
@@ -249,7 +288,9 @@ def batch():
                              message="正在匹配第 %d/%d 条" % (done, all_count))
 
         students = [{"student_id": None, "student_name": "",
-                     "id_card": ic, "address": addr} for _n, ic, addr in rows]
+                     "id_card": ic, "address": addr,
+                     "raw_row": json.dumps(raw, ensure_ascii=False)}
+                    for _n, ic, addr, raw in rows]
         stats = runner.process_batch(repo, students, batch_id,
                                      on_progress=on_progress, source="upload")
         repo.update_batch(batch_id, status="done", total=total,
@@ -362,12 +403,25 @@ def export_batch(batch_id):
     if fmt not in ("xlsx", "csv"):
         return _fail("仅支持 xlsx / csv")
     rows = repo.list_results(batch_id, limit=100000, offset=0)
+    if not rows:
+        return _fail("该批次无可导出结果（结果可能已随上次导出清除）", 400)
     # 导出目录与 uploads 同级（即 _USER_DATA_DIR/exports），不引用 config 私有变量
     out_dir = os.path.join(os.path.dirname(current_app.config["UPLOAD_FOLDER"]), "exports")
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir,
                             "district_match_%s.%s" % (batch.get("batch_no") or batch_id, fmt))
-    exporter.export_results(rows, out_path, fmt=fmt)
+    # 上传清单批次：按原始表头输出，匹配结果追加在最后几列
+    headers = []
+    if batch.get("source_headers"):
+        try:
+            parsed = json.loads(batch["source_headers"])
+            headers = parsed if isinstance(parsed, list) else []
+        except (TypeError, ValueError):
+            headers = []
+    exporter.export_results(rows, out_path, fmt=fmt, headers=headers)
+    # 导出即清除：批次记录只保留到导出前，导出完成后连同结果一并物理删除，
+    # 避免 dm_match_batch / dm_match_result 无限膨胀
+    repo.purge_batch(batch_id)
     return send_file(out_path, as_attachment=True,
                      download_name="区划匹配_%s.%s" % (batch.get("batch_no") or batch_id, fmt))
 
@@ -422,14 +476,115 @@ def dictionary_import():
     return _ok({"progress_id": pid, "pack": pack_file})
 
 
+# ------------------------------------------------------------------ 历史映射维护
+_HISTORY_HEADER_ALIASES = {
+    "旧码": "old_code", "原代码": "old_code", "旧区划代码": "old_code",
+    "新码": "new_code", "新区划代码": "new_code",
+    "旧名": "old_name", "原名": "old_name", "旧区划名称": "old_name",
+    "新名": "new_name", "新名称": "new_name", "新区划名称": "new_name",
+    "变更类型": "change_type", "类型": "change_type",
+    "变更日期": "change_date", "日期": "change_date",
+    "备注": "remark",
+}
+_HISTORY_KEYS = ("old_code", "new_code", "old_name", "new_name",
+                 "change_type", "change_date", "remark")
+
+
+def _normalize_history_rows(rows):
+    """把导入行的表头（中文或英文）归一化为历史映射字段名。"""
+    out = []
+    for row in rows:
+        item = {}
+        for key, value in (row or {}).items():
+            name = str(key or "").strip()
+            target = _HISTORY_HEADER_ALIASES.get(name)
+            if target is None:
+                lower = name.lower()
+                if lower in _HISTORY_KEYS:
+                    target = lower
+            if target:
+                item[target] = value
+        out.append(item)
+    return out
+
+
 @bp.route("/api/district-match/history")
 def history():
-    """历史映射只读列表（15.2 #6：本期不做增删改）。"""
+    """历史映射列表（登录可读，支持 search 关键字）。"""
     err = _require_login_json()
     if err:
         return err
     repo = district_model.DistrictRepository()
-    return _ok({"items": repo.list_history(), "readonly": True})
+    items = repo.list_history(search=(request.args.get("search") or "").strip())
+    return _ok({"items": items, "readonly": False})
+
+
+@bp.route("/api/district-match/history", methods=["POST"])
+def create_history():
+    err = _require_admin_json()
+    if err:
+        return err
+    payload = request.get_json(silent=True) or {}
+    repo = district_model.DistrictRepository()
+    try:
+        history_id = repo.create_history(payload)
+    except ValueError as exc:
+        return _fail(str(exc))
+    return _ok({"id": history_id})
+
+
+@bp.route("/api/district-match/history/<int:history_id>/update", methods=["POST"])
+def update_history(history_id):
+    err = _require_admin_json()
+    if err:
+        return err
+    payload = request.get_json(silent=True) or {}
+    repo = district_model.DistrictRepository()
+    try:
+        repo.update_history(history_id, payload)
+    except ValueError as exc:
+        return _fail(str(exc), 404 if "不存在" in str(exc) else 400)
+    return _ok({"id": history_id})
+
+
+@bp.route("/api/district-match/history/<int:history_id>/delete", methods=["POST"])
+def delete_history(history_id):
+    err = _require_admin_json()
+    if err:
+        return err
+    repo = district_model.DistrictRepository()
+    try:
+        repo.delete_history(history_id)
+    except ValueError as exc:
+        return _fail(str(exc), 404)
+    return _ok({"id": history_id})
+
+
+@bp.route("/api/district-match/history/import", methods=["POST"])
+def import_history():
+    """批量导入历史映射（xlsx / csv，中文或英文字段名）。"""
+    err = _require_admin_json()
+    if err:
+        return err
+    storage = request.files.get("file")
+    if not storage or not storage.filename:
+        return _fail("请选择要导入的文件")
+    try:
+        path = _save_upload(storage)
+    except ValueError as exc:
+        return _fail(str(exc))
+    try:
+        _headers, rows = importer.read_input_rows(path, limit=5000)
+        result = district_model.DistrictRepository().bulk_import_history(
+            _normalize_history_rows(rows))
+    except ValueError as exc:
+        return _fail(str(exc))
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    return _ok(result)
 
 
 # ------------------------------------------------------------------ 4.8.1 回填 / 重新匹配
@@ -438,18 +593,24 @@ def backfill():
     err = _require_admin_json()
     if err:
         return err
-    if not _batch_lock.acquire(blocking=False):
-        return _fail("已有批量任务在执行，请稍后再试", 409)
     payload = request.get_json(silent=True) or {}
     only_empty = bool(payload.get("only_empty", True))
-    limit = min(5000, int(payload.get("limit") or 5000))
+    try:
+        limit = int(payload.get("limit") or 5000)
+        after_id = int(payload.get("after_id") or 0)
+    except (TypeError, ValueError):
+        return _fail("limit / after_id 必须为整数")
+    limit = max(1, min(5000, limit))
+    after_id = max(0, after_id)
+    if not _batch_lock.acquire(blocking=False):
+        return _fail("已有批量任务在执行，请稍后再试", 409)
     pid = _new_progress("backfill")
 
     def _target(app_obj, progress_id):
         _update_progress(progress_id, phase="回填中")
         try:
             result = district_model.backfill_students(
-                only_empty=only_empty, limit=limit,
+                only_empty=only_empty, limit=limit, after_id=after_id,
                 on_progress=lambda done, total: _update_progress(
                     progress_id, done=done, total=total,
                     message="已处理 %d/%d 条" % (done, total)))
@@ -463,7 +624,8 @@ def backfill():
     except Exception:
         _batch_lock.release()
         raise
-    return _ok({"progress_id": pid, "limit": limit, "only_empty": only_empty})
+    return _ok({"progress_id": pid, "limit": limit, "after_id": after_id,
+                "only_empty": only_empty})
 
 
 @bp.route("/api/district-match/students/<int:student_id>/rematch", methods=["POST"])

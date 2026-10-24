@@ -8,18 +8,23 @@
      data-batch-url="{{ url_for('district_match.batch') }}"
      data-progress-url="{{ url_for('district_match.progress', progress_id='__PID__') }}"
      data-batches-url="{{ url_for('district_match.batches') }}"
+     data-students-url="{{ url_for('district_match.students_preview') }}"
      data-results-url="{{ url_for('district_match.results', batch_id=0) }}"
      data-export-url="{{ url_for('district_match.export_batch', batch_id=0) }}"
      data-delete-url="{{ url_for('district_match.delete_batch', batch_id=0) }}"
      data-dictionary-url="{{ url_for('district_match.dictionary') }}"
      data-dict-import-url="{{ url_for('district_match.dictionary_import') }}"
      data-history-url="{{ url_for('district_match.history') }}"
+     data-history-create-url="{{ url_for('district_match.create_history') }}"
+     data-history-update-url="{{ url_for('district_match.update_history', history_id=0) }}"
+     data-history-delete-url="{{ url_for('district_match.delete_history', history_id=0) }}"
+     data-history-import-url="{{ url_for('district_match.import_history') }}"
      data-backfill-url="{{ url_for('district_match.backfill') }}">
 
   <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
     <div>
       <h4 class="mb-1"><i class="bi bi-geo-alt"></i> 区划匹配</h4>
-      <div class="text-muted small">身份证前 6 位 + 地址文本双引擎匹配；结果写入批次记录，不直接改学生主表（除“批量补全区划”）。</div>
+      <div class="text-muted small">身份证前 6 位 + 地址文本双引擎匹配；结果写入批次记录，导出后自动清除，不直接改学生主表（除“批量补全区划”）。</div>
     </div>
     <div class="d-flex gap-2">
       <button type="button" class="btn btn-outline-secondary btn-sm" id="dm-refresh-dict">
@@ -80,7 +85,7 @@
             <input type="radio" class="btn-check" name="dm-source" id="dm-source-upload" value="upload" checked>
             <label class="btn btn-outline-secondary" for="dm-source-upload">上传清单</label>
             <input type="radio" class="btn-check" name="dm-source" id="dm-source-students" value="students">
-            <label class="btn btn-outline-secondary" for="dm-source-students">取在校学生</label>
+            <label class="btn btn-outline-secondary" for="dm-source-students">取学生（可筛选）</label>
           </div>
 
           <div id="dm-upload-panel">
@@ -109,12 +114,114 @@
                 <thead></thead><tbody></tbody>
               </table>
             </div>
+            <div class="alert alert-light border small mt-2 mb-0">
+              导出时保留上传表单的全部原始列（顺序不变），匹配结果以「匹配_省代码 / 匹配_省 / 匹配_市代码 / 匹配_市 /
+              匹配_区县代码 / 匹配_区县 / 匹配_状态 / 匹配_说明」追加在最后几列；只取所选身份证列与地址列做匹配。
+            </div>
           </div>
 
           <div id="dm-students-panel" class="d-none">
-            <div class="alert alert-light border small mb-0">
-              将按“在校且未删除”口径（复用 <code>_non_graduated_where()</code>）取出学生，逐条匹配后写批次记录。
-              不修改学生主表。
+            <div class="row g-2">
+              <div class="col-6 col-md-4">
+                <label class="form-label small text-muted" for="dm-f-school">学校类别</label>
+                <select class="form-select form-select-sm" id="dm-f-school">
+                  <option value="">全部</option>
+                  {% for st in school_types %}
+                  <option value="{{ st.code }}">{{ st.name }}{% if not st.is_active %}（已停用）{% endif %}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-6 col-md-4">
+                <label class="form-label small text-muted" for="dm-f-grade">年级</label>
+                <select class="form-select form-select-sm" id="dm-f-grade">
+                  <option value="">全部</option>
+                  {% for g in filter_values.grades %}
+                  <option value="{{ g }}">{{ g }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-6 col-md-4">
+                <label class="form-label small text-muted" for="dm-f-major">专业</label>
+                <select class="form-select form-select-sm" id="dm-f-major">
+                  <option value="">全部</option>
+                  {% for m in filter_values.majors %}
+                  <option value="{{ m }}">{{ m }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-6 col-md-4">
+                <label class="form-label small text-muted" for="dm-f-class">班级</label>
+                <select class="form-select form-select-sm" id="dm-f-class">
+                  <option value="">全部</option>
+                  {% for c in filter_values.classes %}
+                  <option value="{{ c }}">{{ c }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-6 col-md-4">
+                <label class="form-label small text-muted" for="dm-f-regstatus">学籍状态</label>
+                <select class="form-select form-select-sm" id="dm-f-regstatus">
+                  <option value="">全部</option>
+                  {% for s in filter_values.registration_statuses %}
+                  <option value="{{ s }}">{{ s }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-6 col-md-4">
+                <label class="form-label small text-muted" for="dm-f-attstatus">在校状态</label>
+                <select class="form-select form-select-sm" id="dm-f-attstatus">
+                  <option value="">全部</option>
+                  {% for s in filter_values.attendance_statuses %}
+                  <option value="{{ s }}">{{ s }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label small text-muted" for="dm-f-name">姓名</label>
+                <input type="text" class="form-control form-control-sm" id="dm-f-name"
+                       placeholder="支持拼音">
+              </div>
+              <div class="col-6 col-md-5">
+                <label class="form-label small text-muted" for="dm-f-search">关键词</label>
+                <input type="text" class="form-control form-control-sm" id="dm-f-search"
+                       placeholder="姓名 / 学号 / 拼音 / 身份证">
+              </div>
+              <div class="col-12 col-md-4 d-flex align-items-end">
+                <div class="form-check mb-1">
+                  <input class="form-check-input" type="checkbox" id="dm-f-graduated">
+                  <label class="form-check-label small" for="dm-f-graduated">包含毕业学生</label>
+                </div>
+              </div>
+            </div>
+            <div class="alert alert-light border small mt-2 mb-0">
+              默认只取未毕业、未删除学生；筛选口径与模板导出引擎一致，勾选「包含毕业学生」后可按学籍状态=毕业取数。
+              逐条匹配后只写批次结果，不修改学生主表。
+            </div>
+            <div class="mt-2 d-flex align-items-center gap-2">
+              <button type="button" class="btn btn-outline-primary btn-sm" id="dm-stu-preview-btn">
+                <i class="bi bi-eye"></i> 预览数据
+              </button>
+              <span class="text-muted small" id="dm-stu-preview-hint">按当前筛选条件预览匹配范围，每页 100 条</span>
+            </div>
+            <div class="mt-2 d-none" id="dm-stu-preview-wrap">
+              <div class="table-responsive border rounded" style="max-height:360px; overflow:auto;">
+                <table class="table table-sm table-bordered align-middle mb-0" id="dm-stu-preview-table">
+                  <thead>
+                    <tr>
+                      <th>姓名</th><th>学号</th><th>身份证号</th><th>学校</th>
+                      <th>年级</th><th>班级</th><th>学籍状态</th><th>在校状态</th><th>地址</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+              <div class="d-flex justify-content-between align-items-center mt-2">
+                <span class="text-muted small" id="dm-stu-page-info"></span>
+                <div class="btn-group btn-group-sm">
+                  <button type="button" class="btn btn-outline-secondary" id="dm-stu-prev">上一页</button>
+                  <button type="button" class="btn btn-outline-secondary" id="dm-stu-next">下一页</button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -193,17 +300,92 @@
       </div>
 
       <div class="card">
-        <div class="card-header"><i class="bi bi-signpost-split"></i> 历史映射（只读）</div>
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span><i class="bi bi-signpost-split"></i> 历史映射维护</span>
+          <div class="d-flex gap-1">
+            <button type="button" class="btn btn-outline-primary btn-sm" id="dm-history-add-btn">
+              <i class="bi bi-plus-lg"></i> 新增
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="dm-history-import-btn">
+              <i class="bi bi-upload"></i> 导入
+            </button>
+            <input type="file" class="d-none" id="dm-history-file" accept=".xlsx,.xlsm,.csv">
+          </div>
+        </div>
         <div class="card-body p-0">
-          <div class="table-responsive" style="max-height: 240px;">
-            <table class="table table-sm mb-0" id="dm-history-table">
-              <thead class="table-light"><tr><th>旧码</th><th>旧名</th><th>新码</th><th>新名</th></tr></thead>
+          <div class="p-2 border-bottom">
+            <div class="input-group input-group-sm">
+              <input type="search" class="form-control" id="dm-history-search"
+                     placeholder="搜索旧码 / 新码 / 旧名 / 新名 / 备注">
+              <button type="button" class="btn btn-outline-secondary" id="dm-history-search-btn">搜索</button>
+            </div>
+          </div>
+          <div class="table-responsive" style="max-height: 300px;">
+            <table class="table table-sm align-middle mb-0" id="dm-history-table">
+              <thead class="table-light">
+                <tr><th>旧码</th><th>旧名</th><th>新码</th><th>新名</th><th>类型</th><th class="text-end">操作</th></tr>
+              </thead>
               <tbody></tbody>
             </table>
           </div>
           <div class="small text-muted p-2 border-top">
-            本期只读展示；增删改留到有明确需求时再做（15.2 #6）。
+            仅未删除记录参与匹配；增删改后引擎缓存立即失效并重新加载。
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 历史映射编辑弹窗 -->
+  <div class="modal fade" id="dm-history-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="dm-history-modal-title">新增历史映射</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="dm-h-id">
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label small text-muted" for="dm-h-old-code">旧区划代码</label>
+              <input type="text" class="form-control form-control-sm" id="dm-h-old-code" maxlength="12">
+            </div>
+            <div class="col-6">
+              <label class="form-label small text-muted" for="dm-h-new-code">新区划代码</label>
+              <input type="text" class="form-control form-control-sm" id="dm-h-new-code" maxlength="12">
+            </div>
+            <div class="col-6">
+              <label class="form-label small text-muted" for="dm-h-old-name">旧区划名称</label>
+              <input type="text" class="form-control form-control-sm" id="dm-h-old-name" maxlength="80">
+            </div>
+            <div class="col-6">
+              <label class="form-label small text-muted" for="dm-h-new-name">新区划名称</label>
+              <input type="text" class="form-control form-control-sm" id="dm-h-new-name" maxlength="80">
+            </div>
+            <div class="col-6">
+              <label class="form-label small text-muted" for="dm-h-change-type">变更类型</label>
+              <input type="text" class="form-control form-control-sm" id="dm-h-change-type"
+                     maxlength="40" placeholder="如：更名 / 撤并">
+            </div>
+            <div class="col-6">
+              <label class="form-label small text-muted" for="dm-h-change-date">变更日期</label>
+              <input type="text" class="form-control form-control-sm" id="dm-h-change-date"
+                     maxlength="20" placeholder="如：2020-01-01">
+            </div>
+            <div class="col-12">
+              <label class="form-label small text-muted" for="dm-h-remark">备注</label>
+              <textarea class="form-control form-control-sm" id="dm-h-remark" rows="2" maxlength="200"></textarea>
+            </div>
+          </div>
+          <div class="small text-muted mt-2">
+            引擎按身份证前 6 位匹配，代码请填 6 位（如 230105 → 230104）；
+            旧码/新码 或 旧名/新名 至少一组成对填写，仅填名称也可作为别名映射。
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+          <button type="button" class="btn btn-primary btn-sm" id="dm-history-save-btn">保存</button>
         </div>
       </div>
     </div>

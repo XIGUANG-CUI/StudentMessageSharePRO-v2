@@ -11,12 +11,17 @@
         batch: app.dataset.batchUrl,
         progress: app.dataset.progressUrl,
         batches: app.dataset.batchesUrl,
+        students: app.dataset.studentsUrl,
         results: app.dataset.resultsUrl,
         exportUrl: app.dataset.exportUrl,
         deleteUrl: app.dataset.deleteUrl,
         dictionary: app.dataset.dictionaryUrl,
         dictImport: app.dataset.dictImportUrl,
         history: app.dataset.historyUrl,
+        historyCreate: app.dataset.historyCreateUrl,
+        historyUpdate: app.dataset.historyUpdateUrl,
+        historyDelete: app.dataset.historyDeleteUrl,
+        historyImport: app.dataset.historyImportUrl,
         backfill: app.dataset.backfillUrl
     };
 
@@ -132,6 +137,105 @@
         $('dm-students-panel').classList.toggle('d-none', isUpload);
     }
 
+    // 学生口径筛选（字段与模板导出引擎一致）
+    function collectStudentFilters() {
+        var map = {
+            school: 'dm-f-school',
+            grade: 'dm-f-grade',
+            major: 'dm-f-major',
+            admin_class: 'dm-f-class',
+            registration_status: 'dm-f-regstatus',
+            attendance_status: 'dm-f-attstatus',
+            name: 'dm-f-name',
+            search: 'dm-f-search'
+        };
+        var filters = {};
+        Object.keys(map).forEach(function (key) {
+            var el = $(map[key]);
+            var val = el ? (el.value || '').trim() : '';
+            if (val) filters[key] = val;
+        });
+        return filters;
+    }
+
+    /* 取学生筛选范围预览（只读分页，不影响匹配结果） */
+    var stuPage = 1;
+    var stuSize = 100;
+    var stuPages = 1;
+
+    function schoolName(code) {
+        var sel = $('dm-f-school');
+        if (!sel) return code;
+        for (var i = 0; i < sel.options.length; i++) {
+            if (sel.options[i].value === String(code)) return sel.options[i].textContent;
+        }
+        return code;
+    }
+
+    function loadStudentsPreview(page) {
+        var btn = $('dm-stu-preview-btn');
+        setBusy(btn, true, '加载中…');
+        requestJSON(URLS.students, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                page: page,
+                size: stuSize,
+                include_graduated: $('dm-f-graduated').checked,
+                filters: collectStudentFilters()
+            })
+        }).then(function (body) {
+            var data = body.data || {};
+            var total = data.total || 0;
+            stuPage = data.page || 1;
+            stuPages = Math.max(1, Math.ceil(total / stuSize));
+            var tbody = $('dm-stu-preview-table').querySelector('tbody');
+            tbody.innerHTML = '';
+            if (!total) {
+                var tr = document.createElement('tr');
+                var td = cell('该筛选条件下没有学生');
+                td.colSpan = 9;
+                td.className = 'text-center text-muted';
+                tr.appendChild(td);
+                tbody.appendChild(tr);
+            } else {
+                (data.items || []).forEach(function (item) {
+                    var line = document.createElement('tr');
+                    line.appendChild(cell(item.student_name));
+                    line.appendChild(cell(item.student_no));
+                    line.appendChild(cell(item.id_card));
+                    line.appendChild(cell(schoolName(item.school)));
+                    line.appendChild(cell(item.grade));
+                    line.appendChild(cell(item.admin_class));
+                    line.appendChild(cell(item.registration_status));
+                    line.appendChild(cell(item.attendance_status));
+                    line.appendChild(cell(item.address));
+                    tbody.appendChild(line);
+                });
+            }
+            $('dm-stu-page-info').textContent = total
+                ? '共 ' + total + ' 条，第 ' + stuPage + '/' + stuPages + ' 页'
+                : '共 0 条';
+            $('dm-stu-prev').disabled = stuPage <= 1;
+            $('dm-stu-next').disabled = stuPage >= stuPages;
+            $('dm-stu-preview-wrap').classList.remove('d-none');
+        }).catch(function (err) {
+            showToast(err.message, 'danger');
+        }).finally(function () {
+            setBusy(btn, false);
+        });
+    }
+
+    $('dm-stu-preview-btn').addEventListener('click', function () {
+        loadStudentsPreview(1);
+    });
+    $('dm-stu-prev').addEventListener('click', function () {
+        if (stuPage > 1) loadStudentsPreview(stuPage - 1);
+    });
+    $('dm-stu-next').addEventListener('click', function () {
+        if (stuPage < stuPages) loadStudentsPreview(stuPage + 1);
+    });
+
     $('dm-preview-btn').addEventListener('click', function () {
         var file = $('dm-file').files[0];
         if (!file) {
@@ -198,7 +302,11 @@
             options = {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ source: 'students' })
+                body: JSON.stringify({
+                    source: 'students',
+                    include_graduated: $('dm-f-graduated').checked,
+                    filters: collectStudentFilters()
+                })
             };
         }
         setBusy(btn, true, '启动中…');
@@ -257,8 +365,22 @@
         requestJSON(withId(URLS.results, batchId) + '?size=100', { method: 'GET' })
             .then(function (body) {
                 var data = body.data || {};
+                var batch = data.batch || {};
+                var total = data.total || 0;
                 var tbody = $('dm-result-table').querySelector('tbody');
                 tbody.innerHTML = '';
+                if (!total) {
+                    var trEmpty = document.createElement('tr');
+                    var tdEmpty = cell('该批次结果已导出并清除，无剩余记录');
+                    tdEmpty.colSpan = 8;
+                    tdEmpty.className = 'text-center text-muted';
+                    trEmpty.appendChild(tdEmpty);
+                    tbody.appendChild(trEmpty);
+                    $('dm-result-title').textContent = '批次 ' + (batch.batch_no || batchId) + '，结果已清除';
+                    $('dm-export-link').classList.add('d-none');
+                    $('dm-result-wrap').classList.remove('d-none');
+                    return;
+                }
                 (data.items || []).forEach(function (item) {
                     var tr = document.createElement('tr');
                     tr.appendChild(cell(item.student_name));
@@ -273,11 +395,11 @@
                     tr.appendChild(cell(item.decision_path));
                     tbody.appendChild(tr);
                 });
-                var batch = data.batch || {};
                 $('dm-result-title').textContent =
-                    '批次 ' + (batch.batch_no || batchId) + '，共 ' + (data.total || 0) + ' 条，当前显示前 100 条';
+                    '批次 ' + (batch.batch_no || batchId) + '，共 ' + total + ' 条，当前显示前 100 条';
                 var link = $('dm-export-link');
                 link.href = withId(URLS.exportUrl, batchId) + '?format=xlsx';
+                link.dataset.batchId = batchId;
                 link.classList.remove('d-none');
                 $('dm-result-wrap').classList.remove('d-none');
             }).catch(function (err) {
@@ -285,7 +407,29 @@
             });
     }
 
+    // 导出成功后批次记录与结果均被清除：收起结果面板并刷新列表
+    function afterExport() {
+        $('dm-result-wrap').classList.add('d-none');
+        loadBatches();
+        showToast('导出完成，批次记录已清除', 'info');
+    }
+
+    $('dm-export-link').addEventListener('click', function () {
+        if (!this.dataset.batchId) return;
+        setTimeout(afterExport, 1500);
+    });
+
     /* ---------------------------------------------------------- 3. 批次记录 */
+    var BATCH_STATUS_TEXT = {
+        running: '进行中',
+        done: '已完成',
+        failed: '失败'
+    };
+    var BATCH_SOURCE_TEXT = {
+        students: '学生筛选',
+        upload: '上传清单'
+    };
+
     function loadBatches() {
         requestJSON(URLS.batches + '?size=20', { method: 'GET' }).then(function (body) {
             var data = body.data || {};
@@ -294,10 +438,10 @@
             (data.items || []).forEach(function (item) {
                 var tr = document.createElement('tr');
                 tr.appendChild(cell(item.batch_no));
-                tr.appendChild(cell(item.source));
+                tr.appendChild(cell(BATCH_SOURCE_TEXT[item.source] || item.source));
                 tr.appendChild(cell(item.total));
                 var tdStatus = document.createElement('td');
-                tdStatus.textContent = item.status || '';
+                tdStatus.textContent = BATCH_STATUS_TEXT[item.status] || item.status || '';
                 tr.appendChild(tdStatus);
                 tr.appendChild(cell(item.created_by));
                 tr.appendChild(cell(item.created_at));
@@ -315,6 +459,12 @@
                 exportBtn.className = 'btn btn-outline-success btn-sm me-1';
                 exportBtn.textContent = '导出';
                 exportBtn.href = withId(URLS.exportUrl, item.id) + '?format=xlsx';
+                // 导出即清除：批次记录与结果都会删除，导出后刷新列表
+                exportBtn.addEventListener('click', function () {
+                    setTimeout(function () {
+                        afterExport();
+                    }, 1500);
+                });
                 td.appendChild(exportBtn);
 
                 var del = document.createElement('button');
@@ -420,16 +570,71 @@
             });
     });
 
-    function loadHistory() {
-        requestJSON(URLS.history, { method: 'GET' }).then(function (body) {
+    /* ---------------------------------------------------------- 历史映射维护 */
+    var historyModal = null;
+
+    function getHistoryModal() {
+        if (!historyModal && window.bootstrap) {
+            historyModal = new window.bootstrap.Modal($('dm-history-modal'));
+        }
+        return historyModal;
+    }
+
+    function historyKeyword() {
+        return $('dm-history-search').value.trim();
+    }
+
+    function loadHistory(keyword) {
+        var url = URLS.history;
+        if (keyword) url += '?search=' + encodeURIComponent(keyword);
+        requestJSON(url, { method: 'GET' }).then(function (body) {
             var tbody = $('dm-history-table').querySelector('tbody');
             tbody.innerHTML = '';
-            ((body.data || {}).items || []).forEach(function (item) {
+            var items = (body.data || {}).items || [];
+            if (!items.length) {
+                var empty = document.createElement('tr');
+                var td = cell(keyword ? '无匹配记录' : '暂无历史映射');
+                td.colSpan = 6;
+                td.className = 'text-muted text-center py-3';
+                empty.appendChild(td);
+                tbody.appendChild(empty);
+                return;
+            }
+            items.forEach(function (item) {
                 var tr = document.createElement('tr');
                 tr.appendChild(cell(item.old_code));
                 tr.appendChild(cell(item.old_name));
                 tr.appendChild(cell(item.new_code));
                 tr.appendChild(cell(item.new_name));
+                tr.appendChild(cell(item.change_type));
+
+                var td = document.createElement('td');
+                td.className = 'text-end text-nowrap';
+                var edit = document.createElement('button');
+                edit.type = 'button';
+                edit.className = 'btn btn-outline-primary btn-sm me-1';
+                edit.textContent = '编辑';
+                edit.addEventListener('click', function () { openHistoryModal(item); });
+                td.appendChild(edit);
+
+                var del = document.createElement('button');
+                del.type = 'button';
+                del.className = 'btn btn-outline-danger btn-sm';
+                del.textContent = '删除';
+                del.addEventListener('click', function () {
+                    var label = item.old_name || item.old_code || ('#' + item.id);
+                    showConfirm('确认删除历史映射「' + label + '」？删除后不再参与匹配。', 'danger')
+                        .then(function (ok) {
+                            if (!ok) return;
+                            requestJSON(withId(URLS.historyDelete, item.id), { method: 'POST' })
+                                .then(function () {
+                                    showToast('已删除', 'success');
+                                    loadHistory(historyKeyword());
+                                }).catch(function (err) { showToast(err.message, 'danger'); });
+                        });
+                });
+                td.appendChild(del);
+                tr.appendChild(td);
                 tbody.appendChild(tr);
             });
         }).catch(function (err) {
@@ -437,9 +642,90 @@
         });
     }
 
+    function openHistoryModal(item) {
+        item = item || {};
+        $('dm-h-id').value = item.id || '';
+        $('dm-h-old-code').value = item.old_code || '';
+        $('dm-h-new-code').value = item.new_code || '';
+        $('dm-h-old-name').value = item.old_name || '';
+        $('dm-h-new-name').value = item.new_name || '';
+        $('dm-h-change-type').value = item.change_type || '';
+        $('dm-h-change-date').value = item.change_date || '';
+        $('dm-h-remark').value = item.remark || '';
+        $('dm-history-modal-title').textContent = item.id ? '编辑历史映射' : '新增历史映射';
+        var modal = getHistoryModal();
+        if (modal) modal.show();
+    }
+
+    $('dm-history-add-btn').addEventListener('click', function () { openHistoryModal(null); });
+    $('dm-history-search-btn').addEventListener('click', function () { loadHistory(historyKeyword()); });
+    $('dm-history-search').addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            loadHistory(historyKeyword());
+        }
+    });
+
+    $('dm-history-save-btn').addEventListener('click', function () {
+        var id = $('dm-h-id').value;
+        var payload = {
+            old_code: $('dm-h-old-code').value.trim(),
+            new_code: $('dm-h-new-code').value.trim(),
+            old_name: $('dm-h-old-name').value.trim(),
+            new_name: $('dm-h-new-name').value.trim(),
+            change_type: $('dm-h-change-type').value.trim(),
+            change_date: $('dm-h-change-date').value.trim(),
+            remark: $('dm-h-remark').value.trim()
+        };
+        if (!((payload.old_code && payload.new_code) ||
+              (payload.old_name && payload.new_name))) {
+            showToast('旧码/新码 或 旧名/新名 需成对填写', 'warning');
+            return;
+        }
+        var btn = $('dm-history-save-btn');
+        setBusy(btn, true, '保存中…');
+        requestJSON(id ? withId(URLS.historyUpdate, id) : URLS.historyCreate, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(function () {
+            showToast('已保存', 'success');
+            var modal = getHistoryModal();
+            if (modal) modal.hide();
+            loadHistory(historyKeyword());
+        }).catch(function (err) {
+            showToast(err.message, 'danger');
+        }).finally(function () {
+            setBusy(btn, false);
+        });
+    });
+
+    $('dm-history-import-btn').addEventListener('click', function () { $('dm-history-file').click(); });
+
+    $('dm-history-file').addEventListener('change', function () {
+        var file = this.files[0];
+        if (!file) return;
+        var form = new FormData();
+        form.append('file', file);
+        var btn = $('dm-history-import-btn');
+        setBusy(btn, true, '导入中…');
+        requestJSON(URLS.historyImport, { method: 'POST', body: form }).then(function (body) {
+            var data = body.data || {};
+            showToast('导入完成：新增 ' + (data.created || 0) + ' 条，更新 ' +
+                (data.updated || 0) + ' 条，跳过 ' + (data.skipped || 0) + ' 条', 'success');
+            loadHistory(historyKeyword());
+        }).catch(function (err) {
+            showToast(err.message, 'danger');
+        }).finally(function () {
+            setBusy(btn, false);
+            $('dm-history-file').value = '';
+        });
+    });
+
     /* ---------------------------------------------------------- 批量补全 */
+    var backfillCursor = 0;   // 续跑游标：本次处理到的最大 id，下次从它之后继续
     $('dm-backfill-btn').addEventListener('click', function () {
-        showConfirm('将按地址/身份证为“区县代码为空”的学生补全 7 列（最多 5000 条，不改更新时间）。确认继续？', 'warn')
+        showConfirm('将为“区划信息不完整”的学生补全 7 列（单次最多 5000 条，自动按游标续跑，不改更新时间）。确认继续？', 'warn')
             .then(function (ok) {
                 if (!ok) return;
                 var btn = $('dm-backfill-btn');
@@ -447,7 +733,7 @@
                 requestJSON(URLS.backfill, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ only_empty: true, limit: 5000 })
+                    body: JSON.stringify({ only_empty: true, limit: 5000, after_id: backfillCursor })
                 }).then(function (body) {
                     $('dm-progress-wrap').classList.remove('d-none');
                     pollProgress(body.data.progress_id, updateProgress, function (item) {
@@ -455,10 +741,25 @@
                         setBusy(btn, false);
                         if (item.status === 'error') {
                             showToast(item.message || '回填失败', 'danger');
-                        } else {
-                            var res = item.result || {};
-                            showToast('回填完成：更新 ' + (res.updated || 0) + ' 条', 'success');
+                            return;
                         }
+                        var res = item.result || {};
+                        var pending = res.pending_total || 0;
+                        var text = '本次处理 ' + (res.total || 0) + ' 条，更新 ' +
+                            (res.updated || 0) + ' 条';
+                        backfillCursor = res.last_id || 0;
+                        if (res.remaining > 0) {
+                            text += '，剩余 ' + pending + ' 条待补全，可再次点击继续';
+                        } else if (pending > 0) {
+                            backfillCursor = 0;   // 本轮已扫完，重置游标
+                            text += '；本轮已扫描完，仍有 ' + pending +
+                                ' 条无法自动匹配（地址/证件缺失），可重试';
+                        } else {
+                            backfillCursor = 0;
+                            text += '，区划信息已全部补全';
+                        }
+                        $('dm-progress-text').textContent = text;
+                        showToast(text, 'success');
                     });
                 }).catch(function (err) {
                     setBusy(btn, false);
