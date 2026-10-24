@@ -1,1 +1,25 @@
+打包顺序（必须两步，缺第二步则出厂包没有区划字典）
+
+1) 在仓库根目录执行：
 pyinstaller --clean --noconfirm run_with_tray.spec
+
+2) 预置区划字典：
+python scripts/seed_packaged_dict.py
+
+产物目录：dist\学生数据管理系统<版本>（onedir、窗口化运行，无控制台黑窗）
+
+前置条件
+- data\district_pack.tsv.gz        5,411,508 字节；缺失时 spec 会直接报错退出
+- data\district_pack.tsv.sha256    校验文件，spec 会自动收进 _internal\data
+- version.txt、favicon.ico         决定产物名与图标
+
+打包后自检
+- dist\...\_internal\data\            应含 district_pack.tsv.gz 与 district_pack.tsv.sha256
+- dist\...\user_data\data\district.db 约 123 MB（664,239 条区划）
+- dist\...\user_data\                 不应有 student.db、secret.key、public_access.key
+
+说明
+- seed_packaged_dict.py 优先使用产物内自带的数据包并校验 sha256，导入后收敛 WAL 并删除 -wal/-shm 侧车文件
+- 脚本会删除导入 config 时顺带生成的 secret.key / public_access.key，避免所有安装包共用同一份会话密钥
+- 首次启动时程序自行生成 student.db、管理员账号与密钥
+- 字典库缺失时程序仍可运行，但录入学生不会写入区划 7 列；可在管理页「导入数据包」后执行「批量补全区划」
