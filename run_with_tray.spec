@@ -80,6 +80,11 @@ if not os.path.exists(pack_path):
     raise SystemExit(f'[spec] 缺少区划数据包：{pack_path}')
 datas.append((pack_path, 'data'))
 
+# 校验文件随包分发，便于现场核对数据包完整性（运行期校验依赖 pack.py 内联常量）
+sha_path = os.path.splitext(pack_path)[0] + '.sha256'
+if os.path.exists(sha_path):
+    datas.append((sha_path, 'data'))
+
 # 3. SDK 文件（读卡器 DLL + license.dat）
 if os.path.exists(sdk_dir):
     for file in os.listdir(sdk_dir):
