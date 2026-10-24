@@ -1,7 +1,7 @@
 # AGENTS.md — StudentMessageShareMax 项目指南
 
 > 本文件供 AI 代理（及开发者）快速理解项目架构、约定与开发规范。
-> 最后更新：2026-07-27（保险审批页按钮锁定体系 + Excel 日期序列号兼容 + 导入软删除跳过澄清）
+> 最后更新：2026-10-24（新增区划匹配引擎 + 档案派遣模块：人才机构字典/派遣工作台/转递单配置/转递单导出）
 
 ---
 
@@ -25,8 +25,8 @@ run_with_tray.py (310行)  启动入口：系统托盘 + 单实例锁 + 数据�
 ├── app.py (414行)         应用核心：3个入口路由 + CSRF防护 + 7个context_processor + Blueprint注册
 ├── config.py (280行)      配置：SECRET_KEY持久化 + 端口 + 路径 + 40字段FIELD_MAPPING + 模板导出配置 + InsuranceStatus 常量类
 ├── auth.py (267行)        权限模块：7个装饰器 + 3个JSON辅助 + session管理 + 字段/学校/年级权限过滤
-├── models/                数据访问层（P1-C：models.py 2832行 → 9子模块包，3164行）
-│   ├── __init__.py (231)  聚合导出 90+ 函数，保持 `from models import get_students` 向后兼容
+├── models/                数据访问层（P1-C：models.py 2832行 → 子模块包）
+│   ├── __init__.py (323)  聚合导出，保持 `from models import get_students` 向后兼容
 │   ├── db.py (394)        连接管理（_RequestDB/PRAGMA/get_db）+ init_db + 3个迁移 + 毕业过滤共享函数
 │   ├── students.py (743)  学生CRUD + 软删除 + _build_student_where_clause + 退学/转学待办查询
 │   ├── lifecycle.py (461) 毕业/实习：批量处理+撤销+年级/班级筛选
@@ -35,32 +35,38 @@ run_with_tray.py (310行)  启动入口：系统托盘 + 单实例锁 + 数据�
 │   ├── dicts.py (211)     字典管理 + 入学年份同步 + 照片状态
 │   ├── export_template.py (127) 模板导出引擎：模板CRUD + 字段映射 + 导出历史
 │   ├── logs.py (142)      更新日志 + 批量更新 + 同步时间戳
-│   └── users.py (81)      用户CRUD + 启用/禁用
+│   ├── users.py (81)      用户CRUD + 启用/禁用
+│   ├── school_types.py (281) 学校类别字典（编码→名称解析，异常回退 config）
+│   ├── district.py (1107) 区划字典（ATTACH district.db）+ 区划匹配批次/结果/历史映射
+│   └── archive.py (834)   档案派遣：人才机构字典/三级回退匹配/派遣批次/升学/转递单配置
 ├── utils.py (960行)       工具函数（身份证7层校验/电话号段校验/自然排序/LAN IP检测/日期标准化等）
 ├── pinyin_utils.py        汉字拼音字典（26671字，369KB 数据，纯Python零依赖）
-├── blueprints/            路由层（10个Blueprint，144路由 + app.py 3路由 + /shutdown = 148路由）
+├── blueprints/            路由层（12个Blueprint，193路由 + app.py 3路由 + /static = 197路由）
 │   ├── admin.py (1206)    核心管理：学生CRUD/导入/批量更新/用户/字典 (30路由)
-│   ├── api.py (1033)      数据API：学生/照片/字典/统计/筛选/读卡器配置 (32路由)
+│   ├── api.py (1097)      数据API：学生/照片/字典/统计/筛选/读卡器配置 (35路由)
 │   ├── lifecycle.py (781) 学籍生命周期：毕业/实习/退学/异动/转学 (26路由)
 │   ├── export.py (716)    模板导出引擎：Excel/Word 填充 (14路由)
-│   ├── insurance.py (861) 保险业务：登记/审批/待办/初始化 + 审批按钮锁定计算 (19路由)
+│   ├── insurance.py (906) 保险业务：登记/审批/待办/初始化 + 审批按钮锁定计算 (21路由)
+│   ├── district_match.py (653) 区划匹配：批次/执行/结果/历史映射/字典导入 (20路由)
+│   ├── archive.py (413)   档案派遣：机构字典/覆盖率/派遣批次/升学名单/转递单导出 (22路由)
 │   ├── leave_cancel.py (347) 销假+回收站 (10路由)
 │   ├── mobile.py (133)    移动端出勤登记 (5路由)
 │   ├── user.py (104)      普通用户查询 (2路由)
 │   ├── backup.py (58)     备份管理（延迟导入 _get_backup_service） (4路由)
-│   └── public.py (41)     公开查询+IP限流 (2路由)
+│   └── public.py (41)     公开查询+IP限流 (4路由)
 ├── services/              业务服务层（P1-5 抽取）
 │   ├── backup_service.py (726)  AB轮换备份+完整性校验+定时
 │   ├── card_reader.py (375)     读卡器 ctypes 封装 + WebSocket 通信
 │   ├── import_service.py (196)  批量更新后台执行（run_batch_update）
-│   └── insurance_service.py (352) 保险初始化导入（start_insurance_init_import）+ Excel 日期序列号规范化
+│   ├── insurance_service.py (352) 保险初始化导入（start_insurance_init_import）+ Excel 日期序列号规范化
+│   └── district_match/ (1236)   区划匹配引擎（engine1 编码/engine2 地址解析/decider/runner/exporter/pack）
 ├── tests/                 测试套件（5文件）
 │   ├── conftest.py        Flask test client fixture（内存SQLite）
 │   ├── test_models.py     数据层测试
 │   ├── test_routes.py     路由注册/url_for/HTTP 测试
 │   ├── test_auth.py       权限装饰器 + session 测试
 │   └── test_utils.py      工具函数单元测试
-├── templates/             Jinja2 模板（admin/user/mobile/insurance/public 子目录，26个HTML文件）
+├── templates/             Jinja2 模板（admin/user/mobile/insurance/public/archive 子目录，34个HTML文件）
 ├── static/                CSS(519行) + JS(414+115行)（photos/ 运行时创建）
 ├── scripts/               一次性工具（backfill_pinyin/birth_date + 旧spec，不参与打包）
 └── sdk/                   读卡器 DLL（4个）+ license.dat + 控件安装包
@@ -94,7 +100,7 @@ run_with_tray.py (310行)  启动入口：系统托盘 + 单实例锁 + 数据�
 - **钩子**：7 个 context_processor（CSRF Token/学校筛选URL/读卡器地址/字段帮助/CSS版本/入学年份/最后更新时间）
 - **启动**：`_get_backup_service`（单例）、`_init_backup_on_startup`、`init_admin_user`、`cleanup_temp_files`
 - **全局**：`_login_attempts`（登录限流字典+清理逻辑）、`_backup_service`、`_admin_initial_password`
-- **Blueprint 注册**：10 个 `app.register_blueprint()`
+- **Blueprint 注册**：12 个 `app.register_blueprint()`
 - **错误处理**：全局 Exception handler（HTTPException 透传，API 路径返回 JSON 500）
 
 ### 分层职责
@@ -103,7 +109,7 @@ run_with_tray.py (310行)  启动入口：系统托盘 + 单实例锁 + 数据�
 |----|------|------|
 | **路由层**（blueprints/） | 解析 request、权限校验、调用 service/models、返回 jsonify/render_template | `admin_batch_update_confirm` 构造 ctx 调用 service |
 | **服务层**（services/） | 复杂业务逻辑、后台线程、进度管理 | `run_batch_update(ctx)`、`start_insurance_init_import` |
-| **数据层**（models/） | SQL 查询、CRUD、迁移、统计（9 子模块，3164 行） | `get_students`、`init_db`、`get_stats` |
+| **数据层**（models/） | SQL 查询、CRUD、迁移、统计（13 子模块） | `get_students`、`init_db`、`get_stats` |
 | **工具层**（utils.py/auth.py） | 纯函数、权限校验、公共辅助 | `_derive_school`、`school_visible_contains` |
 
 ## 保险审批页按钮锁定体系（v1.0.0.4 后新增）
@@ -153,6 +159,22 @@ run_with_tray.py (310行)  启动入口：系统托盘 + 单实例锁 + 数据�
 ### 已知遗留问题（待用户定夺，未擅改）
 
 - 马瑞楠（`id_card=230112201002214729`，`PECE202523010000000025`）：`is_deleted=1`（软删除）、`attendance_status='退学办结'`，其 `supervisor_flag` 历史脏数据 `25年度学平险办结` 因导入跳过无法被模板覆盖纠正。三条处理路径待选：① 置之不理（孤儿数据无害）；② `is_deleted=0` 后重导覆盖；③ 一次性 UPDATE 清理其及同类已删除脏记录（批量统计：35 名退学办结中 30 人 `is_deleted=1` 全部未更新、5 人正常已更新；活跃学生仅宋晗 `110228200003045415` 存 2 位年脏标记需另行处理）。
+
+## 档案派遣模块（毕业生档案转递单）
+
+入口：`/admin/archive/*`（`blueprints/archive.py`，22 路由），导航「档案派遣」下拉三个页面。
+
+- **人才机构字典**（`talent_agency`）：一县一机构，`county_code` 唯一。`matchable=0` 表示特殊区域（如哈经开/大庆高新等无对应行政区划的自定义码），只能人工指定，不参与自动匹配。
+- **单条补录**：`POST /api/archive/agencies`（`models.create_agency`），区划代码 + 机构全称必填，层级/县名/机构编号自动推断，区划码重复直接拒绝。
+- **三级回退匹配**：学生「县」→ 县级机构；无则用县码前 4 位 + `00` 找市级机构；再退省级 `XX9900`。县码统一归一化为 6 位（`norm_code`），历史旧码经 `dm_history_mapping` 仅在新字典查无此码时生效。
+- **机构表导入**：`_district_index()` 用**6 位前缀**建索引（区划库是 12 位码）；字典查无的市级/省级自定义码由 `_infer_level()` 按编码规则补判（`9900`→省，`99`/`00`→市），避免整表被误判为特殊区域。
+- **派遣批次**（`archive_dispatch`）：批次号 `{届}-{县名}-{两位序号}`（如 `2026-道里区-01`），**一县一批**；未匹配机构的学生不进批次。状态机 `待派遣 → 已派遣`，旁支 `已退回` / `已失效` / `升学`（无签收日期）。
+- **快照**：生成时把学校名称/经办人/经办人电话/回执地址/回执邮编按校别从 `archive_settings` 写入记录，后续改配置不影响已生成单据。
+- **转递单配置**（`archive_settings`）：`school` 主键，中职/技工各一套；`dispatch_no` 转递编号列已建但预留空值。
+- **升学**：手动勾选或 Excel 导入名单标记，升学学生不参与派遣，名单可导出 xlsx。
+- **转递单导出** `/admin/archive/export/<batch_no>`：复用 `blueprints/export.py` 的 `_export_docx()`，模板 `archive_templates/档案转递单模板.docx`，每人一页、分页符隔开、输出单 docx。
+- **撤销毕业联动**：`models/lifecycle.py` `undo_graduation()` 调用 `models.archive.mark_dispatches_invalid()`，把该生派遣记录置 `已失效`（留痕不删）。
+- **唯一约束**：`CREATE UNIQUE INDEX ... ON archive_dispatch (student_id) WHERE is_deleted = 0`，防止同一学生产生多条有效派遣。
 
 ## 关键约定（红线规则）
 
@@ -205,7 +227,8 @@ run_with_tray.py (310行)  启动入口：系统托盘 + 单实例锁 + 数据�
 ## 数据库
 
 - **引擎**：SQLite3，WAL 模式，busy_timeout=5000，cache_size=-8000（8MB），synchronous=NORMAL
-- **12 张表**：students（39 列）、users、update_logs、sync_timestamp、attendance_records、attendance_dates、dicts、school_types、export_templates、export_field_mappings、export_history、schema_version
+- **18 张表**：students（39 列）、users、update_logs、sync_timestamp、attendance_records、attendance_dates、dicts、school_types、export_templates、export_field_mappings、export_history、schema_version、dm_match_batch、dm_match_result、dm_history_mapping、talent_agency、archive_settings、archive_dispatch
+- **独立区划库**：`district.db`（ATTACH，运行期只读）含 `dm_district_code`（约 66 万行，12 位码按 6 位前缀索引，admin_level 1省/2市/3县区/4街道/5社区），不参与备份
 - **迁移管理**：`schema_version` 表，首次运行推断版本（v0/v1/v2），幂等 ALTER TABLE
 - **连接管理**：请求级复用（`models/db.py` `_RequestDB` 包装器，close 为 no-op，`app.teardown_appcontext` 统一清理）
 - **共享过滤函数**：`models/db.py` 导出 `_exclude_graduated_clause()` / `_non_graduated_where()`，供 stats/dicts/attendance 等子模块排除毕业学生
@@ -217,8 +240,8 @@ run_with_tray.py (310行)  启动入口：系统托盘 + 单实例锁 + 数据�
 
 - **入口**：`run_with_tray.py`（系统托盘 + Flask 服务子进程）
 - **spec**：`run_with_tray.spec`（onedir 模式）
-- **hiddenimports**：含 10 个 `blueprints.*` + 9 个 `models.*` + 4 个 `services.*` + openpyxl 全子模块 + qrcode/PIL/pystray/tkinter + logging/logging.handlers + ipaddress/threading/datetime/shutil/sqlite3
-- **数据文件**：templates/ + static/（排除 photos/）+ sdk/（含 DLL + license.dat）+ 图标 + openpyxl/qrcode 数据
+- **hiddenimports**：含 12 个 `blueprints.*` + 12 个 `models.*` + 4 个 `services.*` + `collect_submodules('services.district_match')` + openpyxl 全子模块 + qrcode/PIL/pystray/tkinter + logging/logging.handlers + ipaddress/threading/datetime/shutil/sqlite3
+- **数据文件**：templates/ + static/（排除 photos/）+ `archive_templates/`（档案转递单 Word 模板）+ `data/district_pack.tsv.gz` + sdk/（含 DLL + license.dat）+ 图标 + openpyxl/qrcode 数据
 - **数据目录分离**：打包后 `USER_DATA_DIR` 环境变量指向 EXE 同级 `user_data/`，包含 data/databackup/uploads/static/photos/logs 五个子目录
 - **可写目录**（不打包，运行时创建）：data/、databackup/、uploads/、static/photos/、logs/
 - **单实例锁**：Windows 命名互斥体 `Global\StudentMessageSharePRO_SingleInstance`，重复启动弹出提示后退出
@@ -243,6 +266,7 @@ run_with_tray.py (310行)  启动入口：系统托盘 + 单实例锁 + 数据�
 | spec-v2 | hiddenimports 加 logging + excludes 注释更新 + scripts/ 声明 | 打包同步 |
 | 保险审批 | 审批页按钮锁定体系（后端 `_annotate_xueping_lock` 算 `xueping_locked`+`xueping_lock_hint` 下发前端禁用）、Excel 日期序列号兼容（`_pay_date_year` + 导入层规范化）、修复审批列表 373 行 `and`→`or` 过滤 BUG | 审批页正确性 + 年份脏数据兼容 |
 | 导入澄清 | 回滚「退学办结跳过导入」误改；明确导入按身份证全量覆盖、`is_deleted=1` 学生跳过系设计行为，与 attendance 无关 | 防止历史脏数据无法纠正 + 避免误加 attendance 过滤 |
+| 档案派遣 | 新增 `talent_agency`/`archive_settings`/`archive_dispatch` 三表 + `models/archive.py` + `blueprints/archive.py`（22 路由）+ 3 页面 + 转递单 docx 导出 + 撤销毕业联动失效 | 毕业生档案按县分批派遣 |
 
 ## 安全性
 

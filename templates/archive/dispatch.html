@@ -1,0 +1,935 @@
+{% extends "base.html" %}
+{% block title %}档案派遣 - 学生数据管理系统{% endblock %}
+{% block head %}
+<style>
+    :root {
+        --ad-primary: #0f766e;
+        --ad-primary-dark: #115e59;
+        --ad-primary-light: #f0fdfa;
+        --ad-success: #059669;
+        --ad-warn: #b45309;
+        --ad-danger: #dc2626;
+        --ad-gray-50: #f9fafb;
+        --ad-gray-100: #f3f4f6;
+        --ad-gray-200: #e5e7eb;
+        --ad-gray-300: #d1d5db;
+        --ad-gray-500: #6b7280;
+        --ad-gray-700: #374151;
+        --ad-gray-900: #111827;
+        --ad-radius: 14px;
+        --ad-shadow: 0 4px 12px rgba(0,0,0,.06), 0 2px 4px rgba(0,0,0,.04);
+    }
+    .ad-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: .75rem; }
+    .ad-title { font-size: 1.5rem; font-weight: 700; color: var(--ad-gray-900); display: flex; align-items: center; gap: .5rem; }
+    .ad-title i { color: var(--ad-primary); }
+    .ad-subtitle { font-size: .875rem; color: var(--ad-gray-500); margin-top: .25rem; }
+
+    .ad-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
+    .ad-stat { background: #fff; border: 1px solid var(--ad-gray-200); border-radius: var(--ad-radius); padding: .75rem 1rem; box-shadow: var(--ad-shadow); }
+    .ad-stat-label { font-size: .76rem; color: var(--ad-gray-500); font-weight: 600; }
+    .ad-stat-num { font-size: 1.4rem; font-weight: 700; color: var(--ad-gray-900); line-height: 1.35; }
+    .ad-stat-num.is-ok { color: var(--ad-success); }
+    .ad-stat-num.is-warn { color: var(--ad-danger); }
+
+    .ad-tabs { border-bottom: 1px solid var(--ad-gray-200); margin-bottom: 1rem; gap: .25rem; }
+    .ad-tabs .nav-link { color: var(--ad-gray-700); font-weight: 600; font-size: .9rem; border: none; border-bottom: 3px solid transparent; border-radius: 0; padding: .6rem 1rem; }
+    .ad-tabs .nav-link.active { color: var(--ad-primary); border-bottom-color: var(--ad-primary); background: transparent; }
+
+    .ad-card { background: #fff; border: 1px solid var(--ad-gray-200); border-radius: var(--ad-radius); box-shadow: var(--ad-shadow); overflow: hidden; }
+    .ad-card-header {
+        padding: .75rem 1.1rem; font-weight: 600; font-size: .9rem;
+        display: flex; align-items: center; justify-content: space-between; gap: .6rem; flex-wrap: wrap;
+        background: linear-gradient(135deg, #134e4a, #0f766e); color: #fff;
+    }
+    .ad-toolbar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; padding: .6rem 1rem; background: var(--ad-gray-50); border-bottom: 1px solid var(--ad-gray-100); font-size: .85rem; }
+    .ad-toolbar .form-control, .ad-toolbar .form-select { font-size: .82rem; }
+    .ad-sel-count { font-weight: 600; color: var(--ad-primary-dark); }
+
+    .ad-county-list { max-height: 66vh; overflow-y: auto; }
+    .ad-county-item {
+        display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+        padding: .55rem .9rem; border-bottom: 1px solid var(--ad-gray-100); cursor: pointer;
+        transition: background .15s;
+    }
+    .ad-county-item:hover { background: var(--ad-primary-light); }
+    .ad-county-item.is-active { background: var(--ad-primary-light); box-shadow: inset 3px 0 0 var(--ad-primary); }
+    .ad-county-name { font-size: .85rem; font-weight: 600; color: var(--ad-gray-900); }
+    .ad-county-meta { font-size: .72rem; color: var(--ad-gray-500); }
+    .ad-county-nums { display: flex; gap: .25rem; flex-shrink: 0; }
+    .ad-mini { font-size: .7rem; font-weight: 700; border-radius: 5px; padding: .1rem .35rem; }
+    .ad-mini-ok { background: #ecfdf5; color: #047857; }
+    .ad-mini-off { background: var(--ad-gray-100); color: var(--ad-gray-500); }
+    .ad-mini-bad { background: #fef2f2; color: #b91c1c; }
+    .ad-mini-returned { background: #fffbeb; color: #b45309; }
+    .ad-stat-num.is-returned { color: var(--ad-warn); }
+
+    .ad-table-wrap { overflow: auto; max-height: 56vh; }
+    .ad-table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+    .ad-table thead { background: var(--ad-gray-50); position: sticky; top: 0; z-index: 1; }
+    .ad-table th { white-space: nowrap; padding: .5rem .65rem; text-align: left; font-size: .73rem; font-weight: 700; color: var(--ad-gray-700); border-bottom: 2px solid var(--ad-gray-200); }
+    .ad-table td { padding: .45rem .65rem; border-bottom: 1px solid var(--ad-gray-100); color: var(--ad-gray-700); vertical-align: middle; }
+    .ad-table tbody tr:hover { background: var(--ad-primary-light); }
+    .ad-table tbody tr.is-picked { background: #ecfdf5; }
+    .ad-mono { font-family: ui-monospace, monospace; font-size: .77rem; color: var(--ad-gray-500); }
+    .ad-name { font-weight: 600; color: var(--ad-gray-900); }
+
+    .ad-badge { display: inline-flex; align-items: center; padding: .16rem .5rem; border-radius: 20px; font-size: .71rem; font-weight: 700; white-space: nowrap; }
+    .ad-badge-county { background: #ecfdf5; color: #047857; }
+    .ad-badge-city { background: #eff6ff; color: #1d4ed8; }
+    .ad-badge-province { background: #fef3c7; color: #b45309; }
+    .ad-badge-none { background: #fef2f2; color: #b91c1c; }
+    .ad-badge-pending { background: #fef3c7; color: #b45309; }
+    .ad-badge-sent { background: #ecfdf5; color: #047857; }
+    .ad-badge-study { background: #eff6ff; color: #1d4ed8; }
+    .ad-badge-returned { background: #fef2f2; color: #b91c1c; }
+    .ad-badge-invalid { background: var(--ad-gray-100); color: var(--ad-gray-500); }
+
+    .ad-empty { text-align: center; padding: 2.5rem 1rem; color: var(--ad-gray-500); font-size: .85rem; }
+    .ad-agency-result { padding: .5rem .75rem; border-bottom: 1px solid var(--ad-gray-100); cursor: pointer; font-size: .84rem; }
+    .ad-agency-result:hover { background: var(--ad-primary-light); }
+</style>
+{% endblock %}
+{% block content %}
+<div class="ad-header">
+    <div>
+        <div class="ad-title"><i class="bi bi-send-check"></i> 档案派遣</div>
+        <div class="ad-subtitle">按县（区）筛选毕业生 → 生成派遣批次 → 导出毕业生档案转递单（每人一页）</div>
+    </div>
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+        <label class="small text-muted mb-0">校别</label>
+        <select class="form-select form-select-sm" id="adSchool" style="max-width:150px">
+            <option value="">全部校别</option>
+            {% for st in school_types %}
+            <option value="{{ st.code }}">{{ st.name }}{% if not st.is_active %}（已停用）{% endif %}</option>
+            {% endfor %}
+        </select>
+        <label class="small text-muted mb-0">届别年级</label>
+        <select class="form-select form-select-sm" id="adGrade" style="max-width:150px">
+            <option value="">全部年级</option>
+            {% for g in list_grades %}
+            <option value="{{ g }}">{{ g }}</option>
+            {% endfor %}
+        </select>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="adRefresh">
+            <i class="bi bi-arrow-clockwise"></i> 刷新
+        </button>
+        <a href="{{ url_for('archive.settings_page') }}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-printer"></i> 转递单配置
+        </a>
+        <a href="{{ url_for('archive.agencies_page') }}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-buildings"></i> 机构字典
+        </a>
+    </div>
+</div>
+
+<div class="ad-stats">
+    <div class="ad-stat"><div class="ad-stat-label">毕业生</div><div class="ad-stat-num" id="adStatTotal">-</div></div>
+    <div class="ad-stat"><div class="ad-stat-label">可派遣</div><div class="ad-stat-num is-ok" id="adStatDispatchable">-</div></div>
+    <div class="ad-stat"><div class="ad-stat-label">已派遣</div><div class="ad-stat-num" id="adStatSent">-</div></div>
+    <div class="ad-stat"><div class="ad-stat-label">已退回（退档）</div><div class="ad-stat-num is-returned" id="adStatReturned">-</div></div>
+    <div class="ad-stat"><div class="ad-stat-label">升学</div><div class="ad-stat-num" id="adStatStudy">-</div></div>
+    <div class="ad-stat"><div class="ad-stat-label">未匹配机构</div><div class="ad-stat-num is-warn" id="adStatUnmatched">-</div></div>
+</div>
+
+<ul class="nav ad-tabs" id="adTabs">
+    <li class="nav-item"><button type="button" class="nav-link active" data-pane="dispatch">按县派遣</button></li>
+    <li class="nav-item"><button type="button" class="nav-link" data-pane="batches">派遣批次</button></li>
+    <li class="nav-item"><button type="button" class="nav-link" data-pane="study">升学名单</button></li>
+</ul>
+
+<!-- ==================== 按县派遣 ==================== -->
+<div data-pane="dispatch">
+    <div class="row g-3">
+        <div class="col-lg-3">
+            <div class="ad-card">
+                <div class="ad-card-header"><span><i class="bi bi-geo-alt"></i> 县（区）</span><span class="small" id="adCountyCount"></span></div>
+                <div class="ad-county-list" id="adCountyList">
+                    <div class="ad-empty">加载中…</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-9">
+            <div class="ad-card">
+                <div class="ad-card-header">
+                    <span id="adCountyTitle">请先在左侧选择县（区）</span>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button type="button" class="btn btn-sm btn-outline-light" id="adMarkStudy" disabled>
+                            <i class="bi bi-mortarboard"></i> 标记升学
+                        </button>
+                        <button type="button" class="btn btn-sm btn-light text-dark fw-bold" id="adGenerate" disabled>
+                            <i class="bi bi-send"></i> 生成派遣批次
+                        </button>
+                    </div>
+                </div>
+                <div class="ad-toolbar">
+                    <label class="d-flex align-items-center gap-1 mb-0">
+                        <input type="checkbox" id="adSelectAll"> 全选本页
+                    </label>
+                    <select class="form-select form-select-sm" id="adStatusFilter" style="max-width:140px">
+                        <option value="">全部状态</option>
+                        <option value="pending">待派遣</option>
+                        <option value="unmatched">未匹配</option>
+                        <option value="sent">已派遣</option>
+                        <option value="returned">已退回（退档）</option>
+                        <option value="study">升学</option>
+                    </select>
+                    <input type="text" class="form-control form-control-sm" id="adSearch" placeholder="学号 / 姓名 / 身份证" style="max-width:220px">
+                    <span class="ad-sel-count" id="adSelCount">已选 0 人</span>
+                </div>
+                <div class="ad-table-wrap">
+                    <table class="ad-table">
+                        <thead>
+                            <tr>
+                                <th style="width:34px"></th>
+                                <th>学号</th>
+                                <th>姓名</th>
+                                <th>班级</th>
+                                <th>县（区）</th>
+                                <th>接收机构</th>
+                                <th>匹配方式</th>
+                                <th>派遣状态</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="adTableBody">
+                            <tr><td colspan="9" class="ad-empty">请先在左侧选择县（区）</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 派遣批次 ==================== -->
+<div data-pane="batches" hidden>
+    <div class="ad-card">
+        <div class="ad-card-header"><span><i class="bi bi-box-seam"></i> 派遣批次</span></div>
+        <div class="ad-table-wrap" style="max-height:66vh">
+            <table class="ad-table">
+                <thead>
+                    <tr>
+                        <th>批次号</th>
+                        <th>县（区）</th>
+                        <th>应派遣</th>
+                        <th>已派遣</th>
+                        <th>待重派</th>
+                        <th>升学·失效</th>
+                        <th>经办人</th>
+                        <th>创建时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="adBatchBody">
+                    <tr><td colspan="9" class="ad-empty">暂无批次</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 升学名单 ==================== -->
+<div data-pane="study" hidden>
+    <div class="ad-card">
+        <div class="ad-card-header">
+            <span><i class="bi bi-mortarboard"></i> 升学名单（档案转至录取院校，无需派遣）</span>
+            <div class="d-flex gap-2 flex-wrap">
+                <button type="button" class="btn btn-sm btn-outline-light" id="adStudyImportBtn">
+                    <i class="bi bi-file-earmark-excel"></i> 导入名单
+                </button>
+                <input type="file" id="adStudyImportFile" accept=".xlsx,.xlsm" hidden>
+                <button type="button" class="btn btn-sm btn-outline-light" id="adStudyExportBtn">
+                    <i class="bi bi-download"></i> 导出名单
+                </button>
+                <button type="button" class="btn btn-sm btn-light text-dark fw-bold" id="adStudyCancelBtn" disabled>
+                    <i class="bi bi-x-circle"></i> 取消升学
+                </button>
+            </div>
+        </div>
+        <div class="ad-toolbar">
+            <label class="d-flex align-items-center gap-1 mb-0">
+                <input type="checkbox" id="adStudySelectAll"> 全选本页
+            </label>
+            <select class="form-select form-select-sm" id="adStudyCounty" style="max-width:180px">
+                <option value="">全部县（区）</option>
+            </select>
+            <span class="ad-sel-count" id="adStudySelCount">已选 0 人</span>
+            <span class="ms-auto small text-muted">导入模板需含「学号」或「身份证号」列</span>
+        </div>
+        <div class="ad-table-wrap" style="max-height:60vh">
+            <table class="ad-table">
+                <thead>
+                    <tr>
+                        <th style="width:34px"></th>
+                        <th>学号</th>
+                        <th>姓名</th>
+                        <th>身份证号</th>
+                        <th>届</th>
+                        <th>班级</th>
+                        <th>县（区）</th>
+                        <th>标记时间</th>
+                    </tr>
+                </thead>
+                <tbody id="adStudyBody">
+                    <tr><td colspan="8" class="ad-empty">暂无升学名单</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 指定机构弹窗 -->
+<div class="modal fade" id="adAgencyModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-buildings"></i> 指定接收机构</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-2 small text-muted" id="adAgencyTarget"></div>
+                <div class="input-group input-group-sm mb-3">
+                    <input type="text" class="form-control" id="adAgencyKeyword" placeholder="搜索机构名称 / 县名 / 区划代码">
+                    <button class="btn btn-primary" type="button" id="adAgencySearchBtn"><i class="bi bi-search"></i> 搜索</button>
+                </div>
+                <div id="adAgencyResults" style="max-height:320px;overflow-y:auto;border:1px solid var(--ad-gray-200);border-radius:8px">
+                    <div class="ad-empty">请输入关键词搜索机构</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function() {
+    'use strict';
+
+    var state = {
+        grade: '',
+        school: '',
+        county: '',
+        counties: [],
+        students: [],
+        batches: [],
+        study: [],
+        studyCounty: '',
+        selected: new Set(),
+        studySelected: new Set(),
+        agencyDispatchId: null
+    };
+
+    var STATUS_CLASS = {
+        '待派遣': 'ad-badge-pending',
+        '已派遣': 'ad-badge-sent',
+        '已退回': 'ad-badge-returned',
+        '已失效': 'ad-badge-invalid',
+        '升学': 'ad-badge-study'
+    };
+    var MATCH_CLASS = {
+        '县级直寄': 'ad-badge-county',
+        '市级代收': 'ad-badge-city',
+        '省级代收': 'ad-badge-province',
+        '人工指定': 'ad-badge-city',
+        '未匹配': 'ad-badge-none'
+    };
+
+    function esc(v) {
+        return String(v === null || v === undefined ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function badge(text, cls) {
+        return '<span class="ad-badge ' + (cls || 'ad-badge-pending') + '">' + esc(text) + '</span>';
+    }
+
+    function postJSON(url, payload) {
+        return fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload || {})
+        }).then(function(r) { return r.json(); });
+    }
+
+    function changeStatus(dispatchId, action, okText) {
+        postJSON('/api/archive/dispatch/' + dispatchId + '/status', { action: action })
+            .then(function(data) {
+                if (data.success) {
+                    showToast(okText, 'success');
+                    loadOverview().then(loadStudents);
+                } else {
+                    showToast(data.message || '操作失败', 'danger');
+                }
+            })
+            .catch(function() { showToast('操作失败，请重试', 'danger'); });
+    }
+
+    // ---------------------------------------------------- 概览
+    function loadOverview() {
+        var params = new URLSearchParams({ grade: state.grade, school: state.school });
+        return fetch('/api/archive/overview?' + params.toString())
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                state.counties = data.counties || [];
+                state.batches = data.batches || [];
+                renderStats();
+                renderCounties();
+                renderBatches();
+            });
+    }
+
+    function renderStats() {
+        var total = 0, dispatchable = 0, sent = 0, study = 0, unmatched = 0, returned = 0;
+        state.counties.forEach(function(c) {
+            total += c.total;
+            dispatchable += c.dispatchable;
+            sent += c.sent;
+            study += c.study;
+            unmatched += c.unmatched;
+            returned += (c.returned || 0);
+        });
+        document.getElementById('adStatTotal').textContent = total;
+        document.getElementById('adStatDispatchable').textContent = dispatchable;
+        document.getElementById('adStatSent').textContent = sent;
+        document.getElementById('adStatReturned').textContent = returned;
+        document.getElementById('adStatStudy').textContent = study;
+        document.getElementById('adStatUnmatched').textContent = unmatched;
+    }
+
+    function renderCounties() {
+        var box = document.getElementById('adCountyList');
+        document.getElementById('adCountyCount').textContent = state.counties.length + ' 个';
+        if (!state.counties.length) {
+            box.innerHTML = '<div class="ad-empty">暂无毕业生数据</div>';
+            return;
+        }
+        box.innerHTML = state.counties.map(function(c) {
+            var ok = c.dispatchable ? '<span class="ad-mini ad-mini-ok">' + c.dispatchable + '</span>' : '';
+            var back = c.returned ? '<span class="ad-mini ad-mini-returned">' + c.returned + '</span>' : '';
+            var bad = c.unmatched ? '<span class="ad-mini ad-mini-bad">' + c.unmatched + '</span>' : '';
+            var rest = '<span class="ad-mini ad-mini-off">' + c.total + '</span>';
+            return '<div class="ad-county-item' + (state.county === c.county_code ? ' is-active' : '') +
+                   '" data-code="' + esc(c.county_code) + '">' +
+                   '<div style="min-width:0">' +
+                   '<div class="ad-county-name">' + esc(c.county_name) + '</div>' +
+                   '<div class="ad-county-meta">' + esc(c.agency_name || '未配置机构') + '</div>' +
+                   '</div>' +
+                   '<div class="ad-county-nums">' + ok + back + bad + rest + '</div>' +
+                   '</div>';
+        }).join('');
+
+        var studySelect = document.getElementById('adStudyCounty');
+        studySelect.innerHTML = '<option value="">全部县（区）</option>' +
+            state.counties.map(function(c) {
+                return '<option value="' + esc(c.county_code) + '">' + esc(c.county_name) + '</option>';
+            }).join('');
+        studySelect.value = state.studyCounty;
+    }
+
+    function renderBatches() {
+        var body = document.getElementById('adBatchBody');
+        if (!state.batches.length) {
+            body.innerHTML = '<tr><td colspan="9" class="ad-empty">暂无批次，请在「按县派遣」中生成</td></tr>';
+            return;
+        }
+        body.innerHTML = state.batches.map(function(b) {
+            var active = b.active_total || 0;
+            var sent = b.sent || 0;
+            var redispatch = b.redispatch || 0;
+            var returned = b.returned || 0;
+            var ignored = (b.study || 0) + (b.invalid || 0);
+            var allSent = active > 0 && sent >= active;
+            var actions = '<a class="btn btn-sm btn-primary" href="/admin/archive/export/' +
+                encodeURIComponent(b.batch_no) + '"><i class="bi bi-file-earmark-word"></i> 导出转递单</a>';
+            if (redispatch) {
+                actions += ' <a class="btn btn-sm btn-outline-warning" href="/admin/archive/export/' +
+                    encodeURIComponent(b.batch_no) + '?redispatch=1" title="仅打印曾退档且已重派的学生"><i class="bi bi-arrow-repeat"></i> 重派单 ' +
+                    redispatch + '</a>';
+            }
+            if (!allSent) {
+                actions += ' <button type="button" class="btn btn-sm btn-outline-success" ' +
+                    'data-send-batch="' + esc(b.batch_no) + '"><i class="bi bi-check2-all"></i> 整批已派遣</button>';
+            }
+            var sentCell = sent + (redispatch ? ' <span class="small text-muted">含重派 ' + redispatch + '</span>' : '');
+            var returnedCell = returned
+                ? '<span class="ad-badge ad-badge-returned">' + returned + '</span>'
+                : '<span class="text-muted">0</span>';
+            return '<tr>' +
+                '<td class="ad-name">' + esc(b.batch_no) + '</td>' +
+                '<td>' + esc(b.county_name) + '</td>' +
+                '<td>' + active + '</td>' +
+                '<td>' + sentCell + (allSent ? ' <span class="ad-badge ad-badge-sent">完成</span>' : '') + '</td>' +
+                '<td>' + returnedCell + '</td>' +
+                '<td>' + ignored + '</td>' +
+                '<td>' + esc(b.handler || '-') + '</td>' +
+                '<td class="ad-mono">' + esc((b.created_at || '').slice(0, 19)) + '</td>' +
+                '<td class="text-nowrap">' + actions + '</td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    // ---------------------------------------------------- 学生列表
+    function selectCounty(code) {
+        state.county = code;
+        state.selected.clear();
+        document.getElementById('adSelectAll').checked = false;
+        var item = state.counties.filter(function(c) { return c.county_code === code; })[0];
+        document.getElementById('adCountyTitle').textContent = item
+            ? item.county_name + '（' + item.total + ' 人）'
+            : '请先在左侧选择县（区）';
+        renderCounties();
+        loadStudents();
+    }
+
+    function loadStudents() {
+        if (!state.county) {
+            document.getElementById('adTableBody').innerHTML =
+                '<tr><td colspan="9" class="ad-empty">请先在左侧选择县（区）</td></tr>';
+            updateSelCount();
+            return;
+        }
+        var params = new URLSearchParams({
+            grade: state.grade,
+            school: state.school,
+            county: state.county,
+            status: document.getElementById('adStatusFilter').value
+        });
+        var keyword = document.getElementById('adSearch').value.trim().toLowerCase();
+        fetch('/api/archive/students?' + params.toString())
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var rows = data.students || [];
+                if (keyword) {
+                    rows = rows.filter(function(s) {
+                        return (s.student_no || '').toLowerCase().indexOf(keyword) >= 0 ||
+                               (s.name || '').toLowerCase().indexOf(keyword) >= 0 ||
+                               (s.id_card || '').toLowerCase().indexOf(keyword) >= 0;
+                    });
+                }
+                state.students = rows;
+                renderStudents();
+            })
+            .catch(function() {
+                document.getElementById('adTableBody').innerHTML =
+                    '<tr><td colspan="9" class="ad-empty">加载失败，请重试</td></tr>';
+            });
+    }
+
+    function canPick(s) {
+        return s.dispatch_status === '' || s.dispatch_status === '待派遣' || s.dispatch_status === '已退回';
+    }
+
+    function renderStudents() {
+        var body = document.getElementById('adTableBody');
+        if (!state.students.length) {
+            body.innerHTML = '<tr><td colspan="9" class="ad-empty">该县暂无符合条件的毕业生</td></tr>';
+            updateSelCount();
+            return;
+        }
+        body.innerHTML = state.students.map(function(s) {
+            var pickable = canPick(s);
+            var picked = state.selected.has(s.id);
+            var matchCls = MATCH_CLASS[s.match_status] || 'ad-badge-pending';
+            var statusCls = STATUS_CLASS[s.dispatch_status] || 'ad-badge-pending';
+            var statusText = s.dispatch_status || '未生成';
+            var actions = '';
+            if (s.dispatch_id && (s.dispatch_status === '待派遣' || s.dispatch_status === '已退回')) {
+                actions += '<button type="button" class="btn btn-sm btn-outline-secondary" data-dispatch="' + s.dispatch_id +
+                    '" data-name="' + esc(s.name) + '">改机构</button> ';
+                actions += '<button type="button" class="btn btn-sm btn-outline-success" data-sent="' + s.dispatch_id + '">已派遣</button>';
+                if (s.dispatch_status === '已退回') {
+                    actions += ' <button type="button" class="btn btn-sm btn-outline-warning" data-reopen="' +
+                        s.dispatch_id + '">恢复待派遣</button>';
+                }
+            } else if (s.dispatch_status === '已派遣') {
+                actions = '<span class="small text-muted">' + esc(s.batch_no) + '</span> ' +
+                    '<button type="button" class="btn btn-sm btn-outline-danger" data-returned="' +
+                    s.dispatch_id + '">退档</button>';
+            } else if (!s.dispatch_id) {
+                actions = '<span class="small text-muted">未生成</span>';
+            }
+            return '<tr class="' + (picked ? 'is-picked' : '') + '">' +
+                '<td>' + (pickable
+                    ? '<input type="checkbox" class="ad-row-check" data-id="' + s.id + '"' + (picked ? ' checked' : '') + '>'
+                    : '') + '</td>' +
+                '<td class="ad-mono">' + esc(s.student_no) + '</td>' +
+                '<td class="ad-name">' + esc(s.name) + '</td>' +
+                '<td>' + esc(s.admin_class) + '</td>' +
+                '<td>' + esc(s.county_name) + '</td>' +
+                '<td>' + esc(s.agency_name || '—') + '</td>' +
+                '<td>' + badge(s.match_status, matchCls) +
+                    (s.match_reason ? ' <span class="small text-muted">' + esc(s.match_reason) + '</span>' : '') + '</td>' +
+                '<td>' + badge(statusText, statusCls) + '</td>' +
+                '<td>' + actions + '</td>' +
+                '</tr>';
+        }).join('');
+        updateSelCount();
+    }
+
+    function updateSelCount() {
+        document.getElementById('adSelCount').textContent = '已选 ' + state.selected.size + ' 人';
+        document.getElementById('adGenerate').disabled = !state.county || state.selected.size === 0;
+        document.getElementById('adMarkStudy').disabled = state.selected.size === 0;
+    }
+
+    // ---------------------------------------------------- 事件：按县派遣
+    document.getElementById('adCountyList').addEventListener('click', function(e) {
+        var item = e.target.closest('.ad-county-item');
+        if (!item) return;
+        selectCounty(item.getAttribute('data-code'));
+    });
+
+    document.getElementById('adStatusFilter').addEventListener('change', loadStudents);
+    document.getElementById('adSearch').addEventListener('input', function() {
+        clearTimeout(state._searchTimer);
+        state._searchTimer = setTimeout(loadStudents, 250);
+    });
+
+    document.getElementById('adTableBody').addEventListener('change', function(e) {
+        var chk = e.target.closest('.ad-row-check');
+        if (!chk) return;
+        var id = parseInt(chk.getAttribute('data-id'), 10);
+        if (chk.checked) state.selected.add(id); else state.selected.delete(id);
+        chk.closest('tr').classList.toggle('is-picked', chk.checked);
+        updateSelCount();
+    });
+
+    document.getElementById('adSelectAll').addEventListener('change', function() {
+        var checked = this.checked;
+        state.selected.clear();
+        document.querySelectorAll('#adTableBody .ad-row-check').forEach(function(chk) {
+            chk.checked = checked;
+            chk.closest('tr').classList.toggle('is-picked', checked);
+            if (checked) state.selected.add(parseInt(chk.getAttribute('data-id'), 10));
+        });
+        updateSelCount();
+    });
+
+    document.getElementById('adGenerate').addEventListener('click', function() {
+        if (!state.county || !state.selected.size) return;
+        var unmatched = state.students.filter(function(s) {
+            return state.selected.has(s.id) && (!s.match_status || s.match_status === '未匹配');
+        });
+        if (unmatched.length) {
+            showToast('有 ' + unmatched.length + ' 名学生未匹配接收机构（' +
+                unmatched.slice(0, 3).map(function(s) { return s.name; }).join('、') +
+                '），请取消勾选或先补充机构字典', 'warning');
+            return;
+        }
+        var item = state.counties.filter(function(c) { return c.county_code === state.county; })[0];
+        var name = item ? item.county_name : '';
+        showConfirm('确认为「' + name + '」的 ' + state.selected.size + ' 名学生生成派遣批次？', 'warn')
+            .then(function(ok) {
+                if (!ok) return;
+                var modal = showLoading();
+                postJSON('/api/archive/generate', {
+                    county_code: state.county,
+                    student_ids: Array.from(state.selected)
+                }).then(function(data) {
+                    hideLoading(modal);
+                    if (data.success) {
+                        showToast(data.message, 'success');
+                        if (data.skipped && data.skipped.length) {
+                            showToast('跳过 ' + data.skipped.length + ' 人：' + data.skipped.slice(0, 3).join('；'), 'warning');
+                        }
+                        state.selected.clear();
+                        loadOverview().then(loadStudents);
+                    } else {
+                        showToast(data.message || '生成失败', 'danger');
+                    }
+                }).catch(function() {
+                    hideLoading(modal);
+                    showToast('生成失败，请重试', 'danger');
+                });
+            });
+    });
+
+    document.getElementById('adMarkStudy').addEventListener('click', function() {
+        if (!state.selected.size) return;
+        showConfirm('将所选 ' + state.selected.size + ' 人标记为「升学」（无需派遣）？', 'warn')
+            .then(function(ok) {
+                if (!ok) return;
+                return postJSON('/api/archive/further-study/mark', {
+                    student_ids: Array.from(state.selected)
+                }).then(function(data) {
+                    if (data.success) {
+                        showToast(data.message, 'success');
+                        state.selected.clear();
+                        loadOverview().then(loadStudents);
+                    } else {
+                        showToast(data.message || '标记失败', 'danger');
+                    }
+                });
+            })
+            .catch(function() { showToast('标记失败，请重试', 'danger'); });
+    });
+
+    document.getElementById('adTableBody').addEventListener('click', function(e) {
+        var sentBtn = e.target.closest('[data-sent]');
+        if (sentBtn) {
+            changeStatus(sentBtn.getAttribute('data-sent'), 'sent', '已标记为已派遣');
+            return;
+        }
+        var returnedBtn = e.target.closest('[data-returned]');
+        if (returnedBtn) {
+            showConfirm('将该生档案标记为「退档（已退回）」？标记后可重新指定机构并再次派遣。', 'warn')
+                .then(function(ok) {
+                    if (!ok) return;
+                    changeStatus(returnedBtn.getAttribute('data-returned'), 'returned', '已标记为退档');
+                });
+            return;
+        }
+        var reopenBtn = e.target.closest('[data-reopen]');
+        if (reopenBtn) {
+            changeStatus(reopenBtn.getAttribute('data-reopen'), 'reopen', '已恢复为待派遣');
+            return;
+        }
+        var agencyBtn = e.target.closest('[data-dispatch]');
+        if (agencyBtn) {
+            state.agencyDispatchId = agencyBtn.getAttribute('data-dispatch');
+            document.getElementById('adAgencyTarget').textContent =
+                '当前学生：' + agencyBtn.getAttribute('data-name');
+            document.getElementById('adAgencyResults').innerHTML =
+                '<div class="ad-empty">请输入关键词搜索机构</div>';
+            document.getElementById('adAgencyKeyword').value = '';
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('adAgencyModal')).show();
+        }
+    });
+
+    // ---------------------------------------------------- 批次
+    document.getElementById('adBatchBody').addEventListener('click', function(e) {
+        var btn = e.target.closest('[data-send-batch]');
+        if (!btn) return;
+        var batchNo = btn.getAttribute('data-send-batch');
+        showConfirm('将批次「' + batchNo + '」中所有待派遣记录标记为已派遣？（退档记录需先「恢复待派遣」，不会一并处理）', 'warn')
+            .then(function(ok) {
+                if (!ok) return;
+                return postJSON('/api/archive/batch/' + encodeURIComponent(batchNo) + '/status', { action: 'sent' })
+                    .then(function(data) {
+                        if (data.success) {
+                            showToast(data.message, 'success');
+                            loadOverview().then(loadStudents);
+                        } else {
+                            showToast(data.message || '操作失败', 'danger');
+                        }
+                    });
+            })
+            .catch(function() { showToast('操作失败，请重试', 'danger'); });
+    });
+
+    // ---------------------------------------------------- 机构弹窗
+    function searchAgencies() {
+        var keyword = document.getElementById('adAgencyKeyword').value.trim();
+        fetch('/api/archive/agency-search?keyword=' + encodeURIComponent(keyword))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var rows = data.agencies || [];
+                var box = document.getElementById('adAgencyResults');
+                if (!rows.length) {
+                    box.innerHTML = '<div class="ad-empty">未找到机构</div>';
+                    return;
+                }
+                box.innerHTML = rows.map(function(a) {
+                    return '<div class="ad-agency-result" data-agency-id="' + a.id + '">' +
+                        '<div class="ad-name">' + esc(a.agency_name) + '</div>' +
+                        '<div class="small text-muted">' + esc(a.county_code) + ' · ' + esc(a.county_name || '') +
+                        ' · ' + esc(a.address || '无地址') + '</div>' +
+                        '</div>';
+                }).join('');
+            });
+    }
+
+    document.getElementById('adAgencySearchBtn').addEventListener('click', searchAgencies);
+    document.getElementById('adAgencyKeyword').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') searchAgencies();
+    });
+    document.getElementById('adAgencyResults').addEventListener('click', function(e) {
+        var item = e.target.closest('[data-agency-id]');
+        if (!item || !state.agencyDispatchId) return;
+        postJSON('/api/archive/dispatch/' + state.agencyDispatchId + '/agency', {
+            agency_id: parseInt(item.getAttribute('data-agency-id'), 10)
+        }).then(function(data) {
+            if (data.success) {
+                showToast(data.message || '已更新', 'success');
+                bootstrap.Modal.getInstance(document.getElementById('adAgencyModal')).hide();
+                loadStudents();
+            } else {
+                showToast(data.message || '操作失败', 'danger');
+            }
+        }).catch(function() { showToast('操作失败，请重试', 'danger'); });
+    });
+
+    // ---------------------------------------------------- 升学名单
+    function loadStudy() {
+        var params = new URLSearchParams({
+            grade: state.grade,
+            school: state.school,
+            county: state.studyCounty
+        });
+        fetch('/api/archive/further-study?' + params.toString())
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                state.study = data.students || [];
+                state.studySelected.clear();
+                renderStudy();
+            });
+    }
+
+    function renderStudy() {
+        var body = document.getElementById('adStudyBody');
+        if (!state.study.length) {
+            body.innerHTML = '<tr><td colspan="8" class="ad-empty">暂无升学名单</td></tr>';
+            updateStudyCount();
+            return;
+        }
+        body.innerHTML = state.study.map(function(s) {
+            return '<tr>' +
+                '<td><input type="checkbox" class="ad-study-check" data-id="' + s.student_id + '"></td>' +
+                '<td class="ad-mono">' + esc(s.student_no) + '</td>' +
+                '<td class="ad-name">' + esc(s.student_name) + '</td>' +
+                '<td class="ad-mono">' + esc(s.id_card) + '</td>' +
+                '<td>' + esc(s.graduate_year) + '</td>' +
+                '<td>' + esc(s.admin_class) + '</td>' +
+                '<td>' + esc(s.county_name) + '</td>' +
+                '<td class="ad-mono">' + esc((s.updated_at || '').slice(0, 19)) + '</td>' +
+                '</tr>';
+        }).join('');
+        updateStudyCount();
+    }
+
+    function updateStudyCount() {
+        document.getElementById('adStudySelCount').textContent = '已选 ' + state.studySelected.size + ' 人';
+        document.getElementById('adStudyCancelBtn').disabled = state.studySelected.size === 0;
+    }
+
+    document.getElementById('adStudyBody').addEventListener('change', function(e) {
+        var chk = e.target.closest('.ad-study-check');
+        if (!chk) return;
+        var id = parseInt(chk.getAttribute('data-id'), 10);
+        if (chk.checked) state.studySelected.add(id); else state.studySelected.delete(id);
+        updateStudyCount();
+    });
+
+    document.getElementById('adStudySelectAll').addEventListener('change', function() {
+        var checked = this.checked;
+        state.studySelected.clear();
+        document.querySelectorAll('#adStudyBody .ad-study-check').forEach(function(chk) {
+            chk.checked = checked;
+            if (checked) state.studySelected.add(parseInt(chk.getAttribute('data-id'), 10));
+        });
+        updateStudyCount();
+    });
+
+    document.getElementById('adStudyCounty').addEventListener('change', function() {
+        state.studyCounty = this.value;
+        loadStudy();
+    });
+
+    document.getElementById('adStudyCancelBtn').addEventListener('click', function() {
+        if (!state.studySelected.size) return;
+        showConfirm('取消所选 ' + state.studySelected.size + ' 人的升学标记？', 'warn')
+            .then(function(ok) {
+                if (!ok) return;
+                return postJSON('/api/archive/further-study/cancel', {
+                    student_ids: Array.from(state.studySelected)
+                }).then(function(data) {
+                    if (data.success) {
+                        showToast(data.message, 'success');
+                        loadOverview().then(loadStudy);
+                    } else {
+                        showToast(data.message || '操作失败', 'danger');
+                    }
+                });
+            })
+            .catch(function() { showToast('操作失败，请重试', 'danger'); });
+    });
+
+    document.getElementById('adStudyExportBtn').addEventListener('click', function() {
+        var params = new URLSearchParams({ grade: state.grade, school: state.school, county: state.studyCounty });
+        window.location.href = '/admin/archive/further-study/export?' + params.toString();
+    });
+
+    var studyImportBtn = document.getElementById('adStudyImportBtn');
+    var studyImportFile = document.getElementById('adStudyImportFile');
+    studyImportBtn.addEventListener('click', function() { studyImportFile.click(); });
+    studyImportFile.addEventListener('change', function() {
+        if (!this.files || !this.files.length) return;
+        var form = new FormData();
+        form.append('file', this.files[0]);
+        var modal = showLoading();
+        fetch('/api/archive/further-study/import', { method: 'POST', body: form })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                hideLoading(modal);
+                studyImportFile.value = '';
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    if (data.missing && data.missing.length) {
+                        showToast('未找到 ' + data.missing.length + ' 人：' + data.missing.slice(0, 5).join('、'), 'warning');
+                    }
+                    loadOverview().then(loadStudy);
+                } else {
+                    showToast(data.message || '导入失败', 'danger');
+                }
+            })
+            .catch(function() {
+                hideLoading(modal);
+                studyImportFile.value = '';
+                showToast('导入失败，请重试', 'danger');
+            });
+    });
+
+    // ---------------------------------------------------- 标签页 / 全局
+    document.getElementById('adTabs').addEventListener('click', function(e) {
+        var btn = e.target.closest('[data-pane]');
+        if (!btn) return;
+        document.querySelectorAll('#adTabs .nav-link').forEach(function(el) {
+            el.classList.toggle('active', el === btn);
+        });
+        var pane = btn.getAttribute('data-pane');
+        document.querySelectorAll('[data-pane]').forEach(function(el) {
+            if (el.tagName === 'DIV' && el.hasAttribute('data-pane')) {
+                el.hidden = el.getAttribute('data-pane') !== pane;
+            }
+        });
+        if (pane === 'batches') loadOverview();
+        if (pane === 'study') loadStudy();
+    });
+
+    document.getElementById('adGrade').addEventListener('change', function() {
+        state.grade = this.value;
+        state.county = '';
+        state.selected.clear();
+        document.getElementById('adSelectAll').checked = false;
+        document.getElementById('adCountyTitle').textContent = '请先在左侧选择县（区）';
+        document.getElementById('adTableBody').innerHTML =
+            '<tr><td colspan="9" class="ad-empty">请先在左侧选择县（区）</td></tr>';
+        updateSelCount();
+        loadOverview();
+    });
+
+    document.getElementById('adSchool').addEventListener('change', function() {
+        state.school = this.value;
+        state.county = '';
+        state.studyCounty = '';
+        state.selected.clear();
+        document.getElementById('adSelectAll').checked = false;
+        document.getElementById('adCountyTitle').textContent = '请先在左侧选择县（区）';
+        document.getElementById('adTableBody').innerHTML =
+            '<tr><td colspan="9" class="ad-empty">请先在左侧选择县（区）</td></tr>';
+        updateSelCount();
+        loadOverview();
+    });
+
+    document.getElementById('adRefresh').addEventListener('click', function() {
+        loadOverview().then(function() {
+            if (state.county) loadStudents();
+            loadStudy();
+        });
+    });
+
+    loadOverview();
+})();
+</script>
+{% endblock %}

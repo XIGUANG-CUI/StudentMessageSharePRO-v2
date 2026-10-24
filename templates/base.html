@@ -80,6 +80,22 @@
                     </li>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+                            <i class="bi bi-send-check"></i> 档案派遣
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="{{ url_for('archive.dispatch_page') }}">
+                                <i class="bi bi-send-check"></i> 派遣工作台
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('archive.agencies_page') }}">
+                                <i class="bi bi-buildings"></i> 人才机构字典
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('archive.settings_page') }}">
+                                <i class="bi bi-printer"></i> 转递单配置
+                            </a></li>
+                        </ul>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
                             <i class="bi bi-shield-fill-check"></i> 保险管理
                         </a>
                         <ul class="dropdown-menu">
@@ -228,7 +244,7 @@
         }
     };
     </script>
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}?v={{ js_version }}"></script>
     {% block scripts %}{% endblock %}
 
     {% if session.role == 'admin' %}

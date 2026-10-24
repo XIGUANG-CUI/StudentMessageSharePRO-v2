@@ -1220,7 +1220,8 @@ def admin_users():
         return redirect(url_for('.admin_users'))
     
     users = models.get_all_users()
-    return render_template('admin/users.html', users=users, all_student_fields=config.ALL_STUDENT_FIELDS)
+    return render_template('admin/users.html', users=users,
+                           all_student_fields=config.ALL_STUDENT_FIELDS + config.PERMISSION_EXTRA_FIELDS)
 
 @bp.route('/admin/dicts')
 @auth.admin_required

@@ -628,6 +628,23 @@ def backfill():
                 "only_empty": only_empty})
 
 
+@bp.route("/api/district-match/pending")
+def pending_students():
+    """待补全学生明细：定位哪些学生的地址/证件缺失导致匹配不上。"""
+    err = _require_admin_json()
+    if err:
+        return err
+    try:
+        limit = int(request.args.get("limit") or 200)
+        after_id = int(request.args.get("after_id") or 0)
+    except (TypeError, ValueError):
+        return _fail("limit / after_id 必须为整数")
+    limit = max(1, min(500, limit))
+    data = district_model.list_pending_students(limit=limit,
+                                                after_id=max(0, after_id))
+    return _ok(data)
+
+
 @bp.route("/api/district-match/students/<int:student_id>/rematch", methods=["POST"])
 def rematch(student_id):
     """编辑弹窗「重新匹配」：只写 dm_match_result，不回写 students。"""

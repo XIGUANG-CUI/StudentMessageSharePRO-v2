@@ -49,6 +49,10 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function showLoading() {
+    // 防止重复调用留下多个同 id 的遮罩
+    var stale = document.getElementById('loadingModal');
+    if (stale) stale.remove();
+
     var loadingHtml = '<div class="modal fade" id="loadingModal" data-bs-backdrop="static" data-bs-keyboard="false">' +
         '<div class="modal-dialog modal-dialog-centered">' +
         '<div class="modal-content text-center p-4">' +
@@ -64,16 +68,35 @@ function showLoading() {
     return loadingModal;
 }
 
+// 清理 Bootstrap 弹窗残留：无可见弹窗时移除遮罩与 body 滚动锁，
+// 否则会留下一层透明遮罩挡住整页点击（页面"锁死"）
+function cleanupModalArtifacts() {
+    if (document.querySelector('.modal.show')) return;
+    Array.prototype.forEach.call(document.querySelectorAll('.modal-backdrop'), function(el) {
+        el.remove();
+    });
+    document.body.classList.remove('modal-open');
+    document.body.style.removeProperty('overflow');
+    document.body.style.removeProperty('padding-right');
+}
+
 function hideLoading(loadingModal) {
-    if (loadingModal) {
-        loadingModal.hide();
-        setTimeout(function() {
-            var modalElement = document.getElementById('loadingModal');
-            if (modalElement) {
-                modalElement.remove();
-            }
-        }, 200);
+    var modalElement = document.getElementById('loadingModal');
+    if (!loadingModal || !modalElement) return;
+
+    var cleaned = false;
+    // 必须在 hidden.bs.modal 之后移除节点：动画中途删节点会让 Bootstrap
+    // 跳过收尾流程，残留 .modal-backdrop 与 body.modal-open，导致整页无法点击
+    function cleanup() {
+        if (cleaned) return;
+        cleaned = true;
+        if (modalElement.parentNode) modalElement.parentNode.removeChild(modalElement);
+        cleanupModalArtifacts();
     }
+
+    modalElement.addEventListener('hidden.bs.modal', cleanup, { once: true });
+    loadingModal.hide();
+    setTimeout(cleanup, 600);
 }
 
 function getToastContainer() {
@@ -149,6 +172,7 @@ function showConfirm(message, type) {
     var existingModal = document.getElementById('confirmModal');
     if (existingModal) {
         existingModal.remove();
+        cleanupModalArtifacts();
     }
 
     var modalHtml = '<div class="modal fade" id="confirmModal" tabindex="-1">' +
@@ -175,36 +199,44 @@ function showConfirm(message, type) {
     });
 
     return new Promise(function(resolve) {
-        var resolved = false;
+        var finished = false;
+        var cleaned = false;
+        var result = false;
 
-        function done(result) {
-            if (resolved) return;
-            resolved = true;
+        // 关闭弹窗；实际移除节点与 resolve 放到 hidden.bs.modal 之后，
+        // 避免动画未结束就删节点导致遮罩残留（页面锁死）
+        function finish(value) {
+            if (finished) return;
+            finished = true;
+            result = value;
             modal.hide();
-            setTimeout(function() {
-                if (modalElement.parentNode) {
-                    modalElement.remove();
-                }
-            }, 200);
+            // 兜底：hidden 事件未触发时也要清理并返回结果
+            setTimeout(cleanup, 900);
+        }
+
+        function cleanup() {
+            if (cleaned) return;
+            cleaned = true;
+            if (modalElement.parentNode) modalElement.parentNode.removeChild(modalElement);
+            cleanupModalArtifacts();
             resolve(result);
         }
 
         document.getElementById('confirmOkBtn').addEventListener('click', function() {
-            done(true);
+            finish(true);
         });
 
         document.getElementById('confirmCancelBtn').addEventListener('click', function() {
-            done(false);
+            finish(false);
         });
 
-        modalElement.addEventListener('hidden.bs.modal', function() {
-            done(false);
-        });
+        modalElement.addEventListener('hidden.bs.modal', cleanup, { once: true });
 
         modal.show();
 
         setTimeout(function() {
-            document.getElementById('confirmOkBtn').focus();
+            var okBtn = document.getElementById('confirmOkBtn');
+            if (okBtn) okBtn.focus();
         }, 300);
     });
 }

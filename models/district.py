@@ -970,6 +970,8 @@ _BACKFILL_MISSING_SQL = (
     "OR (district_county_code IS NULL OR district_county_code = '') "
     "OR (district_match_status IS NULL OR district_match_status = '')"
 )
+# 未补全明细最多回传多少条（避免进度接口返回体过大）
+_UNMATCHED_SAMPLE_LIMIT = 200
 
 
 def _backfill_where(only_empty):
@@ -988,6 +990,37 @@ def _backfill_pending(conn, only_empty, after_id=None):
     return int(conn.execute(sql, params).fetchone()[0] or 0)
 
 
+def _incomplete(fields):
+    """匹配结果写回后仍缺省/市/县代码或匹配状态 → 视为未补全。"""
+    for key in ("district_province_code", "district_city_code",
+                "district_county_code", "district_match_status"):
+        if not (fields.get(key) or "").strip():
+            return True
+    return False
+
+
+def list_pending_students(limit=200, after_id=0, only_empty=True):
+    """列出待补全学生（供页面「待补全明细」核对地址/证件）。"""
+    conn = get_db()
+    sql = ("SELECT id, student_no, name, id_card, address, district_match_status "
+           "FROM students WHERE is_deleted = 0 AND id > ?")
+    sql += _backfill_where(only_empty)
+    sql += " ORDER BY id LIMIT ?"
+    rows = [_adapt(r) for r in
+            conn.execute(sql, (int(after_id or 0), int(limit))).fetchall()]
+    return {
+        "total": _backfill_pending(conn, only_empty),
+        "items": [{
+            "id": r.get("id"),
+            "student_no": r.get("student_no") or "",
+            "name": r.get("name") or "",
+            "id_card": r.get("id_card") or "",
+            "address": r.get("address") or "",
+            "match_status": r.get("district_match_status") or "",
+        } for r in rows],
+    }
+
+
 def backfill_students(only_empty=True, limit=None, after_id=0, on_progress=None):
     """批量补全区划：只 UPDATE 7 列，不动 updated_at，不写 other 列。
 
@@ -998,7 +1031,7 @@ def backfill_students(only_empty=True, limit=None, after_id=0, on_progress=None)
     """
     conn = get_db()
     after_id = int(after_id or 0)
-    sql = ("SELECT id, id_card, address FROM students "
+    sql = ("SELECT id, student_no, name, id_card, address FROM students "
            "WHERE is_deleted = 0 AND id > ?")
     sql += _backfill_where(only_empty)
     sql += " ORDER BY id"
@@ -1008,11 +1041,24 @@ def backfill_students(only_empty=True, limit=None, after_id=0, on_progress=None)
     total = len(rows)
     updated = 0
     failed = 0
+    unmatched_total = 0
+    unmatched_items = []
     chunk = []
     for i, row in enumerate(rows, start=1):
         try:
             fields = fill_district_fields({"id_card": row.get("id_card"),
                                            "address": row.get("address")}, conn)
+            if _incomplete(fields):
+                unmatched_total += 1
+                if len(unmatched_items) < _UNMATCHED_SAMPLE_LIMIT:
+                    unmatched_items.append({
+                        "id": row.get("id"),
+                        "student_no": row.get("student_no") or "",
+                        "name": row.get("name") or "",
+                        "id_card": row.get("id_card") or "",
+                        "address": row.get("address") or "",
+                        "match_status": fields.get("district_match_status") or "",
+                    })
             chunk.append((
                 fields.get("district_province_name", ""),
                 fields.get("district_province_code", ""),
@@ -1057,6 +1103,8 @@ def backfill_students(only_empty=True, limit=None, after_id=0, on_progress=None)
         "last_id": last_id,
         "remaining": _backfill_pending(conn, only_empty, after_id=last_id),
         "pending_total": _backfill_pending(conn, only_empty),
+        "unmatched_total": unmatched_total,
+        "unmatched_items": unmatched_items,
     }
 
 

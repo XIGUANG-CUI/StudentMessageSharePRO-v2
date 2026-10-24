@@ -220,3 +220,23 @@ def test_backfill_cursor_and_remaining(loaded_dict, db_conn):
     assert second["last_id"] == ids[2]
     assert second["remaining"] == 0
     assert second["pending_total"] == 0
+
+
+def test_backfill_reports_unmatched_detail(loaded_dict, db_conn):
+    """未补全的学生要能回传明细，供页面定位是哪几条。"""
+    db_conn.execute(
+        "INSERT INTO students (name, student_no, id_card, address, school, "
+        "enrollment_year, registration_status, attendance_status) "
+        "VALUES ('缺地址', 'DM-NOADDR', '', '', 1, 2026, '正式学籍', '在校')")
+    db_conn.commit()
+
+    result = dm.backfill_students(only_empty=True, limit=100)
+    assert result["unmatched_total"] == 1
+    item = result["unmatched_items"][0]
+    assert item["name"] == "缺地址"
+    assert item["student_no"] == "DM-NOADDR"
+    assert item["id_card"] == ""
+
+    pending = dm.list_pending_students(limit=10)
+    assert pending["total"] == 1
+    assert pending["items"][0]["student_no"] == "DM-NOADDR"

@@ -62,6 +62,22 @@
     .gq-badge-school.bg-school-1 { background: #2563eb; }
     .gq-badge-school.bg-school-2 { background: #d97706; }
     .gq-badge-school.bg-school-other { background: #6b7280; }
+    .gq-badge-dispatch {
+        display: inline-block; padding: 2px 10px; border-radius: 12px;
+        font-size: .72rem; font-weight: 600; white-space: nowrap;
+    }
+    .gq-badge-dispatch.is-pending { background: #fef3c7; color: #b45309; }
+    .gq-badge-dispatch.is-sent { background: #ecfdf5; color: #047857; }
+    .gq-badge-dispatch.is-returned { background: #fef2f2; color: #b91c1c; }
+    .gq-badge-dispatch.is-study { background: #eff6ff; color: #1d4ed8; }
+    .gq-badge-dispatch.is-invalid { background: var(--gq-gray-100); color: var(--gq-gray-500); }
+    .gq-badge-dispatch.is-none { background: var(--gq-gray-100); color: var(--gq-gray-500); }
+    .gq-dispatch-link { font-size: .72rem; margin-left: .25rem; white-space: nowrap; }
+    .gq-detail-table th {
+        width: 96px; font-size: .78rem; font-weight: 600; color: var(--gq-gray-500);
+        background: var(--gq-gray-50); vertical-align: top;
+    }
+    .gq-detail-table td { font-size: .82rem; color: var(--gq-gray-900); word-break: break-all; }
     .gq-empty { text-align: center; padding: 3rem 1.5rem; }
     .gq-count {
         font-size: .85rem; color: var(--gq-gray-500); margin-left: .5rem;
@@ -78,8 +94,8 @@
 </div>
 
 {% with _fh_type='export', _fh_title='毕业生查询导出说明', _fh_icon='bi-file-earmark-spreadsheet',
-    _fh_fields=['学生姓名','学号','国网学籍号','学生身份证号','行政班级','年级','专业','学校类别','学籍状态','在校状态','性别','学生电话','备注'],
-    _fh_note='导出格式为 CSV（UTF-8 BOM），可在 Excel/WPS 中直接打开。支持按学校/年级/班级/姓名筛选后导出，数据上限 500 条。' %}
+    _fh_fields=['学生姓名','学号','国网学籍号','学生身份证号','行政班级','年级','专业','学校类别','学籍状态','在校状态','性别','学生电话','备注','派遣状态','派遣批次','接收机构','机构电话','派遣日期','退档日期'],
+    _fh_note='导出格式为 CSV（UTF-8 BOM），可在 Excel/WPS 中直接打开。支持按学校/年级/班级/姓名筛选后导出，数据上限 500 条。派遣状态列需在用户管理「可见字段」中勾选「派遣状态」；派遣明细列（批次/机构/日期等）仅管理员可见与导出。' %}
 {% include '_field_help.html' %}
 {% endwith %}
 
@@ -153,6 +169,28 @@
         </table>
     </div>
 </div>
+
+<!-- 档案派遣情况弹窗（仅管理员可见数据） -->
+<div class="modal fade" id="gqDispatchModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="gqDispatchModalTitle">
+                    <i class="bi bi-send-check me-1"></i>档案派遣情况
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <table class="table table-sm align-middle mb-0 gq-detail-table">
+                    <tbody id="gqDispatchBody"></tbody>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -161,6 +199,18 @@
 
     // 上次查询返回的列配置（用于重置时设置 colspan）
     var _lastColumnCount = 13;
+    // 上次查询结果（供派遣详情弹窗复用）
+    var _lastStudents = [];
+    // 派遣明细（批次/机构/日期等）是否可见：仅管理员
+    var _dispatchDetailVisible = false;
+
+    var DISPATCH_CLASS = {
+        '待派遣': 'is-pending',
+        '已派遣': 'is-sent',
+        '已退回': 'is-returned',
+        '升学': 'is-study',
+        '已失效': 'is-invalid'
+    };
 
     document.getElementById('gqName').addEventListener('keydown', function(e) {
         if (e.key === 'Enter') doQuery();
@@ -308,9 +358,23 @@
                 return esc(s.student_phone || s.parent_phone);
             case 'remark':
                 return '<span style="max-width:150px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escAttr(s.remark) + '">' + esc(s.remark) + '</span>';
+            case 'dispatch_status':
+                return renderDispatchCell(s);
             default:
                 return esc(s[col.key]);
         }
+    }
+
+    // 派遣状态徽章 + 详情入口（仅管理员会拿到派遣数据）
+    function renderDispatchCell(s) {
+        var status = s.dispatch_status || '';
+        var cls = DISPATCH_CLASS[status] || 'is-none';
+        var html = '<span class="gq-badge-dispatch ' + cls + '">' + esc(status || '未生成') + '</span>';
+        if (s.dispatch_id && _dispatchDetailVisible) {
+            html += ' <a href="javascript:void(0)" class="gq-dispatch-link" data-dispatch-view="' +
+                escAttr(s.id) + '">详情</a>';
+        }
+        return html;
     }
 
     function esc(val) {
@@ -335,11 +399,13 @@
                 document.getElementById('gqResultCount').textContent = data.count || 0;
                 var columns = data.columns || [];
                 buildTableHead(columns);
-                if (!data.students || !data.students.length) {
+                _lastStudents = data.students || [];
+                _dispatchDetailVisible = !!data.dispatch_detail_visible;
+                if (!_lastStudents.length) {
                     tbody.innerHTML = '<tr><td colspan="' + _lastColumnCount + '" class="text-center text-muted py-4">无匹配的毕业生记录</td></tr>';
                     return;
                 }
-                tbody.innerHTML = data.students.map(function(s) {
+                tbody.innerHTML = _lastStudents.map(function(s) {
                     return renderStudentRow(s, columns);
                 }).join('');
             })
@@ -348,11 +414,47 @@
             });
     };
 
+    // 点击「详情」查看该生的档案派遣情况
+    document.getElementById('gqTableBody').addEventListener('click', function(e) {
+        var link = e.target.closest('[data-dispatch-view]');
+        if (!link) return;
+        openDispatchDetail(link.getAttribute('data-dispatch-view'));
+    });
+
+    function openDispatchDetail(studentId) {
+        var student = _lastStudents.filter(function(s) {
+            return String(s.id) === String(studentId);
+        })[0];
+        if (!student) return;
+
+        document.getElementById('gqDispatchModalTitle').innerHTML =
+            '<i class="bi bi-send-check me-1"></i>档案派遣情况 - ' + esc(student.name);
+        var rows = [
+            ['派遣状态', student.dispatch_status || '未生成'],
+            ['派遣批次', student.batch_no || ''],
+            ['派遣单号', student.dispatch_no || ''],
+            ['接收机构', student.agency_name || ''],
+            ['机构地址', student.agency_address || ''],
+            ['机构电话', student.agency_phone || ''],
+            ['匹配方式', student.dispatch_match_status || ''],
+            ['派遣日期', student.dispatch_date || ''],
+            ['退档日期', student.returned_at || ''],
+            ['经办人', student.dispatch_operator || ''],
+            ['备注', student.dispatch_remark || '']
+        ];
+        document.getElementById('gqDispatchBody').innerHTML = rows.map(function(r) {
+            return '<tr><th>' + esc(r[0]) + '</th><td>' + esc(r[1] || '-') + '</td></tr>';
+        }).join('');
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('gqDispatchModal')).show();
+    }
+
     window.resetQuery = function() {
         document.getElementById('gqSchool').value = '';
         document.getElementById('gqGrade').value = '';
         document.getElementById('gqClass').value = '';
         document.getElementById('gqName').value = '';
+        _lastStudents = [];
+        _dispatchDetailVisible = false;
         loadGradeOptions('');
         var clsSel = document.getElementById('gqClass');
         clsSel.innerHTML = '<option value="">全部班级</option>';
@@ -388,6 +490,7 @@
             case 'gender': return csvSafe(s.gender);
             case 'phone': return csvSafe(s.student_phone || s.parent_phone);
             case 'remark': return csvSafe(s.remark);
+            case 'dispatch_status': return csvSafe(s.dispatch_status || '未生成');
             default: return csvSafe(s[col.key]);
         }
     }
@@ -402,7 +505,8 @@
                     showToast('无数据可导出', 'warning');
                     return;
                 }
-                var columns = data.columns || [];
+                // 导出列 = 表格列 + 派遣明细列（非管理员无派遣数据，两者一致）
+                var columns = data.export_columns || data.columns || [];
                 var headers = columns.map(function(c) { return c.label; });
                 var rows = data.students.map(function(s) {
                     return columns.map(function(col) {

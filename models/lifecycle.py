@@ -186,6 +186,7 @@ def undo_graduation(student_ids, operator):
         processed = 0
         failed = 0
         details = []
+        undone_ids = []
 
         for sid in student_ids:
             student = cursor.execute(
@@ -228,6 +229,7 @@ def undo_graduation(student_ids, operator):
             )
 
             processed += 1
+            undone_ids.append(sid)
             details.append(f"{student['name']}（学籍：毕业→{old_registration}，在校：非在校→{old_attendance}）")
 
         conn.commit()
@@ -237,6 +239,12 @@ def undo_graduation(student_ids, operator):
         raise
     finally:
         conn.close()
+    if undone_ids:
+        try:
+            from models.archive import mark_dispatches_invalid
+            mark_dispatches_invalid(undone_ids, operator)
+        except Exception:
+            logger.exception('撤销毕业联动派遣记录失效失败')
     return processed, failed, details
 
 def get_graduation_distinct_grades():

@@ -24,8 +24,9 @@ def admin_student_dropout():
     page = int(request.args.get('page', 1))
     date_from = request.args.get('date_from', '').strip() or None
     date_to = request.args.get('date_to', '').strip() or None
+    name = request.args.get('name', '').strip() or None
     result = models.get_dropout_students(page=page, per_page=20,
-                                         date_from=date_from, date_to=date_to)
+                                         date_from=date_from, date_to=date_to, name=name)
     return render_template('admin/student_dropout.html',
                           students=result['students'],
                           pagination=result)
@@ -37,7 +38,8 @@ def admin_student_dropout_export():
     """学生退学导出相关接口。"""
     date_from = request.args.get('date_from', '').strip() or None
     date_to = request.args.get('date_to', '').strip() or None
-    students = models.get_dropout_students_all(date_from=date_from, date_to=date_to)
+    name = request.args.get('name', '').strip() or None
+    students = models.get_dropout_students_all(date_from=date_from, date_to=date_to, name=name)
 
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
@@ -472,13 +474,36 @@ def api_graduation_query():
 
     where = ' AND '.join(conditions)
 
+    # 档案派遣权限分两档：
+    # 1) 派遣状态：管理员默认可见；普通用户需在用户管理「可见字段」中勾选「派遣状态」
+    # 2) 派遣明细（批次/机构/电话/日期等）：与档案派遣模块一致，仅管理员可见
+    is_admin = session.get('role') == 'admin'
+    can_view_dispatch = is_admin or auth.check_field_permission('派遣状态')
+    can_view_dispatch_detail = is_admin
+    dispatch_join = ''
+    dispatch_fields = ''
+    if can_view_dispatch:
+        dispatch_join = ('LEFT JOIN archive_dispatch d '
+                         'ON d.student_id = s.id AND d.is_deleted = 0')
+        dispatch_fields = ''',
+                   d.id AS dispatch_id, d.dispatch_status'''
+        if can_view_dispatch_detail:
+            dispatch_fields += ''',
+                   d.dispatch_no, d.batch_no, d.dispatch_date, d.returned_at,
+                   d.agency_name, d.agency_address, d.agency_phone,
+                   d.match_status AS dispatch_match_status,
+                   d.operator AS dispatch_operator,
+                   d.remark AS dispatch_remark'''
+
     conn = models.get_db()
     rows = conn.execute(
         f'''SELECT s.id, s.name, s.student_no, s.national_no, s.id_card, s.grade,
                    s.admin_class, s.major, s.attendance_status,
                    s.registration_status, s.remark, s.enrollment_year,
                    s.gender, s.student_phone, s.parent_phone, s.school
+                   {dispatch_fields}
             FROM students s
+            {dispatch_join}
             WHERE {where}
             ORDER BY s.grade DESC, s.admin_class, s.name
             LIMIT 500''',
@@ -489,6 +514,17 @@ def api_graduation_query():
     # 字段级权限过滤
     raw_students = [dict(r) for r in rows]
     students = [auth.filter_student_data(s) for s in raw_students]
+    # 派遣字段不属于学生字段映射，字段权限过滤会将其剔除，这里按已授权范围补回
+    if can_view_dispatch:
+        dispatch_keys = ['dispatch_id', 'dispatch_status']
+        if can_view_dispatch_detail:
+            dispatch_keys += ['dispatch_no', 'batch_no', 'dispatch_date', 'returned_at',
+                              'agency_name', 'agency_address', 'agency_phone',
+                              'dispatch_match_status', 'dispatch_operator', 'dispatch_remark']
+        for src, dst in zip(raw_students, students):
+            for key in dispatch_keys:
+                if key in src:
+                    dst[key] = src[key]
     visible_fields = auth.get_visible_fields()
 
     # 构建列配置：映射中文名 → 显示信息，前端据此动态渲染
@@ -514,11 +550,29 @@ def api_graduation_query():
                 seen_keys.add(key)
                 columns.append({'key': key, 'label': COLUMN_LABELS_DISPLAY.get(cn, cn)})
 
+    # 派遣状态列（管理员或被授权「派遣状态」字段的用户）：追加在表格末尾；
+    # 导出时管理员额外带上批次/机构/日期等明细列
+    export_columns = list(columns)
+    if can_view_dispatch:
+        columns.append({'key': 'dispatch_status', 'label': '派遣状态'})
+        export_columns.append({'key': 'dispatch_status', 'label': '派遣状态'})
+    if can_view_dispatch_detail:
+        export_columns.extend([
+            {'key': 'batch_no', 'label': '派遣批次'},
+            {'key': 'agency_name', 'label': '接收机构'},
+            {'key': 'agency_phone', 'label': '机构电话'},
+            {'key': 'dispatch_date', 'label': '派遣日期'},
+            {'key': 'returned_at', 'label': '退档日期'},
+        ])
+
     return jsonify({
         'students': students,
         'count': len(students),
         'visible_fields': visible_fields,
         'columns': columns,
+        'export_columns': export_columns,
+        'dispatch_visible': can_view_dispatch,
+        'dispatch_detail_visible': can_view_dispatch_detail,
     })
 
 

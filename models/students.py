@@ -706,13 +706,18 @@ def get_students(filters=None, page=1, per_page=20, sort_field='id', sort_order=
         'pages': (total + per_page - 1) // per_page
     }
 
-def get_dropout_students(page=1, per_page=20, date_from=None, date_to=None):
-    """获取退学学生。 参数: page, per_page, date_from, date_to"""
+def get_dropout_students(page=1, per_page=20, date_from=None, date_to=None, name=None):
+    """获取退学学生。 参数: page, per_page, date_from, date_to, name"""
     conn = get_db()
     cursor = conn.cursor()
 
     where_clauses = ["s.attendance_status = '退学办结'"]
     params = []
+
+    # 姓名模糊查询：同时匹配中文姓名与姓名拼音
+    if name:
+        where_clauses.append('(s.name LIKE ? OR s.name_pinyin LIKE ?)')
+        params.extend([f'%{name}%', f'%{name}%'])
 
     # 退学表提交日期筛选：基于 update_logs 中 attendance_status→退学办结 的时间
     if date_from:
@@ -768,16 +773,22 @@ def get_dropout_students(page=1, per_page=20, date_from=None, date_to=None):
         'pending_total': pending_total,
         'processed_total': processed_total,
         'date_from': date_from,
-        'date_to': date_to
+        'date_to': date_to,
+        'name': name
     }
 
-def get_dropout_students_all(date_from=None, date_to=None):
-    """获取退学学生全部。 参数: date_from, date_to"""
+def get_dropout_students_all(date_from=None, date_to=None, name=None):
+    """获取退学学生全部。 参数: date_from, date_to, name"""
     conn = get_db()
     cursor = conn.cursor()
 
     where_clauses = ["s.attendance_status = '退学办结'"]
     params = []
+
+    # 姓名模糊查询：同时匹配中文姓名与姓名拼音
+    if name:
+        where_clauses.append('(s.name LIKE ? OR s.name_pinyin LIKE ?)')
+        params.extend([f'%{name}%', f'%{name}%'])
 
     if date_from:
         where_clauses.append('''(SELECT ul.created_at FROM update_logs ul

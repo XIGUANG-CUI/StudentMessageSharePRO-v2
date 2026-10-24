@@ -42,18 +42,19 @@ class TestBlueprintRegistration:
     """Blueprint 注册验证。"""
 
     def test_all_blueprints_registered(self, app):
-        """10 个 Blueprint 全部注册。"""
+        """12 个 Blueprint 全部注册。"""
         from app import app as flask_app
         endpoints = {rule.endpoint.split('.')[0] for rule in flask_app.url_map.iter_rules() if '.' in rule.endpoint}
         expected = {'admin', 'api', 'lifecycle', 'insurance', 'export',
-                    'leave_cancel', 'mobile', 'user', 'backup', 'public'}
+                    'leave_cancel', 'mobile', 'user', 'backup', 'public',
+                    'district_match', 'archive'}
         assert expected.issubset(endpoints)
 
     def test_route_count(self, app):
-        """路由总数约 167（148 原有 + 19 区划匹配）。"""
+        """路由总数 197（含区划匹配 20 + 档案派遣 22）。"""
         from app import app as flask_app
         count = len(list(flask_app.url_map.iter_rules()))
-        assert 155 <= count <= 175
+        assert 180 <= count <= 210
 
 
 class TestModelsPackageImport:

@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}转递单配置 - 学生数据管理系统{% endblock %}
+{% block head %}
+<style>
+    :root {
+        --as-primary: #0f766e;
+        --as-primary-dark: #115e59;
+        --as-primary-light: #f0fdfa;
+        --as-gray-50: #f9fafb;
+        --as-gray-100: #f3f4f6;
+        --as-gray-200: #e5e7eb;
+        --as-gray-500: #6b7280;
+        --as-gray-700: #374151;
+        --as-gray-900: #111827;
+        --as-radius: 14px;
+        --as-shadow: 0 4px 12px rgba(0,0,0,.06), 0 2px 4px rgba(0,0,0,.04);
+    }
+    .as-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem; }
+    .as-title { font-size: 1.5rem; font-weight: 700; color: var(--as-gray-900); display: flex; align-items: center; gap: .5rem; }
+    .as-title i { color: var(--as-primary); }
+    .as-subtitle { font-size: .875rem; color: var(--as-gray-500); margin-top: .25rem; max-width: 720px; }
+
+    .as-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 1rem; }
+    .as-card { background: #fff; border: 1px solid var(--as-gray-200); border-radius: var(--as-radius); box-shadow: var(--as-shadow); overflow: hidden; }
+    .as-card-header {
+        padding: .8rem 1.1rem; font-weight: 600; font-size: .925rem;
+        display: flex; align-items: center; justify-content: space-between;
+        background: linear-gradient(135deg, #134e4a, #0f766e); color: #fff;
+    }
+    .as-card-body { padding: 1.1rem; }
+    .as-field { margin-bottom: .9rem; }
+    .as-field label { font-size: .82rem; font-weight: 700; color: var(--as-gray-700); margin-bottom: .3rem; display: block; }
+    .as-field .form-control { font-size: .875rem; }
+    .as-hint { font-size: .75rem; color: var(--as-gray-500); margin-top: .25rem; }
+    .as-footer { padding: .8rem 1.1rem; background: var(--as-gray-50); border-top: 1px solid var(--as-gray-100); display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; }
+    .as-updated { font-size: .75rem; color: var(--as-gray-500); }
+    .as-note { background: var(--as-primary-light); border: 1px solid #ccfbf1; border-radius: 10px; padding: .75rem 1rem; font-size: .82rem; color: var(--as-primary-dark); margin-bottom: 1rem; line-height: 1.7; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="as-header">
+    <div>
+        <div class="as-title"><i class="bi bi-printer"></i> 转递单配置</div>
+        <div class="as-subtitle">学校名称、经办人、经办人电话与回执地址按学校类别分套配置，生成派遣批次时写入记录快照，历史单据不随后续修改变化。</div>
+    </div>
+</div>
+
+<div class="as-note">
+    <i class="bi bi-info-circle"></i>
+    转递单配置用于「毕业生档案转递单」自动填充。修改后仅对<strong>新生成的派遣批次</strong>生效，已生成批次保持原快照不变。
+</div>
+
+<div class="as-grid">
+    {% for school, cfg in settings.items() %}
+    {% set ns = namespace(label='') %}
+    {% for t in school_types %}
+        {% if t.code|string == school|string %}{% set ns.label = t.name %}{% endif %}
+    {% endfor %}
+    <div class="as-card" data-school="{{ school }}">
+        <div class="as-card-header">
+            <span><i class="bi bi-building"></i> {{ ns.label or ('学校类别 ' ~ school) }}</span>
+            <span class="small">{{ cfg.updated_by or '' }}</span>
+        </div>
+        <div class="as-card-body">
+            <div class="as-field">
+                <label>学校名称</label>
+                <input type="text" class="form-control" data-field="school_name"
+                       value="{{ cfg.school_name or '' }}" placeholder="如：黑龙江XXX学校">
+            </div>
+            <div class="as-field">
+                <label>经办人</label>
+                <input type="text" class="form-control" data-field="handler"
+                       value="{{ cfg.handler or '' }}" placeholder="档案经办人姓名">
+            </div>
+            <div class="as-field">
+                <label>经办人电话</label>
+                <input type="text" class="form-control" data-field="handler_phone"
+                       value="{{ cfg.handler_phone or '' }}" placeholder="如：0451-XXXXXXXX">
+            </div>
+            <div class="as-field">
+                <label>回执地址</label>
+                <input type="text" class="form-control" data-field="receipt_address"
+                       value="{{ cfg.receipt_address or '' }}" placeholder="回执寄回地址">
+            </div>
+            <div class="as-field mb-0">
+                <label>回执邮编</label>
+                <input type="text" class="form-control" data-field="receipt_postal"
+                       value="{{ cfg.receipt_postal or '' }}" placeholder="6 位邮政编码">
+                <div class="as-hint">用于转递单回执栏，留空则打印空白。</div>
+            </div>
+        </div>
+        <div class="as-footer">
+            <span class="as-updated">
+                {% if cfg.updated_at %}更新于 {{ cfg.updated_at[:19] }}{% else %}尚未配置{% endif %}
+            </span>
+            <button type="button" class="btn btn-primary btn-sm as-save-btn">
+                <i class="bi bi-check2"></i> 保存
+            </button>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function() {
+    'use strict';
+
+    document.querySelectorAll('.as-save-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var card = btn.closest('.as-card');
+            var school = card.getAttribute('data-school');
+            var payload = { school: school };
+            card.querySelectorAll('[data-field]').forEach(function(input) {
+                payload[input.getAttribute('data-field')] = input.value.trim();
+            });
+            btn.disabled = true;
+            fetch('/api/archive/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                btn.disabled = false;
+                if (data.success) {
+                    showToast(data.message || '已保存', 'success');
+                } else {
+                    showToast(data.message || '保存失败', 'danger');
+                }
+            })
+            .catch(function() {
+                btn.disabled = false;
+                showToast('保存失败，请重试', 'danger');
+            });
+        });
+    });
+})();
+</script>
+{% endblock %}

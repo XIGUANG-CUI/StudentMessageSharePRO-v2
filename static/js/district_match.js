@@ -22,7 +22,8 @@
         historyUpdate: app.dataset.historyUpdateUrl,
         historyDelete: app.dataset.historyDeleteUrl,
         historyImport: app.dataset.historyImportUrl,
-        backfill: app.dataset.backfillUrl
+        backfill: app.dataset.backfillUrl,
+        pending: app.dataset.pendingUrl
     };
 
     var $ = function (id) { return document.getElementById(id); };
@@ -722,6 +723,82 @@
         });
     });
 
+    /* ---------------------------------------------------------- 待补全明细 */
+    function renderUnmatched(items, total, note) {
+        items = items || [];
+        total = total || 0;
+        $('dm-unmatched-title').textContent = '待补全明细（共 ' + total + ' 条' +
+            (items.length < total ? '，显示前 ' + items.length + ' 条' : '') + '）';
+        var tbody = $('dm-unmatched-body');
+        tbody.innerHTML = '';
+        if (!items.length) {
+            var trEmpty = document.createElement('tr');
+            var tdEmpty = cell('没有待补全的学生');
+            tdEmpty.colSpan = 5;
+            tdEmpty.className = 'text-center text-muted';
+            trEmpty.appendChild(tdEmpty);
+            tbody.appendChild(trEmpty);
+        }
+        items.forEach(function (item) {
+            var tr = document.createElement('tr');
+            tr.appendChild(cell(item.student_no));
+            tr.appendChild(cell(item.name));
+            tr.appendChild(cell(item.id_card));
+            tr.appendChild(cell(item.address));
+            var tdStatus = cell('');
+            tdStatus.appendChild(badge(item.match_status));
+            tr.appendChild(tdStatus);
+            tbody.appendChild(tr);
+        });
+        $('dm-unmatched-foot').textContent = note ||
+            '可在「学生管理」按学号核对地址/身份证后修正，再执行「批量补全区划」。';
+        $('dm-unmatched-wrap').classList.remove('d-none');
+    }
+
+    $('dm-unmatched-close').addEventListener('click', function () {
+        $('dm-unmatched-wrap').classList.add('d-none');
+    });
+
+    $('dm-unmatched-copy').addEventListener('click', function () {
+        var nos = Array.prototype.map.call(
+            $('dm-unmatched-body').querySelectorAll('tr'), function (tr) {
+                var td = tr.querySelector('td');
+                return td ? td.textContent.trim() : '';
+            }).filter(function (v) { return v; });
+        if (!nos.length) {
+            showToast('没有可复制的学号', 'warning');
+            return;
+        }
+        var text = nos.join(',');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function () {
+                showToast('已复制 ' + nos.length + ' 个学号', 'success');
+            }).catch(function () {
+                showToast('复制失败，请手动选取', 'danger');
+            });
+        } else {
+            window.prompt('请手动复制学号', text);
+        }
+    });
+
+    $('dm-pending-btn').addEventListener('click', function () {
+        var btn = $('dm-pending-btn');
+        setBusy(btn, true, '查询中…');
+        requestJSON(URLS.pending + '?limit=200', { method: 'GET' }).then(function (body) {
+            var data = body.data || {};
+            renderUnmatched(data.items, data.total,
+                '以上为当前仍未补全的学生（按 id 升序，最多显示 200 条）；' +
+                '修正地址/身份证后可再次点击「批量补全区划」。');
+            if (!data.total) {
+                showToast('当前没有待补全的学生', 'success');
+            }
+        }).catch(function (err) {
+            showToast(err.message, 'danger');
+        }).finally(function () {
+            setBusy(btn, false);
+        });
+    });
+
     /* ---------------------------------------------------------- 批量补全 */
     var backfillCursor = 0;   // 续跑游标：本次处理到的最大 id，下次从它之后继续
     $('dm-backfill-btn').addEventListener('click', function () {
@@ -753,13 +830,21 @@
                         } else if (pending > 0) {
                             backfillCursor = 0;   // 本轮已扫完，重置游标
                             text += '；本轮已扫描完，仍有 ' + pending +
-                                ' 条无法自动匹配（地址/证件缺失），可重试';
+                                ' 条无法自动匹配（地址/证件缺失），明细见下方';
                         } else {
                             backfillCursor = 0;
                             text += '，区划信息已全部补全';
                         }
+                        if (res.unmatched_total > 0) {
+                            text += '（本次未补全 ' + res.unmatched_total + ' 条）';
+                        }
                         $('dm-progress-text').textContent = text;
                         showToast(text, 'success');
+                        if (res.unmatched_total > 0) {
+                            renderUnmatched(res.unmatched_items, res.unmatched_total,
+                                '以上为本次未能补全的学生；修正地址/身份证后再次点击「批量补全区划」，' +
+                                '仍无法匹配的可联系管理员补充区划字典。');
+                        }
                     });
                 }).catch(function (err) {
                     setBusy(btn, false);

@@ -85,6 +85,15 @@ sha_path = os.path.splitext(pack_path)[0] + '.sha256'
 if os.path.exists(sha_path):
     datas.append((sha_path, 'data'))
 
+# 档案派遣 Word 模板（毕业生档案转递单）
+archive_tpl_dir = os.path.join(base_path, 'archive_templates')
+if os.path.exists(archive_tpl_dir):
+    for root, dirs, files in os.walk(archive_tpl_dir):
+        for file in files:
+            src = os.path.join(root, file)
+            rel = os.path.relpath(root, base_path)
+            datas.append((src, rel))
+
 # 3. SDK 文件（读卡器 DLL + license.dat）
 if os.path.exists(sdk_dir):
     for file in os.listdir(sdk_dir):
@@ -157,6 +166,9 @@ hiddenimports += [
     'services.import_service',
 ]
 
+# 区划匹配引擎（services/district_match 子包）
+hiddenimports += collect_submodules('services.district_match')
+
 # 项目 models 包子模块（P1-C：models.py 拆分为包）
 hiddenimports += [
     'models',
@@ -169,9 +181,12 @@ hiddenimports += [
     'models.dicts',
     'models.export_template',
     'models.logs',
+    'models.school_types',
+    'models.district',
+    'models.archive',
 ]
 
-# 项目 blueprints 子模块（P1-1 路由模块化拆分，10 个 Blueprint）
+# 项目 blueprints 子模块（P1-1 路由模块化拆分，12 个 Blueprint）
 hiddenimports += [
     'blueprints',
     'blueprints.mobile',
@@ -184,6 +199,8 @@ hiddenimports += [
     'blueprints.leave_cancel',
     'blueprints.lifecycle',
     'blueprints.api',
+    'blueprints.district_match',
+    'blueprints.archive',
 ]
 
 # 其他必要模块

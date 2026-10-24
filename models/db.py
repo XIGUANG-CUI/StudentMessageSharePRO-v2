@@ -125,6 +125,102 @@ HISTORY_MAPPING_SEED = [
 
 
 # ============================================================
+# 档案派遣业务表（student.db）—— 人才机构字典 / 转递单配置 / 派遣记录
+# 幂等：全部 CREATE TABLE IF NOT EXISTS
+# ============================================================
+ARCHIVE_DDL = """
+CREATE TABLE IF NOT EXISTS talent_agency (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    agency_no   TEXT NOT NULL UNIQUE,
+    county_code TEXT NOT NULL,
+    county_name TEXT DEFAULT '',
+    level       TEXT NOT NULL DEFAULT '县区',
+    agency_name TEXT NOT NULL,
+    address     TEXT DEFAULT '',
+    phone       TEXT DEFAULT '',
+    matchable   INTEGER DEFAULT 1,
+    status      INTEGER DEFAULT 1,
+    remark      TEXT DEFAULT '',
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_talent_agency_county
+    ON talent_agency (county_code);
+CREATE INDEX IF NOT EXISTS idx_talent_agency_level
+    ON talent_agency (level, status);
+
+CREATE TABLE IF NOT EXISTS archive_settings (
+    school          INTEGER PRIMARY KEY,
+    school_name     TEXT DEFAULT '',
+    handler         TEXT DEFAULT '',
+    handler_phone   TEXT DEFAULT '',
+    receipt_address TEXT DEFAULT '',
+    receipt_postal  TEXT DEFAULT '',
+    updated_by      TEXT DEFAULT '',
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS archive_dispatch (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_no        TEXT DEFAULT '',
+    dispatch_no     TEXT DEFAULT '',
+    student_id      INTEGER NOT NULL,
+    student_no      TEXT DEFAULT '',
+    id_card         TEXT DEFAULT '',
+    student_name    TEXT DEFAULT '',
+    graduate_year   TEXT DEFAULT '',
+    school          INTEGER,
+    grade           TEXT DEFAULT '',
+    admin_class     TEXT DEFAULT '',
+    county_code     TEXT DEFAULT '',
+    county_name     TEXT DEFAULT '',
+    origin_place    TEXT DEFAULT '',
+    student_phone   TEXT DEFAULT '',
+    parent_phone    TEXT DEFAULT '',
+    match_level     TEXT DEFAULT '',
+    match_status    TEXT DEFAULT '',
+    match_reason    TEXT DEFAULT '',
+    agency_id       INTEGER,
+    agency_no       TEXT DEFAULT '',
+    agency_name     TEXT DEFAULT '',
+    agency_address  TEXT DEFAULT '',
+    agency_phone    TEXT DEFAULT '',
+    school_name     TEXT DEFAULT '',
+    handler         TEXT DEFAULT '',
+    handler_phone   TEXT DEFAULT '',
+    receipt_address TEXT DEFAULT '',
+    receipt_postal  TEXT DEFAULT '',
+    archive_volume  TEXT DEFAULT '',
+    employer_name   TEXT DEFAULT '',
+    employer_address TEXT DEFAULT '',
+    dispatch_status TEXT DEFAULT '待派遣',
+    dispatch_date   TEXT DEFAULT '',
+    operator        TEXT DEFAULT '',
+    remark          TEXT DEFAULT '',
+    is_deleted      INTEGER DEFAULT 0,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_dispatch_student_active
+    ON archive_dispatch (student_id) WHERE is_deleted = 0;
+CREATE INDEX IF NOT EXISTS idx_dispatch_batch  ON archive_dispatch (batch_no);
+CREATE INDEX IF NOT EXISTS idx_dispatch_status ON archive_dispatch (dispatch_status);
+CREATE INDEX IF NOT EXISTS idx_dispatch_county ON archive_dispatch (county_code);
+"""
+
+# 档案机构导入用的补充历史映射（旧码 → 现行码），已存在则跳过
+ARCHIVE_HISTORY_EXTRA = [
+    # 2023 年区划代码调整：加格达奇区/松岭区/新林区/呼中区由 232701-232704
+    # 调整为 232761-232764，232701 改指漠河市（原 232723）。
+    # engine1 仅在现行字典查无此码时才应用映射，故不影响现行学生数据匹配。
+    ("232701", "232761", "加格达奇区", "加格达奇区", "编码调整", "", "档案机构表旧码映射"),
+    ("232702", "232762", "松岭区", "松岭区", "编码调整", "", "档案机构表旧码映射"),
+    ("232703", "232763", "新林区", "新林区", "编码调整", "", "档案机构表旧码映射"),
+    ("232704", "232764", "呼中区", "呼中区", "编码调整", "", "档案机构表旧码映射"),
+]
+
+
+# ============================================================
 # 共享过滤函数：统一排除学籍状态为"毕业"的学生
 # 所有业务查询（学生列表/搜索/统计/导出等）必须调用此函数
 # ============================================================
@@ -433,6 +529,34 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    # ========== 档案派遣：机构字典 / 转递单配置 / 派遣记录 ==========
+    for statement in ARCHIVE_DDL.split(';'):
+        if statement.strip():
+            cursor.execute(statement)
+
+    # 档案派遣增量列：最近一次退档时间（非空即「曾退档」，用于筛出重派单）
+    for table, column, col_def in (
+            ('archive_dispatch', 'returned_at', "TEXT DEFAULT ''"),):
+        try:
+            cursor.execute(f'ALTER TABLE {table} ADD COLUMN {column} {col_def}')
+        except sqlite3.OperationalError:
+            pass
+
+    # 补充历史映射（幂等，逐条判重后插入）
+    for old_code, new_code, old_name, new_name, change_type, change_date, remark in ARCHIVE_HISTORY_EXTRA:
+        cursor.execute(
+            'INSERT INTO dm_history_mapping '
+            '(old_code, new_code, old_name, new_name, change_type, change_date, remark) '
+            'SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS ('
+            'SELECT 1 FROM dm_history_mapping WHERE old_code = ? AND new_code = ?)',
+            (old_code, new_code, old_name, new_name, change_type, change_date, remark,
+             old_code, new_code)
+        )
+
+    # 转递单配置：按校别各一行（默认空，由转递单配置页填写）
+    for code in ('1', '2'):
+        cursor.execute('INSERT OR IGNORE INTO archive_settings (school) VALUES (?)', (int(code),))
 
     # ========== 迁移版本管理（P0-3）==========
     # 记录当前 schema 版本，便于后续迁移追踪与可观测性。

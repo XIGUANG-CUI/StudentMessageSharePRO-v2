@@ -1,0 +1,404 @@
+{% extends "base.html" %}
+{% block title %}人才机构字典 - 学生数据管理系统{% endblock %}
+{% block head %}
+<style>
+    :root {
+        --ar-primary: #0f766e;
+        --ar-primary-dark: #115e59;
+        --ar-primary-light: #f0fdfa;
+        --ar-danger: #dc2626;
+        --ar-gray-50: #f9fafb;
+        --ar-gray-100: #f3f4f6;
+        --ar-gray-200: #e5e7eb;
+        --ar-gray-300: #d1d5db;
+        --ar-gray-500: #6b7280;
+        --ar-gray-700: #374151;
+        --ar-gray-900: #111827;
+        --ar-radius: 14px;
+        --ar-shadow: 0 4px 12px rgba(0,0,0,.06), 0 2px 4px rgba(0,0,0,.04);
+    }
+    .ar-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem; }
+    .ar-title { font-size: 1.5rem; font-weight: 700; color: var(--ar-gray-900); display: flex; align-items: center; gap: .5rem; }
+    .ar-title i { color: var(--ar-primary); }
+    .ar-subtitle { font-size: .875rem; color: var(--ar-gray-500); margin-top: .25rem; }
+
+    .ar-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
+    .ar-stat {
+        background: #fff; border: 1px solid var(--ar-gray-200); border-radius: var(--ar-radius);
+        padding: .875rem 1.1rem; box-shadow: var(--ar-shadow);
+    }
+    .ar-stat-label { font-size: .78rem; color: var(--ar-gray-500); font-weight: 600; }
+    .ar-stat-num { font-size: 1.5rem; font-weight: 700; color: var(--ar-gray-900); line-height: 1.3; }
+    .ar-stat-num.is-danger { color: var(--ar-danger); }
+
+    .ar-card { background: #fff; border: 1px solid var(--ar-gray-200); border-radius: var(--ar-radius); box-shadow: var(--ar-shadow); overflow: hidden; margin-bottom: 1rem; }
+    .ar-card-header {
+        padding: .75rem 1.1rem; font-weight: 600; font-size: .925rem;
+        display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap;
+        border-bottom: 1px solid var(--ar-gray-100);
+        background: linear-gradient(135deg, #134e4a, #0f766e); color: #fff;
+    }
+    .ar-toolbar { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; padding: .75rem 1.1rem; border-bottom: 1px solid var(--ar-gray-100); background: var(--ar-gray-50); }
+    .ar-toolbar .form-control, .ar-toolbar .form-select { font-size: .85rem; }
+
+    .ar-table-wrap { overflow-x: auto; max-height: 62vh; }
+    .ar-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+    .ar-table thead { background: var(--ar-gray-50); position: sticky; top: 0; z-index: 1; }
+    .ar-table th {
+        white-space: nowrap; padding: .55rem .7rem; text-align: left;
+        font-size: .74rem; font-weight: 700; color: var(--ar-gray-700);
+        letter-spacing: .03em; border-bottom: 2px solid var(--ar-gray-200);
+    }
+    .ar-table td { padding: .5rem .7rem; border-bottom: 1px solid var(--ar-gray-100); color: var(--ar-gray-700); vertical-align: middle; }
+    .ar-table tbody tr:hover { background: var(--ar-primary-light); }
+    .ar-mono { font-family: ui-monospace, monospace; font-size: .78rem; color: var(--ar-gray-500); }
+    .ar-name { font-weight: 600; color: var(--ar-gray-900); }
+
+    .ar-badge { display: inline-flex; align-items: center; gap: .25rem; padding: .18rem .55rem; border-radius: 20px; font-size: .72rem; font-weight: 600; white-space: nowrap; }
+    .ar-badge-county { background: #ecfdf5; color: #047857; }
+    .ar-badge-city { background: #eff6ff; color: #1d4ed8; }
+    .ar-badge-province { background: #fef3c7; color: #b45309; }
+    .ar-badge-on { background: #ecfdf5; color: #047857; }
+    .ar-badge-off { background: var(--ar-gray-100); color: var(--ar-gray-500); }
+    .ar-badge-special { background: #fef2f2; color: #b91c1c; }
+
+    .ar-empty { text-align: center; padding: 2.5rem 1rem; color: var(--ar-gray-500); font-size: .875rem; }
+    .ar-gap-list { padding: .6rem 1.1rem 1rem; display: flex; flex-wrap: wrap; gap: .4rem; }
+    .ar-gap-chip { background: #fef2f2; color: #b91c1c; border-radius: 6px; padding: .2rem .55rem; font-size: .76rem; font-weight: 600; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="ar-header">
+    <div>
+        <div class="ar-title"><i class="bi bi-buildings"></i> 人才机构字典</div>
+        <div class="ar-subtitle">按毕业生区划（县 → 市 → 省）自动匹配接收机构，一县一机构</div>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        <a href="{{ url_for('archive.agencies_template') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-download"></i> 下载导入模板
+        </a>
+        <button type="button" class="btn btn-primary btn-sm" id="arAddBtn">
+            <i class="bi bi-plus-lg"></i> 新增机构
+        </button>
+        <button type="button" class="btn btn-success btn-sm" id="arImportBtn">
+            <i class="bi bi-file-earmark-excel"></i> 导入机构表
+        </button>
+        <input type="file" id="arImportFile" accept=".xlsx,.xlsm" hidden>
+    </div>
+</div>
+
+<div class="ar-stats">
+    <div class="ar-stat">
+        <div class="ar-stat-label">机构总数</div>
+        <div class="ar-stat-num" id="arStatTotal">-</div>
+    </div>
+    <div class="ar-stat">
+        <div class="ar-stat-label">毕业生涉及县</div>
+        <div class="ar-stat-num" id="arStatGroup">-</div>
+    </div>
+    <div class="ar-stat">
+        <div class="ar-stat-label">已配置机构</div>
+        <div class="ar-stat-num" id="arStatCovered">-</div>
+    </div>
+    <div class="ar-stat">
+        <div class="ar-stat-label">机构缺口</div>
+        <div class="ar-stat-num is-danger" id="arStatGap">-</div>
+    </div>
+</div>
+
+<div class="ar-card" id="arGapCard" hidden>
+    <div class="ar-card-header">
+        <span><i class="bi bi-exclamation-triangle"></i> 机构缺口（毕业生所在县未配置机构）</span>
+    </div>
+    <div class="ar-gap-list" id="arGapList"></div>
+</div>
+
+<div class="ar-card">
+    <div class="ar-card-header">
+        <span><i class="bi bi-list-ul"></i> 机构列表</span>
+        <span class="small" id="arCountHint"></span>
+    </div>
+    <div class="ar-toolbar">
+        <input type="text" class="form-control form-control-sm" id="arKeyword" placeholder="机构名称 / 县名 / 代码" style="max-width:240px">
+        <select class="form-select form-select-sm" id="arLevel" style="max-width:130px">
+            <option value="">全部层级</option>
+            <option value="县区">县区</option>
+            <option value="市">市</option>
+            <option value="省">省</option>
+        </select>
+        <select class="form-select form-select-sm" id="arStatus" style="max-width:130px">
+            <option value="">全部状态</option>
+            <option value="1">启用</option>
+            <option value="0">停用</option>
+        </select>
+        <button type="button" class="btn btn-primary btn-sm" id="arSearchBtn"><i class="bi bi-search"></i> 查询</button>
+        <button type="button" class="btn btn-light btn-sm border" id="arResetBtn">重置</button>
+    </div>
+    <div class="ar-table-wrap">
+        <table class="ar-table">
+            <thead>
+                <tr>
+                    <th>机构编号</th>
+                    <th>区划代码</th>
+                    <th>县 / 区</th>
+                    <th>层级</th>
+                    <th>机构全称</th>
+                    <th>通讯地址</th>
+                    <th>联系电话</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="arTableBody">
+                <tr><td colspan="9" class="ar-empty">加载中…</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="modal fade" id="arAddModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-plus-circle"></i> 新增人才机构</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label">行政区划代码 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control form-control-sm" id="arAddCode"
+                               placeholder="6 位，如 230102" maxlength="12">
+                        <div class="form-text">县区码填县级代码；市级用 XX99/XX00；省级用 XX9900</div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">机构全称 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control form-control-sm" id="arAddName"
+                               placeholder="如 哈尔滨市道里区人才服务中心">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">机构编号</label>
+                        <input type="text" class="form-control form-control-sm" id="arAddNo"
+                               placeholder="留空则与行政区划代码一致">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">机构层级</label>
+                        <select class="form-select form-select-sm" id="arAddLevel">
+                            <option value="">自动识别</option>
+                            <option value="县区">县区</option>
+                            <option value="市">市</option>
+                            <option value="省">省</option>
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">通讯地址</label>
+                        <input type="text" class="form-control form-control-sm" id="arAddAddress">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">联系电话</label>
+                        <input type="text" class="form-control form-control-sm" id="arAddPhone">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-light btn-sm border" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary btn-sm" id="arAddSave">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function() {
+    'use strict';
+
+    var LEVEL_CLASS = { '县区': 'ar-badge-county', '市': 'ar-badge-city', '省': 'ar-badge-province' };
+
+    function esc(v) {
+        return String(v === null || v === undefined ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function loadCoverage(coverage) {
+        if (!coverage) return;
+        document.getElementById('arStatGroup').textContent = coverage.group_total;
+        document.getElementById('arStatCovered').textContent = coverage.covered;
+        document.getElementById('arStatGap').textContent = (coverage.group_total - coverage.covered);
+        var gapCard = document.getElementById('arGapCard');
+        var gapList = document.getElementById('arGapList');
+        if (coverage.gaps && coverage.gaps.length) {
+            gapCard.hidden = false;
+            gapList.innerHTML = coverage.gaps.map(function(g) {
+                return '<span class="ar-gap-chip">' + esc(g.county_name) +
+                       '（' + g.pending + ' 人）</span>';
+            }).join('');
+        } else {
+            gapCard.hidden = true;
+            gapList.innerHTML = '';
+        }
+    }
+
+    function loadAgencies() {
+        var params = new URLSearchParams({
+            keyword: document.getElementById('arKeyword').value.trim(),
+            level: document.getElementById('arLevel').value,
+            status: document.getElementById('arStatus').value
+        });
+        fetch('/api/archive/agencies?' + params.toString())
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var rows = data.agencies || [];
+                document.getElementById('arStatTotal').textContent = data.count;
+                document.getElementById('arCountHint').textContent = '共 ' + data.count + ' 条';
+                loadCoverage(data.coverage);
+                var body = document.getElementById('arTableBody');
+                if (!rows.length) {
+                    body.innerHTML = '<tr><td colspan="9" class="ar-empty">暂无机构数据，请先导入机构表</td></tr>';
+                    return;
+                }
+                body.innerHTML = rows.map(function(a) {
+                    var lvlClass = LEVEL_CLASS[a.level] || 'ar-badge-county';
+                    var special = a.matchable ? '' : ' <span class="ar-badge ar-badge-special">特殊区域</span>';
+                    var statusHtml = a.status
+                        ? '<span class="ar-badge ar-badge-on">启用</span>'
+                        : '<span class="ar-badge ar-badge-off">停用</span>';
+                    return '<tr>' +
+                        '<td class="ar-mono">' + esc(a.agency_no) + '</td>' +
+                        '<td class="ar-mono">' + esc(a.county_code) + '</td>' +
+                        '<td>' + esc(a.county_name || '-') + '</td>' +
+                        '<td><span class="ar-badge ' + lvlClass + '">' + esc(a.level) + '</span>' + special + '</td>' +
+                        '<td class="ar-name">' + esc(a.agency_name) + '</td>' +
+                        '<td>' + esc(a.address || '-') + '</td>' +
+                        '<td>' + esc(a.phone || '-') + '</td>' +
+                        '<td>' + statusHtml + '</td>' +
+                        '<td><button type="button" class="btn btn-sm btn-outline-secondary" ' +
+                            'data-toggle-id="' + a.id + '" data-toggle-status="' + a.status + '">' +
+                            (a.status ? '停用' : '启用') + '</button></td>' +
+                        '</tr>';
+                }).join('');
+            })
+            .catch(function() {
+                document.getElementById('arTableBody').innerHTML =
+                    '<tr><td colspan="9" class="ar-empty">加载失败，请刷新重试</td></tr>';
+            });
+    }
+
+    document.getElementById('arSearchBtn').addEventListener('click', loadAgencies);
+    document.getElementById('arKeyword').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') loadAgencies();
+    });
+    document.getElementById('arLevel').addEventListener('change', loadAgencies);
+    document.getElementById('arStatus').addEventListener('change', loadAgencies);
+    document.getElementById('arResetBtn').addEventListener('click', function() {
+        document.getElementById('arKeyword').value = '';
+        document.getElementById('arLevel').value = '';
+        document.getElementById('arStatus').value = '';
+        loadAgencies();
+    });
+
+    document.getElementById('arTableBody').addEventListener('click', function(e) {
+        var btn = e.target.closest('[data-toggle-id]');
+        if (!btn) return;
+        fetch('/api/archive/agencies/' + btn.getAttribute('data-toggle-id') + '/toggle', { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    showToast(data.status ? '机构已启用' : '机构已停用', 'success');
+                    loadAgencies();
+                } else {
+                    showToast(data.message || '操作失败', 'danger');
+                }
+            })
+            .catch(function() { showToast('操作失败，请重试', 'danger'); });
+    });
+
+    var importBtn = document.getElementById('arImportBtn');
+    var importFile = document.getElementById('arImportFile');
+    importBtn.addEventListener('click', function() { importFile.click(); });
+    importFile.addEventListener('change', function() {
+        if (!this.files || !this.files.length) return;
+        var form = new FormData();
+        form.append('file', this.files[0]);
+        var modal = showLoading();
+        fetch('/api/archive/agencies/import', { method: 'POST', body: form })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                hideLoading(modal);
+                importFile.value = '';
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    loadAgencies();
+                } else {
+                    showToast(data.message || '导入失败', 'danger');
+                }
+            })
+            .catch(function() {
+                hideLoading(modal);
+                importFile.value = '';
+                showToast('导入失败，请重试', 'danger');
+            });
+    });
+
+    var addModalEl = document.getElementById('arAddModal');
+    var addModal = bootstrap.Modal.getOrCreateInstance(addModalEl);
+
+    function clearAddForm() {
+        ['arAddCode', 'arAddName', 'arAddNo', 'arAddAddress', 'arAddPhone'].forEach(function(id) {
+            document.getElementById(id).value = '';
+        });
+        document.getElementById('arAddLevel').value = '';
+    }
+
+    document.getElementById('arAddBtn').addEventListener('click', function() {
+        clearAddForm();
+        addModal.show();
+        document.getElementById('arAddCode').focus();
+    });
+
+    document.getElementById('arAddSave').addEventListener('click', function() {
+        var payload = {
+            county_code: document.getElementById('arAddCode').value.trim(),
+            agency_name: document.getElementById('arAddName').value.trim(),
+            agency_no: document.getElementById('arAddNo').value.trim(),
+            level: document.getElementById('arAddLevel').value,
+            address: document.getElementById('arAddAddress').value.trim(),
+            phone: document.getElementById('arAddPhone').value.trim()
+        };
+        if (!payload.county_code) {
+            showToast('请填写行政区划代码', 'warning');
+            return;
+        }
+        if (!payload.agency_name) {
+            showToast('请填写机构全称', 'warning');
+            return;
+        }
+        var saveBtn = this;
+        saveBtn.disabled = true;
+        fetch('/api/archive/agencies', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                saveBtn.disabled = false;
+                if (data.success) {
+                    addModal.hide();
+                    showToast(data.message || '新增成功', 'success');
+                    loadAgencies();
+                } else {
+                    showToast(data.message || '新增失败', 'danger');
+                }
+            })
+            .catch(function() {
+                saveBtn.disabled = false;
+                showToast('新增失败，请重试', 'danger');
+            });
+    });
+
+    loadAgencies();
+})();
+</script>
+{% endblock %}

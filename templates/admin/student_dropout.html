@@ -213,6 +213,10 @@
     </div>
     <div style="display:flex; align-items:center; gap:.5rem;">
         <form method="GET" action="{{ url_for('lifecycle.admin_student_dropout') }}" style="display:flex; align-items:center; gap:.5rem; margin:0;">
+            <input type="text" name="name" value="{{ pagination.name or '' }}"
+                   placeholder="姓名 / 拼音"
+                   style="padding:.35rem .6rem; border:1px solid var(--sdp-gray-300); border-radius:6px; font-size:.8125rem; width:130px;"
+                   title="姓名模糊查询，支持中文姓名或姓名拼音">
             <label style="font-size:.8125rem; color:var(--sdp-gray-700); white-space:nowrap;">退学表提交日期</label>
             <input type="date" name="date_from" value="{{ pagination.date_from or '' }}"
                    style="padding:.35rem .6rem; border:1px solid var(--sdp-gray-300); border-radius:6px; font-size:.8125rem; width:140px;"
@@ -225,7 +229,7 @@
                     style="padding:.35rem .8rem; border:none; border-radius:6px; background:var(--sdp-primary); color:#fff; font-size:.8125rem; cursor:pointer;">
                 <i class="bi bi-funnel"></i> 筛选
             </button>
-            {% if pagination.date_from or pagination.date_to %}
+            {% if pagination.date_from or pagination.date_to or pagination.name %}
             <a href="{{ url_for('lifecycle.admin_student_dropout') }}"
                style="padding:.35rem .8rem; border:1px solid var(--sdp-gray-300); border-radius:6px; color:var(--sdp-gray-700); font-size:.8125rem; text-decoration:none;">
                 <i class="bi bi-x-circle"></i> 清除
@@ -240,7 +244,7 @@
 
 {% with _fh_type='export', _fh_title='退学数据导出说明', _fh_icon='bi-file-earmark-excel',
     _fh_fields=['学生姓名','学生身份证号','行政班级','年级','入学年份','学生电话','家长电话','学籍状态','退学表提交日期','处理日期','处理状态'],
-    _fh_note='导出数据范围：当前列表中所有退学办结学生（含已处理和待处理），不含已被软删除的记录。已处理行绿色、待处理行黄色标记。' %}
+    _fh_note='导出数据范围：当前筛选条件（姓名/拼音、退学表提交日期）下的全部退学办结学生（含已处理和待处理）。已处理行绿色、待处理行黄色标记。' %}
 {% include '_field_help.html' %}
 {% endwith %}
 
@@ -333,6 +337,7 @@
 {% set args_dict = {} %}
 {% if pagination.date_from %}{% set _ = args_dict.update({'date_from': pagination.date_from}) %}{% endif %}
 {% if pagination.date_to %}{% set _ = args_dict.update({'date_to': pagination.date_to}) %}{% endif %}
+{% if pagination.name %}{% set _ = args_dict.update({'name': pagination.name}) %}{% endif %}
 <nav class="mt-3">
     <ul class="pagination justify-content-center">
         {% if pagination.page > 1 %}
@@ -378,6 +383,7 @@ function exportDropoutData() {
     var params = [];
     {% if pagination.date_from %}params.push('date_from=' + encodeURIComponent('{{ pagination.date_from }}'));{% endif %}
     {% if pagination.date_to %}params.push('date_to=' + encodeURIComponent('{{ pagination.date_to }}'));{% endif %}
+    {% if pagination.name %}params.push('name=' + encodeURIComponent('{{ pagination.name }}'));{% endif %}
     if (params.length > 0) url += '?' + params.join('&');
     window.location.href = url;
 }

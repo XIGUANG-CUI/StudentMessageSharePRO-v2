@@ -57,6 +57,8 @@ from blueprints.api import bp as api_bp
 app.register_blueprint(api_bp)
 from blueprints.district_match import bp as district_match_bp
 app.register_blueprint(district_match_bp)
+from blueprints.archive import bp as archive_bp
+app.register_blueprint(archive_bp)
 
 # ========== 安全防护 ==========
 
@@ -247,13 +249,16 @@ def inject_last_update():
 
 @app.context_processor
 def inject_css_version():
-    """context_processor：注入 CSS 版本号（用于浏览器缓存刷新）。"""
-    try:
-        css_path = os.path.join(os.path.dirname(__file__), 'static', 'css', 'style.css')
-        css_mtime = int(os.path.getmtime(css_path))
-    except Exception:
-        css_mtime = int(time.time())
-    return {'css_version': css_mtime}
+    """context_processor：注入静态资源版本号（按 mtime），用于浏览器缓存刷新。"""
+    base = os.path.dirname(__file__)
+    versions = {}
+    for key, parts in (('css_version', ('static', 'css', 'style.css')),
+                       ('js_version', ('static', 'js', 'main.js'))):
+        try:
+            versions[key] = int(os.path.getmtime(os.path.join(base, *parts)))
+        except Exception:
+            versions[key] = int(time.time())
+    return versions
 
 @app.context_processor
 def inject_school_types():
