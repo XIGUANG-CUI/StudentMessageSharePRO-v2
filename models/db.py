@@ -19,6 +19,110 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
+# 区划字典（district.db）DDL —— 由 models.district.import_dictionary 执行
+# 该库独立于 student.db，不参与备份；运行期只读，仅导入时一次性写入
+# ============================================================
+DISTRICT_DDL = """
+CREATE TABLE IF NOT EXISTS dm_district_code (
+    district_code TEXT NOT NULL,
+    district_name TEXT NOT NULL,
+    admin_level   INTEGER NOT NULL,
+    parent_code   TEXT,
+    province_code TEXT,
+    city_code     TEXT,
+    PRIMARY KEY (district_code)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_dm_district_name
+    ON dm_district_code (district_name, admin_level);
+CREATE INDEX IF NOT EXISTS idx_dm_district_parent
+    ON dm_district_code (parent_code);
+CREATE INDEX IF NOT EXISTS idx_dm_district_level
+    ON dm_district_code (admin_level);
+"""
+
+
+# ============================================================
+# 区划匹配业务表（student.db）—— 批次 / 结果 / 历史映射
+# 幂等：全部 CREATE TABLE IF NOT EXISTS
+# ============================================================
+DISTRICT_MATCH_DDL = """
+CREATE TABLE IF NOT EXISTS dm_match_batch (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_no TEXT NOT NULL UNIQUE,
+    source TEXT DEFAULT 'batch',
+    total INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'running',
+    stats_json TEXT DEFAULT '',
+    created_by TEXT DEFAULT '',
+    is_deleted INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS dm_match_result (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id INTEGER,
+    student_id INTEGER,
+    student_name TEXT,
+    id_card TEXT,
+    address TEXT,
+    province_code TEXT,
+    province_name TEXT,
+    city_code TEXT,
+    city_name TEXT,
+    district_code TEXT,
+    district_name TEXT,
+    match_status TEXT,
+    engine1_detail TEXT,
+    engine2_detail TEXT,
+    decision_path TEXT,
+    source TEXT DEFAULT 'batch',
+    is_deleted INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_dm_result_batch
+    ON dm_match_result (batch_id);
+CREATE INDEX IF NOT EXISTS idx_dm_result_student
+    ON dm_match_result (student_id);
+CREATE INDEX IF NOT EXISTS idx_dm_result_id_card
+    ON dm_match_result (id_card);
+
+CREATE TABLE IF NOT EXISTS dm_history_mapping (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    old_code TEXT,
+    new_code TEXT,
+    old_name TEXT,
+    new_name TEXT,
+    change_type TEXT,
+    change_date TEXT,
+    remark TEXT,
+    is_deleted INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+# 历史区划映射内置种子（16 条）：仅当表为空时写入一次
+HISTORY_MAPPING_SEED = [
+    ("230105", "230104", "太平区", "道外区", "撤销合并", "2004", "太平区2004年并入道外区"),
+    ("231121", "231183", "嫩江县", "嫩江市", "撤县设市", "2019", "嫩江县2019年撤县设市"),
+    ("231024", "231086", "东宁县", "东宁市", "撤县设市", "2015", "东宁县2015年撤县设市"),
+    ("232723", "232701", "漠河县", "漠河市", "撤县设市", "2018", "漠河县2018年撤县设市"),
+    ("230182", "230113", "双城市", "双城区", "撤市设区", "2014", "双城市2014年撤市设区"),
+    ("210282", "210214", "普兰店市", "普兰店区", "撤市设区", "2015", "普兰店市2015年撤市设区"),
+    ("310230", "310151", "崇明县", "崇明区", "撤县设区", "2016", "崇明县2016年撤县设区"),
+    ("320584", "320509", "吴江市", "吴江区", "撤市设区", "2012", "吴江市2012年撤市设区"),
+    ("320124", "320117", "溧水县", "溧水区", "撤县设区", "2013", "溧水县2013年撤县设区"),
+    ("320125", "320118", "高淳县", "高淳区", "撤县设区", "2013", "高淳县2013年撤县设区"),
+    ("320323", "320312", "铜山县", "铜山区", "撤县设区", "2010", "铜山县2010年撤县设区"),
+    ("330621", "330603", "绍兴县", "柯桥区", "撤县设区", "2013", "绍兴县2013年撤县设区（柯桥区）"),
+    ("500227", "500120", "璧山县", "璧山区", "撤县设区", "2014", "璧山县2014年撤县设区"),
+    ("440183", "440118", "增城市", "增城区", "撤市设区", "2014", "增城市2014年撤市设区"),
+    ("320482", "320413", "金坛市", "金坛区", "撤市设区", "2015", "金坛市2015年撤市设区"),
+    ("321088", "321012", "江都市", "江都区", "撤市设区", "2011", "江都市2011年撤市设区"),
+]
+
+
+# ============================================================
 # 共享过滤函数：统一排除学籍状态为"毕业"的学生
 # 所有业务查询（学生列表/搜索/统计/导出等）必须调用此函数
 # ============================================================
@@ -160,6 +264,40 @@ def init_db():
             cursor.execute(f'ALTER TABLE students ADD COLUMN {col_name} {col_def}')
         except sqlite3.OperationalError:
             pass
+
+    # ========== 区划匹配：students 7 列（只增列，不改其他字段）==========
+    # 代码列必须 TEXT（12 位、保留前导零），默认空串表示未匹配
+    district_columns = [
+        ('district_province_name', "TEXT DEFAULT ''"),
+        ('district_province_code', "TEXT DEFAULT ''"),
+        ('district_city_name', "TEXT DEFAULT ''"),
+        ('district_city_code', "TEXT DEFAULT ''"),
+        ('district_county_name', "TEXT DEFAULT ''"),
+        ('district_county_code', "TEXT DEFAULT ''"),
+        ('district_match_status', "TEXT DEFAULT ''"),
+    ]
+    for col_name, col_def in district_columns:
+        try:
+            cursor.execute(f'ALTER TABLE students ADD COLUMN {col_name} {col_def}')
+        except sqlite3.OperationalError:
+            pass
+
+    # ========== 区划匹配：批次 / 结果 / 历史映射表 ==========
+    for statement in DISTRICT_MATCH_DDL.split(';'):
+        if statement.strip():
+            cursor.execute(statement)
+
+    # 历史映射种子：仅当表为空时写入一次，之后以表内记录为准
+    try:
+        if cursor.execute('SELECT COUNT(1) FROM dm_history_mapping').fetchone()[0] == 0:
+            cursor.executemany(
+                'INSERT INTO dm_history_mapping '
+                '(old_code, new_code, old_name, new_name, change_type, change_date, remark) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?)', HISTORY_MAPPING_SEED)
+    except sqlite3.OperationalError:
+        pass
+    # 立即提交种子事务，避免后续 migrate_* 新开连接时撞上写锁
+    conn.commit()
     
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
