@@ -151,7 +151,9 @@ ALL_STUDENT_FIELDS = [
     '入学年份',
     '姓名拼音', '学平险保单号', '学平险缴费日期', '学平险到期时间',
     '学平险保费金额', '实习险缴费日期', '主管标记', '申报日期',
-    '保单更新日期', '学费总体情况'
+    '保单更新日期', '学费总体情况',
+    # 区划匹配 7 列：系统自动生成，不进导入模板（导入侧忽略用户填值）
+    '省', '省区划代码', '市', '市区划代码', '县', '县区划代码', '匹配状态'
 ]
 
 FIELD_MAPPING = {
@@ -194,6 +196,14 @@ FIELD_MAPPING = {
     '申报日期': 'declaration_date',
     '保单更新日期': 'insurance_update_date',
     '学费总体情况': 'tuition_status',
+    # 区划匹配 7 列（自动生成；导出引擎白名单由本映射派生）
+    '省': 'district_province_name',
+    '省区划代码': 'district_province_code',
+    '市': 'district_city_name',
+    '市区划代码': 'district_city_code',
+    '县': 'district_county_name',
+    '县区划代码': 'district_county_code',
+    '匹配状态': 'district_match_status',
     '学校类别': 'school',
 }
 

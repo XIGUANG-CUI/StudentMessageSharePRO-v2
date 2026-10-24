@@ -59,6 +59,8 @@ def _cleanup_db(db_conn):
         'attendance_records', 'attendance_dates', 'update_logs',
         'export_history', 'export_field_mappings', 'export_templates',
         'dicts', 'students', 'users',
+        # 区划匹配结果表（幂等清空；字典历史映射种子不动）
+        'dm_match_result', 'dm_match_batch',
     ]
     try:
         for table in tables_to_clean:

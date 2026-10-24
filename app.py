@@ -55,6 +55,8 @@ app.register_blueprint(leave_cancel_bp)
 app.register_blueprint(lifecycle_bp)
 from blueprints.api import bp as api_bp
 app.register_blueprint(api_bp)
+from blueprints.district_match import bp as district_match_bp
+app.register_blueprint(district_match_bp)
 
 # ========== 安全防护 ==========
 
@@ -124,7 +126,8 @@ def _inject_field_help():
         'import_fields': list(config.ALL_STUDENT_FIELDS),
         'import_count': len(config.ALL_STUDENT_FIELDS),
         'required_fields': ['学生姓名', '学生身份证号', '学号'],
-        'auto_fields': ['年龄', '姓名拼音'],
+        'auto_fields': ['年龄', '姓名拼音', '省', '省区划代码', '市', '市区划代码',
+                        '县', '县区划代码', '匹配状态'],
         'is_admin': user_role == 'admin',
         'insurance_fields': ['学平险保单号', '学平险缴费日期', '学平险到期时间',
                              '学平险保费金额', '实习险缴费日期', '主管标记',

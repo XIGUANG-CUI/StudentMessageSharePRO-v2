@@ -3,6 +3,7 @@ import re
 import logging
 from datetime import datetime, timedelta
 from models.db import get_db, _exclude_graduated_clause
+from models.district import fill_district_fields, DISTRICT_FIELDS
 from models.logs import update_sync_timestamp
 from models.school_types import get_school_type_map
 
@@ -38,7 +39,10 @@ def create_student(student_data):
             existing = get_student_by_id_card(id_card)
             if existing:
                 raise ValueError(f'身份证号 {id_card} 已存在')
-        
+
+        # 区划联动：就地补 7 键（纯内存、不抛异常；事务仍由本函数控制）
+        fill_district_fields(student_data, conn)
+
         cursor.execute('''
             INSERT INTO students (student_no, national_no, id_card, name, gender, birth_date,
                                   ethnicity, address, major, admin_class, virtual_class,
@@ -47,9 +51,12 @@ def create_student(student_data):
                                   issue_authority, valid_start, valid_end, major_direction,
                                   household_type, junior_school, admission_type,
                                   junior_graduation_time, change_info, remark, enrollment_year,
-                                  name_pinyin, created_at)
+                                  name_pinyin, district_province_name, district_province_code,
+                                  district_city_name, district_city_code, district_county_name,
+                                  district_county_code, district_match_status, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    datetime('now', 'localtime'))
         ''', (
             student_no,
             national_no,
@@ -81,7 +88,14 @@ def create_student(student_data):
             _to_null_if_empty(student_data.get('change_info')),
             _to_null_if_empty(student_data.get('remark')),
             student_data.get('enrollment_year', 0),
-            student_data.get('name_pinyin', '')
+            student_data.get('name_pinyin', ''),
+            student_data.get('district_province_name', ''),
+            student_data.get('district_province_code', ''),
+            student_data.get('district_city_name', ''),
+            student_data.get('district_city_code', ''),
+            student_data.get('district_county_name', ''),
+            student_data.get('district_county_code', ''),
+            student_data.get('district_match_status', '')
         ))
         conn.commit()
         update_sync_timestamp()
@@ -126,6 +140,9 @@ def create_student_with_conn(conn, student_data):
             if cursor.fetchone():
                 raise ValueError(f'身份证号 {id_card} 已存在')
 
+        # 区划联动：批量导入逐行补 7 键（>500 行请改用 fill_district_fields_many）
+        fill_district_fields(student_data, conn)
+
         cursor.execute('''
             INSERT INTO students (student_no, national_no, id_card, name, gender, birth_date,
                                   ethnicity, address, major, admin_class, virtual_class,
@@ -134,9 +151,12 @@ def create_student_with_conn(conn, student_data):
                                   issue_authority, valid_start, valid_end, major_direction,
                                   household_type, junior_school, admission_type,
                                   junior_graduation_time, change_info, remark, enrollment_year,
-                                  name_pinyin, created_at)
+                                  name_pinyin, district_province_name, district_province_code,
+                                  district_city_name, district_city_code, district_county_name,
+                                  district_county_code, district_match_status, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    datetime('now', 'localtime'))
         ''', (
             student_no,
             national_no,
@@ -168,7 +188,14 @@ def create_student_with_conn(conn, student_data):
             _to_null_if_empty(student_data.get('change_info')),
             _to_null_if_empty(student_data.get('remark')),
             student_data.get('enrollment_year', 0),
-            student_data.get('name_pinyin', '')
+            student_data.get('name_pinyin', ''),
+            student_data.get('district_province_name', ''),
+            student_data.get('district_province_code', ''),
+            student_data.get('district_city_name', ''),
+            student_data.get('district_city_code', ''),
+            student_data.get('district_county_name', ''),
+            student_data.get('district_county_code', ''),
+            student_data.get('district_match_status', '')
         ))
         return cursor.lastrowid
     except ValueError:
@@ -282,7 +309,28 @@ def update_student(student_id, student_data):
             existing = get_student_by_id_card(id_card)
             if existing and existing.get('id') != student_id:
                 raise ValueError(f'身份证号 {id_card} 已存在')
-        
+
+        # 区划联动：仅当身份证/地址发生变化时重算 7 列（失败留空，不阻断更新）
+        try:
+            current = get_student_by_id(student_id) or {}
+            id_changed = ('id_card' in student_data and
+                          _to_null_if_empty(student_data.get('id_card'))
+                          != _to_null_if_empty(current.get('id_card')))
+            addr_changed = ('address' in student_data and
+                            _to_null_if_empty(student_data.get('address'))
+                            != _to_null_if_empty(current.get('address')))
+            if id_changed or addr_changed:
+                source = {
+                    'id_card': student_data.get('id_card', current.get('id_card')),
+                    'address': student_data.get('address', current.get('address')),
+                }
+                fill_district_fields(source, conn)
+                for key in DISTRICT_FIELDS:
+                    student_data[key] = source.get(key, '')
+                allowed_fields = allowed_fields + list(DISTRICT_FIELDS)
+        except Exception as exc:
+            logger.warning('区划联动失败，本次更新跳过区划列：%s', exc)
+
         updates = []
         values = []
         for field, value in student_data.items():
