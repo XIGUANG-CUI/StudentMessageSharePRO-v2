@@ -74,6 +74,12 @@ if os.path.exists(static_dir):
             rel = os.path.relpath(root, base_path)
             datas.append((src, rel))
 
+# 区划数据包（约 5.16 MiB）。缺失直接让打包失败，避免产出无字典的 EXE
+pack_path = os.path.join(base_path, 'data', 'district_pack.tsv.gz')
+if not os.path.exists(pack_path):
+    raise SystemExit(f'[spec] 缺少区划数据包：{pack_path}')
+datas.append((pack_path, 'data'))
+
 # 3. SDK 文件（读卡器 DLL + license.dat）
 if os.path.exists(sdk_dir):
     for file in os.listdir(sdk_dir):
