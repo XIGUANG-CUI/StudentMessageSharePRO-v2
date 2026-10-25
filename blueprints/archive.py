@@ -188,6 +188,7 @@ def api_students():
             'school': row.get('school'),
             'grade': row.get('grade') or '',
             'admin_class': row.get('admin_class') or '',
+            'address': row.get('address') or '',
             'county_code': row['group_code'],
             'county_name': row['group_name'],
             'graduate_year': models.graduate_year_of(row.get('grade')),

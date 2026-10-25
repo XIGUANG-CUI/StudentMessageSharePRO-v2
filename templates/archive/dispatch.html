@@ -72,6 +72,8 @@
     .ad-table tbody tr.is-picked { background: #ecfdf5; }
     .ad-mono { font-family: ui-monospace, monospace; font-size: .77rem; color: var(--ad-gray-500); }
     .ad-name { font-weight: 600; color: var(--ad-gray-900); }
+    .ad-idcard { font-family: ui-monospace, monospace; font-size: .77rem; color: var(--ad-gray-500); white-space: nowrap; }
+    .ad-addr { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
     .ad-badge { display: inline-flex; align-items: center; padding: .16rem .5rem; border-radius: 20px; font-size: .71rem; font-weight: 700; white-space: nowrap; }
     .ad-badge-county { background: #ecfdf5; color: #047857; }
@@ -183,16 +185,18 @@
                                 <th style="width:34px"></th>
                                 <th>学号</th>
                                 <th>姓名</th>
+                                <th>身份证号</th>
                                 <th>班级</th>
                                 <th>县（区）</th>
                                 <th>接收机构</th>
+                                <th>住址</th>
                                 <th>匹配方式</th>
                                 <th>派遣状态</th>
                                 <th>操作</th>
                             </tr>
                         </thead>
                         <tbody id="adTableBody">
-                            <tr><td colspan="9" class="ad-empty">请先在左侧选择县（区）</td></tr>
+                            <tr><td colspan="11" class="ad-empty">请先在左侧选择县（区）</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -492,7 +496,7 @@
     function loadStudents() {
         if (!state.county) {
             document.getElementById('adTableBody').innerHTML =
-                '<tr><td colspan="9" class="ad-empty">请先在左侧选择县（区）</td></tr>';
+                '<tr><td colspan="11" class="ad-empty">请先在左侧选择县（区）</td></tr>';
             updateSelCount();
             return;
         }
@@ -519,7 +523,7 @@
             })
             .catch(function() {
                 document.getElementById('adTableBody').innerHTML =
-                    '<tr><td colspan="9" class="ad-empty">加载失败，请重试</td></tr>';
+                    '<tr><td colspan="11" class="ad-empty">加载失败，请重试</td></tr>';
             });
     }
 
@@ -530,7 +534,7 @@
     function renderStudents() {
         var body = document.getElementById('adTableBody');
         if (!state.students.length) {
-            body.innerHTML = '<tr><td colspan="9" class="ad-empty">该县暂无符合条件的毕业生</td></tr>';
+            body.innerHTML = '<tr><td colspan="11" class="ad-empty">该县暂无符合条件的毕业生</td></tr>';
             updateSelCount();
             return;
         }
@@ -562,9 +566,11 @@
                     : '') + '</td>' +
                 '<td class="ad-mono">' + esc(s.student_no) + '</td>' +
                 '<td class="ad-name">' + esc(s.name) + '</td>' +
+                '<td class="ad-idcard">' + esc(s.id_card || '—') + '</td>' +
                 '<td>' + esc(s.admin_class) + '</td>' +
                 '<td>' + esc(s.county_name) + '</td>' +
                 '<td>' + esc(s.agency_name || '—') + '</td>' +
+                '<td class="ad-addr" title="' + esc(s.address || '') + '">' + esc(s.address || '—') + '</td>' +
                 '<td>' + badge(s.match_status, matchCls) +
                     (s.match_reason ? ' <span class="small text-muted">' + esc(s.match_reason) + '</span>' : '') + '</td>' +
                 '<td>' + badge(statusText, statusCls) + '</td>' +

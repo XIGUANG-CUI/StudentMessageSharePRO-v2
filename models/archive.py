@@ -424,7 +424,7 @@ def load_graduates(grade=None, school=None):
     conn = get_db()
     sql = '''
         SELECT s.id, s.student_no, s.id_card, s.name, s.school, s.grade, s.admin_class,
-               s.student_phone, s.parent_phone, s.major_direction,
+               s.student_phone, s.parent_phone, s.major_direction, s.address,
                s.district_province_code, s.district_province_name,
                s.district_city_code, s.district_city_name,
                s.district_county_code, s.district_county_name,
