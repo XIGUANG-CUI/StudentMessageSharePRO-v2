@@ -130,6 +130,118 @@
     .ee-no-match {
         color: #9CA3AF;
     }
+    /* ===== Excel 网格预览 ===== */
+    .ee-preview-wrap.is-grid {
+        max-height: 560px;
+        overflow: auto;
+        background: #fff;
+        border: 1px solid var(--ee-border);
+        border-radius: 8px;
+    }
+    .ee-sheet-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+        flex-wrap: wrap;
+    }
+    .ee-sheet-tabs {
+        display: flex;
+        gap: 4px;
+        align-items: flex-end;
+    }
+    .ee-sheet-tab {
+        border: 1px solid var(--ee-border);
+        background: #F3F4F6;
+        color: #4B5563;
+        border-radius: 6px 6px 0 0;
+        padding: 3px 12px;
+        font-size: 12px;
+        line-height: 18px;
+        cursor: pointer;
+    }
+    .ee-sheet-tab.active {
+        background: #fff;
+        color: var(--ee-primary);
+        font-weight: 600;
+        border-bottom-color: #fff;
+    }
+    .ee-xgrid {
+        border-collapse: collapse;
+        table-layout: fixed;
+        font-size: 12px;
+        background: #fff;
+        color: #1F2329;
+    }
+    .ee-xgrid th.ee-gut {
+        background: #F3F4F6;
+        color: #6B7280;
+        font-weight: 400;
+        font-size: 11px;
+        text-align: center;
+        border: 1px solid #E5E7EB;
+        position: sticky;
+        padding: 0;
+    }
+    .ee-xgrid thead th.ee-gut {
+        top: 0;
+        z-index: 3;
+    }
+    .ee-xgrid tbody th.ee-rowhead {
+        left: 0;
+        z-index: 2;
+    }
+    .ee-xgrid th.ee-corner {
+        left: 0;
+        z-index: 4;
+    }
+    .ee-xgrid td {
+        padding: 2px 5px;
+        vertical-align: middle;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        border: 1px solid #F0F1F3;
+    }
+    .ee-cell-empty {
+        background: #FFF8E1;
+        box-shadow: inset 0 0 0 1px #EFAA17;
+    }
+    .ee-cell-ph {
+        color: #DC2626;
+        text-decoration: underline wavy #DC2626;
+        text-underline-offset: 2px;
+    }
+    .ee-preview-note {
+        font-size: 12px;
+    }
+    /* ===== Word 版式预览 ===== */
+    .ee-preview-wrap.is-docx {
+        max-height: 640px;
+        overflow: auto;
+        background: #F3F4F6;
+        border: 1px solid var(--ee-border);
+        border-radius: 8px;
+        padding: 16px 0;
+    }
+    .ee-preview-wrap.is-docx .docx-wrapper {
+        background: transparent !important;
+        padding: 0 !important;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+    }
+    .ee-preview-wrap.is-docx .docx-wrapper > section.docx {
+        margin: 0 !important;
+        box-shadow: 0 2px 12px rgba(31, 35, 41, .14);
+    }
+    .ee-docx-loading {
+        text-align: center;
+        color: #6B7280;
+        padding: 30px 0;
+        font-size: 13px;
+    }
     .ee-filter-tag {
         display: inline-block;
         padding: 2px 8px;
@@ -337,18 +449,37 @@
             <span class="ee-step-badge">3</span> 预览与导出
         </div>
         <div class="ee-card-body">
-            <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                 <span class="fw-semibold small text-muted">
-                    <i class="bi bi-eye"></i> 填充效果预览（前5条）
+                    <i class="bi bi-eye"></i> 填充效果预览
+                    <span id="previewModeLabel" class="text-muted">（前 3 条）</span>
                     <span id="previewCount" class="badge bg-secondary ms-1">0条</span>
                 </span>
-                <div>
-                    <button class="btn btn-sm btn-outline-secondary me-1" onclick="loadPreview()">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <input type="text" class="form-control form-control-sm" id="previewSearch"
+                           style="width:190px" placeholder="指定学生：姓名/学号/身份证">
+                    <button class="btn btn-sm btn-outline-primary" onclick="loadPreview()">
                         <i class="bi bi-arrow-clockwise"></i> 刷新预览
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary d-none" id="btnPreviewDownload">
+                        <i class="bi bi-file-earmark-arrow-down"></i> 下载预览件
                     </button>
                     <button class="btn btn-success" id="btnExport" onclick="executeExport()">
                         <i class="bi bi-download"></i> 确认导出
                     </button>
+                </div>
+            </div>
+
+            <div class="ee-sheet-bar d-none" id="sheetToolbar">
+                <div class="ee-sheet-tabs" id="sheetTabs"></div>
+                <div class="ms-auto d-flex align-items-center gap-2">
+                    <span class="small text-muted">缩放</span>
+                    <select class="form-select form-select-sm" id="gridZoom" style="width:90px" onchange="applyGridZoom()">
+                        <option value="0.5">50%</option>
+                        <option value="0.75">75%</option>
+                        <option value="1" selected>100%</option>
+                        <option value="1.25">125%</option>
+                    </select>
                 </div>
             </div>
 
@@ -358,6 +489,8 @@
                     <p>点击「刷新预览」查看填充效果</p>
                 </div>
             </div>
+
+            <div class="text-muted small mt-2 d-none" id="previewHint"></div>
         </div>
     </div>
 
@@ -436,6 +569,8 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='vendor/jszip.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/docx-preview.min.js') }}"></script>
 <script>
     // ---- 全局状态 ----
     let currentTemplate = null;
@@ -448,6 +583,13 @@
         loadTemplates();
         loadAvailableFields();
         setupDragDrop();
+        document.getElementById('sheetTabs').addEventListener('click', function (e) {
+            const tab = e.target.closest('.ee-sheet-tab');
+            if (!tab) return;
+            currentSheetIndex = parseInt(tab.getAttribute('data-index'), 10) || 0;
+            renderSheetTabs();
+            renderCurrentSheet();
+        });
     });
 
     // ---- 拖拽上传 ----
@@ -488,6 +630,7 @@
                 status.innerHTML = '<div class="text-success small"><i class="bi bi-check-circle"></i> 模板解析成功！发现 ' + data.template.placeholders.length + ' 个占位符</div>';
                 currentTemplate = data.template;
                 buildMappingTable(data.template.placeholders);
+                resetPreviewPanel();
                 loadTemplates();
                 document.getElementById('mappingSection').style.display = '';
                 document.getElementById('exportSection').style.display = '';
@@ -541,6 +684,7 @@
             if (tpl) {
                 currentTemplate = tpl;
                 buildMappingTable(tpl.placeholders);
+                resetPreviewPanel();
                 document.getElementById('mappingSection').style.display = '';
                 document.getElementById('exportSection').style.display = '';
                 loadTemplates();
@@ -811,62 +955,363 @@
     }
 
     // ---- 预览 ----
+    let currentSheets = [];
+    let currentSheetIndex = 0;
+    let previewDownloadUrl = '';
+
+    function resetPreviewPanel() {
+        currentSheets = [];
+        currentSheetIndex = 0;
+        previewDownloadUrl = '';
+        document.getElementById('previewSearch').value = '';
+        document.getElementById('sheetToolbar').classList.add('d-none');
+        document.getElementById('btnPreviewDownload').classList.add('d-none');
+        document.getElementById('previewModeLabel').textContent = '（前 3 条）';
+        document.getElementById('previewCount').textContent = '0条';
+
+        const hint = document.getElementById('previewHint');
+        hint.classList.add('d-none');
+        hint.textContent = '';
+
+        const area = document.getElementById('previewArea');
+        area.classList.remove('is-grid');
+        area.classList.remove('is-docx');
+        area.innerHTML = '<div class="ee-empty-state"><i class="bi bi-table"></i><p>点击「刷新预览」查看填充效果</p></div>';
+    }
+
     async function loadPreview() {
         if (!currentTemplate) {
             showToast('请先选择模板', 'warning');
             return;
         }
 
-        const resp = await fetch('/api/export/preview', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': '{{ csrf_token }}'
-            },
-            body: JSON.stringify({ mappings: currentMappings })
-        });
-        const data = await resp.json();
+        const search = document.getElementById('previewSearch').value.trim();
+        const area = document.getElementById('previewArea');
+        area.innerHTML = '<div class="text-center text-muted py-4">' +
+            '<span class="spinner-border spinner-border-sm"></span> 正在生成预览…</div>';
 
-        if (!data.success) {
-            document.getElementById('previewArea').innerHTML = '<div class="alert alert-warning m-3">' + escapeHtml(data.message) + '</div>';
-            return;
+        try {
+            const resp = await fetch('/api/export/preview-render', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': '{{ csrf_token }}'
+                },
+                body: JSON.stringify({
+                    template_id: currentTemplate.id,
+                    mappings: currentMappings,
+                    search: search,
+                    limit: 3
+                })
+            });
+            const data = await resp.json();
+
+            if (!data.success) {
+                area.innerHTML = '<div class="alert alert-warning m-3">' + escapeHtml(data.message) + '</div>';
+                return;
+            }
+
+            document.getElementById('previewCount').textContent = data.total_count + '条';
+            document.getElementById('previewModeLabel').textContent = search
+                ? '（指定学生：' + search + '）'
+                : '（前 ' + (data.sample_count || 3) + ' 条）';
+
+            // 同步更新映射表的「预览」列
+            if (data.preview_rows && data.preview_rows.length > 0) {
+                const firstRow = data.preview_rows[0];
+                currentMappings.forEach((m, i) => {
+                    const cell = document.getElementById('previewCell' + i);
+                    if (cell) {
+                        const val = firstRow[m.placeholder] || '';
+                        cell.textContent = val.length > 20 ? val.substring(0, 20) + '...' : val;
+                        cell.title = val;
+                    }
+                });
+            }
+
+            if (data.grid_supported) {
+                renderGridPreview(data);
+            } else if (data.docx_supported) {
+                renderDocxPreview(data);
+            } else {
+                renderTablePreview(data.preview_rows);
+            }
+        } catch (err) {
+            area.innerHTML = '<div class="alert alert-danger m-3">预览失败: ' + escapeHtml(err.message) + '</div>';
         }
+    }
 
-        document.getElementById('previewCount').textContent = data.total_count + '条';
+    // 降级预览：Word 渲染库不可用时用数据表格兜底
+    function renderTablePreview(rows) {
+        const area = document.getElementById('previewArea');
+        area.classList.remove('is-grid');
+        area.classList.remove('is-docx');
+        document.getElementById('sheetToolbar').classList.add('d-none');
+        document.getElementById('btnPreviewDownload').classList.add('d-none');
 
-        if (!data.preview_rows || data.preview_rows.length === 0) {
-            document.getElementById('previewArea').innerHTML = '<div class="ee-empty-state"><i class="bi bi-inbox"></i><p>无数据可预览</p></div>';
+        if (!rows || rows.length === 0) {
+            area.innerHTML = '<div class="ee-empty-state"><i class="bi bi-inbox"></i><p>无数据可预览</p></div>';
             return;
         }
 
         const headers = currentMappings.map(m => m.placeholder);
-        let html = '<table class="table table-sm table-bordered ee-preview-table"><thead><tr>';
-        html += '<th>#</th>';
+        let html = '<table class="table table-sm table-bordered ee-preview-table"><thead><tr><th>#</th>';
         headers.forEach(h => { html += '<th>' + escapeHtml(h) + '</th>'; });
         html += '</tr></thead><tbody>';
-
-        data.preview_rows.forEach((row, ri) => {
+        rows.forEach((row, ri) => {
             html += '<tr><td>' + (ri + 1) + '</td>';
-            headers.forEach(h => {
-                html += '<td>' + escapeHtml(row[h] || '') + '</td>';
-            });
+            headers.forEach(h => { html += '<td>' + escapeHtml(row[h] || '') + '</td>'; });
             html += '</tr>';
         });
         html += '</tbody></table>';
-        document.getElementById('previewArea').innerHTML = html;
+        area.innerHTML = html;
 
-        // 同时更新映射表的预览列
-        if (data.preview_rows.length > 0) {
-            const firstRow = data.preview_rows[0];
-            currentMappings.forEach((m, i) => {
-                const cell = document.getElementById('previewCell' + i);
-                if (cell) {
-                    const val = firstRow[m.placeholder] || '';
-                    cell.textContent = val.length > 20 ? val.substring(0, 20) + '...' : val;
-                    cell.title = val;
-                }
-            });
+        const hint = document.getElementById('previewHint');
+        hint.classList.remove('d-none');
+        hint.textContent = 'Word 渲染库未加载，已降级为数据表格预览。';
+    }
+
+    // Word 模板：用 docx-preview 渲染真实导出文档的版式
+    async function renderDocxPreview(data) {
+        const area = document.getElementById('previewArea');
+        area.classList.remove('is-grid');
+        area.classList.add('is-docx');
+
+        document.getElementById('sheetToolbar').classList.remove('d-none');
+        document.getElementById('sheetTabs').innerHTML = '<span class="text-muted small">Word 文档</span>';
+
+        previewDownloadUrl = data.download_url || '';
+        const btn = document.getElementById('btnPreviewDownload');
+        btn.classList.remove('d-none');
+        btn.onclick = function () {
+            if (previewDownloadUrl) window.location.href = previewDownloadUrl;
+        };
+
+        const hint = document.getElementById('previewHint');
+        hint.classList.remove('d-none');
+        hint.textContent = 'Word 版式预览由真实导出文档渲染：分页、表格与字体按模板设定；复杂浮动图形、艺术字可能有轻微偏差。';
+
+        if (typeof window.docx === 'undefined' || typeof window.JSZip === 'undefined') {
+            renderTablePreview(data.preview_rows);
+            return;
         }
+
+        area.innerHTML = '<div class="ee-docx-host">' +
+            '<div class="ee-docx-loading"><span class="spinner-border spinner-border-sm"></span> 正在渲染文档版式…</div>' +
+            '</div>';
+        const host = area.querySelector('.ee-docx-host');
+
+        try {
+            const resp = await fetch(data.inline_url);
+            if (!resp.ok) throw new Error('预览文件已过期，请重新刷新预览');
+            const buffer = await resp.arrayBuffer();
+
+            host.innerHTML = '';
+            await window.docx.renderAsync(buffer, host, host, {
+                className: 'docx',
+                inWrapper: true,
+                ignoreWidth: false,
+                ignoreHeight: false,
+                breakPages: true,
+                ignoreLastRenderedPageBreak: false,
+                renderHeaders: true,
+                renderFooters: true,
+                renderFootnotes: true,
+                renderEndnotes: true,
+                useBase64URL: true,
+                experimental: false
+            });
+            applyGridZoom();
+        } catch (err) {
+            area.innerHTML = '<div class="alert alert-danger m-3">文档渲染失败: ' + escapeHtml(err.message) + '</div>';
+        }
+    }
+
+    // Excel 模板：渲染真实导出文件的网格样式
+    function renderGridPreview(data) {
+        currentSheets = data.sheets || [];
+        currentSheetIndex = 0;
+        previewDownloadUrl = data.download_url || '';
+
+        document.getElementById('previewArea').classList.remove('is-docx');
+        document.getElementById('previewArea').classList.add('is-grid');
+        document.getElementById('sheetToolbar').classList.remove('d-none');
+
+        const btn = document.getElementById('btnPreviewDownload');
+        btn.classList.remove('d-none');
+        btn.onclick = function () {
+            if (previewDownloadUrl) window.location.href = previewDownloadUrl;
+        };
+
+        renderSheetTabs();
+        renderCurrentSheet();
+
+        const hint = document.getElementById('previewHint');
+        hint.classList.remove('d-none');
+        hint.textContent = data.truncated
+            ? '模板尺寸较大，预览只显示前 300 行 × 60 列；下载的预览件内容完整。'
+            : '预览由真实导出文件渲染，与最终下载一致；Excel 的打印分页与纸张设置不在预览范围内。';
+    }
+
+    function renderSheetTabs() {
+        const tabs = document.getElementById('sheetTabs');
+        if (!currentSheets.length) {
+            tabs.innerHTML = '';
+            return;
+        }
+        if (currentSheets.length === 1) {
+            tabs.innerHTML = '<span class="text-muted small">工作表：' + escapeHtml(currentSheets[0].name) + '</span>';
+            return;
+        }
+        tabs.innerHTML = currentSheets.map((s, i) =>
+            '<button type="button" class="ee-sheet-tab' + (i === currentSheetIndex ? ' active' : '') +
+            '" data-index="' + i + '">' + escapeHtml(s.name) + '</button>'
+        ).join('');
+    }
+
+    function colToNum(letters) {
+        let n = 0;
+        for (let i = 0; i < letters.length; i++) {
+            n = n * 26 + (letters.charCodeAt(i) - 64);
+        }
+        return n;
+    }
+
+    function numToCol(n) {
+        let s = '';
+        while (n > 0) {
+            const rem = (n - 1) % 26;
+            s = String.fromCharCode(65 + rem) + s;
+            n = Math.floor((n - 1) / 26);
+        }
+        return s;
+    }
+
+    function cellCss(cell) {
+        const css = [];
+        const font = cell.f || {};
+        if (font.b) css.push('font-weight:700');
+        if (font.i) css.push('font-style:italic');
+        if (font.u) css.push('text-decoration:underline');
+        if (font.s) css.push('text-decoration:line-through');
+        if (font.sz) css.push('font-size:' + font.sz + 'pt');
+        if (font.c) css.push('color:' + font.c);
+        if (font.n) css.push('font-family:"' + String(font.n).replace(/"/g, '') + '",sans-serif');
+        if (cell.bg) css.push('background:' + cell.bg);
+
+        const bd = cell.bd || {};
+        const sides = [['t', 'border-top'], ['r', 'border-right'], ['b', 'border-bottom'], ['l', 'border-left']];
+        sides.forEach(pair => {
+            const side = bd[pair[0]];
+            if (!side) return;
+            const width = side.s === 'double' ? '3px' : '1px';
+            css.push(pair[1] + ':' + width + ' ' + side.s + ' ' + side.c);
+        });
+
+        const al = cell.al || {};
+        if (al.h) {
+            const map = { center: 'center', right: 'right', justify: 'justify', left: 'left' };
+            css.push('text-align:' + (map[al.h] || 'left'));
+        }
+        if (al.v) {
+            const map = { center: 'middle', top: 'top', bottom: 'bottom' };
+            css.push('vertical-align:' + (map[al.v] || 'middle'));
+        }
+        if (al.wrap) css.push('white-space:pre-wrap');
+        if (al.ind) css.push('padding-left:' + (5 + al.ind * 8) + 'px');
+        return css.join(';');
+    }
+
+    function renderCurrentSheet() {
+        const area = document.getElementById('previewArea');
+        const sheet = currentSheets[currentSheetIndex];
+        if (!sheet) {
+            area.innerHTML = '<div class="ee-empty-state"><i class="bi bi-inbox"></i><p>无工作表</p></div>';
+            return;
+        }
+
+        const maxRow = sheet.max_row || 1;
+        const maxCol = sheet.max_col || 1;
+        const rowHeights = sheet.row_heights || {};
+        const colWidths = sheet.col_widths || {};
+
+        // 解析合并区域：锚点跨度 + 被覆盖单元格
+        const anchors = {};
+        const covered = {};
+        (sheet.merges || []).forEach(range => {
+            const m = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(range);
+            if (!m) return;
+            const c1 = colToNum(m[1]);
+            const r1 = parseInt(m[2], 10);
+            const c2 = colToNum(m[3]);
+            const r2 = parseInt(m[4], 10);
+            if (r1 > maxRow || c1 > maxCol) return;
+            const endRow = Math.min(r2, maxRow);
+            const endCol = Math.min(c2, maxCol);
+            anchors[r1 + '_' + c1] = { rs: endRow - r1 + 1, cs: endCol - c1 + 1 };
+            for (let r = r1; r <= endRow; r++) {
+                for (let c = c1; c <= endCol; c++) {
+                    if (r === r1 && c === c1) continue;
+                    covered[r + '_' + c] = 1;
+                }
+            }
+        });
+
+        const cellMap = {};
+        (sheet.cells || []).forEach(cell => { cellMap[cell.r + '_' + cell.c] = cell; });
+
+        let totalWidth = 34;
+        let colgroup = '<colgroup><col style="width:34px">';
+        for (let c = 1; c <= maxCol; c++) {
+            const w = colWidths[c] || 64;
+            totalWidth += w;
+            colgroup += '<col style="width:' + w + 'px">';
+        }
+        colgroup += '</colgroup>';
+
+        let head = '<thead><tr><th class="ee-gut ee-corner"></th>';
+        for (let c = 1; c <= maxCol; c++) {
+            head += '<th class="ee-gut">' + numToCol(c) + '</th>';
+        }
+        head += '</tr></thead>';
+
+        let body = '<tbody>';
+        for (let r = 1; r <= maxRow; r++) {
+            body += '<tr style="height:' + (rowHeights[r] || 20) + 'px">';
+            body += '<th class="ee-gut ee-rowhead">' + r + '</th>';
+            for (let c = 1; c <= maxCol; c++) {
+                if (covered[r + '_' + c]) continue;
+                const cell = cellMap[r + '_' + c] || { r: r, c: c, v: '' };
+                const anchor = anchors[r + '_' + c];
+                let attr = '';
+                if (anchor) {
+                    if (anchor.rs > 1) attr += ' rowspan="' + anchor.rs + '"';
+                    if (anchor.cs > 1) attr += ' colspan="' + anchor.cs + '"';
+                }
+                const cls = [];
+                if (cell.empty) cls.push('ee-cell-empty');
+                if (cell.ph) cls.push('ee-cell-ph');
+                const style = cellCss(cell);
+                body += '<td' + attr +
+                    (cls.length ? ' class="' + cls.join(' ') + '"' : '') +
+                    (style ? ' style="' + style + '"' : '') + '>' +
+                    escapeHtml(cell.v) + '</td>';
+            }
+            body += '</tr>';
+        }
+        body += '</tbody>';
+
+        area.innerHTML = '<table class="ee-xgrid" style="width:' + totalWidth + 'px">' +
+            colgroup + head + body + '</table>';
+        applyGridZoom();
+    }
+
+    function applyGridZoom() {
+        const zoom = parseFloat(document.getElementById('gridZoom').value || '1');
+        const table = document.querySelector('#previewArea .ee-xgrid');
+        if (table) table.style.zoom = zoom;
+        const docxHost = document.querySelector('#previewArea .ee-docx-host');
+        if (docxHost) docxHost.style.zoom = zoom;
     }
 
     // ---- 导出 ----

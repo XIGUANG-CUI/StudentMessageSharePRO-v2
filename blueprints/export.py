@@ -1,6 +1,7 @@
 import os
 import re
 import secrets
+import time
 from datetime import datetime
 
 from flask import Blueprint, request, session, jsonify, render_template, send_file, flash
@@ -510,40 +511,10 @@ def api_export_preview():
 
     filter_data = _get_export_filter_from_session()
     students = _apply_filter_to_query(filter_data)
-    preview_students = students[:5]
-    school_names = models.get_school_type_map()
-
-    preview_rows = []
-    for student in preview_students:
-        row = {}
-        # 计算 age
-        if student.get('birth_date'):
-            try:
-                bd = datetime.strptime(student['birth_date'], '%Y-%m-%d')
-                today = datetime.today()
-                student['age'] = today.year - bd.year - ((today.month, today.day) < (bd.month, bd.day))
-            except (ValueError, TypeError):
-                student['age'] = ''
-        else:
-            student['age'] = ''
-        student['_school_name'] = school_names.get(student.get('school'), '')
-
-        for m in mappings:
-            ph = m.get('placeholder', '')
-            sf = m.get('source_field', '')
-            dv = m.get('default_value', '')
-            if sf and sf in student:
-                val = student[sf]
-                row[ph] = str(val) if val is not None else dv
-            elif sf == '_school_name':
-                row[ph] = student.get('_school_name', dv)
-            else:
-                row[ph] = dv
-        preview_rows.append(row)
 
     return jsonify({
         'success': True,
-        'preview_rows': preview_rows,
+        'preview_rows': _build_preview_rows(students, mappings, 5),
         'total_count': len(students)
     })
 
@@ -564,8 +535,12 @@ def api_export_history():
     return jsonify({'success': True, 'history': history})
 
 
-def _export_xlsx(template_path, students, mappings):
-    """执行 Excel 模板填充导出"""
+def _export_xlsx(template_path, students, mappings, empty_cells=None):
+    """执行 Excel 模板填充导出。
+
+    empty_cells: 预览用可选集合，收集"占位符替换后为空"的单元格
+    (工作表名, 行号, 列号)，用于在预览中标注空值位置。
+    """
     from copy import copy
     wb = load_workbook(template_path)
     pattern = re.compile(r'\$\{([^}]+)\}')
@@ -674,6 +649,8 @@ def _export_xlsx(template_path, students, mappings):
                             # 对于纯占位符单元格（单元格内容只有一个占位符），保留替换值的类型
                             if original.strip() == placeholder_pattern:
                                 cell.value = val
+                                if empty_cells is not None and val == '':
+                                    empty_cells.add((ws.title, current_row, col_idx))
                             else:
                                 cell.value = modified
 
@@ -846,3 +823,380 @@ def _export_docx(template_path, students, mappings):
     output_path = os.path.join(EXPORT_OUTPUT_FOLDER, f'export_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{secrets.token_hex(4)}.docx')
     doc.save(output_path)
     return output_path
+
+
+# ========== 导出预览：生成真实文件 + Excel 网格化渲染 ==========
+
+_PREVIEW_FILES = {}  # token -> {'path': 文件路径, 'expires_at': 过期时间戳}
+
+
+def _build_preview_rows(students, mappings, limit=5):
+    """按映射把学生数据填充成预览行（placeholder -> 展示值）。"""
+    school_names = models.get_school_type_map()
+    preview_rows = []
+
+    for student in students[:limit]:
+        if student.get('birth_date'):
+            try:
+                bd = datetime.strptime(student['birth_date'], '%Y-%m-%d')
+                today = datetime.today()
+                student['age'] = today.year - bd.year - ((today.month, today.day) < (bd.month, bd.day))
+            except (ValueError, TypeError):
+                student['age'] = ''
+        else:
+            student['age'] = ''
+        student['_school_name'] = school_names.get(student.get('school'), '')
+
+        row = {}
+        for m in mappings:
+            ph = m.get('placeholder', '')
+            sf = m.get('source_field', '')
+            dv = m.get('default_value', '')
+            if sf and sf in student:
+                val = student[sf]
+                row[ph] = str(val) if val is not None else dv
+            elif sf == '_school_name':
+                row[ph] = student.get('_school_name', dv)
+            else:
+                row[ph] = dv
+        preview_rows.append(row)
+
+    return preview_rows
+
+
+def _cleanup_expired_previews():
+    """清理超过 TTL 的预览文件。"""
+    now = time.time()
+    for token in [t for t, info in _PREVIEW_FILES.items() if info['expires_at'] <= now]:
+        info = _PREVIEW_FILES.pop(token)
+        try:
+            os.remove(info['path'])
+        except OSError:
+            pass
+
+
+def _register_preview_file(path):
+    """登记预览文件并返回下载 token。"""
+    _cleanup_expired_previews()
+    token = secrets.token_urlsafe(16)
+    _PREVIEW_FILES[token] = {
+        'path': path,
+        'expires_at': time.time() + config.EXPORT_TEMP_FILE_TTL_SECONDS,
+    }
+    return token
+
+
+def _argb_to_hex(color):
+    """ARGB → #RRGGBB；主题色/索引色/全透明返回 None（交由前端继承默认色）。"""
+    if color is None:
+        return None
+    rgb = getattr(color, 'rgb', None)
+    if not isinstance(rgb, str):
+        return None
+    if len(rgb) == 8:
+        if rgb[:2] == '00':
+            return None
+        rgb = rgb[2:]
+    if len(rgb) != 6:
+        return None
+    return '#' + rgb.upper()
+
+
+def _cell_font(cell):
+    """提取字体样式（只输出与默认值不同的项）。"""
+    f = cell.font
+    style = {}
+    if f.bold:
+        style['b'] = 1
+    if f.italic:
+        style['i'] = 1
+    if f.underline and f.underline != 'none':
+        style['u'] = 1
+    if f.strike:
+        style['s'] = 1
+    if f.sz and round(float(f.sz), 1) != 11:
+        style['sz'] = round(float(f.sz), 1)
+    color = _argb_to_hex(f.color)
+    if color:
+        style['c'] = color
+    if f.name:
+        style['n'] = f.name
+    return style
+
+
+def _cell_fill(cell):
+    """提取纯色填充，非纯色返回 None。"""
+    fill = cell.fill
+    if fill is None or fill.patternType != 'solid':
+        return None
+    return _argb_to_hex(fill.fgColor)
+
+
+_BORDER_CSS = {
+    'hair': 'solid', 'thin': 'solid', 'medium': 'solid', 'thick': 'solid',
+    'double': 'double', 'dotted': 'dotted', 'dashed': 'dashed',
+    'dashDot': 'dashed', 'dashDotDot': 'dashed', 'mediumDashed': 'dashed',
+    'mediumDashDot': 'dashed', 'mediumDashDotDot': 'dashed', 'slantDashDot': 'dashed',
+}
+
+
+def _cell_borders(cell):
+    """提取四边边框（只输出实际存在的边）。"""
+    sides = {}
+    for key, side in (('t', cell.border.top), ('r', cell.border.right),
+                      ('b', cell.border.bottom), ('l', cell.border.left)):
+        if side is not None and side.style:
+            sides[key] = {
+                's': _BORDER_CSS.get(side.style, 'solid'),
+                'c': _argb_to_hex(side.color) or '#9CA3AF',
+            }
+    return sides
+
+
+def _cell_align(cell):
+    """提取对齐方式。"""
+    a = cell.alignment
+    style = {}
+    if a.horizontal:
+        style['h'] = a.horizontal
+    if a.vertical:
+        style['v'] = a.vertical
+    if a.wrap_text:
+        style['wrap'] = 1
+    if a.indent:
+        style['ind'] = int(a.indent)
+    return style
+
+
+def _cell_text(value, number_format):
+    """按数字格式生成展示文本（日期 / 百分比 / 小数位）。"""
+    from datetime import date as _date, time as _time
+
+    if value is None:
+        return ''
+    if isinstance(value, datetime):
+        if value.hour == 0 and value.minute == 0 and value.second == 0:
+            return value.strftime('%Y-%m-%d')
+        return value.strftime('%Y-%m-%d %H:%M')
+    if isinstance(value, _date):
+        return value.strftime('%Y-%m-%d')
+    if isinstance(value, _time):
+        return value.strftime('%H:%M')
+    if isinstance(value, bool):
+        return 'TRUE' if value else 'FALSE'
+
+    fmt = number_format or ''
+    if isinstance(value, (int, float)):
+        if '%' in fmt:
+            decimals = len(fmt.split('.', 1)[1].split('%')[0]) if '.' in fmt else 0
+            return f'{value * 100:.{decimals}f}%'
+        if '.' in fmt:
+            decimals = sum(1 for ch in fmt.split('.', 1)[1] if ch in '0#')
+            return f'{value:.{decimals}f}'
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value))
+    return str(value)
+
+
+def _col_letter(idx):
+    """列号 → 列字母（1 → A）。"""
+    letters = ''
+    while idx > 0:
+        idx, rem = divmod(idx - 1, 26)
+        letters = chr(65 + rem) + letters
+    return letters
+
+
+def _col_width_px(ws, col_idx):
+    """列宽（字符单位）→ 像素，限制在 24~320px。"""
+    letter = _col_letter(col_idx)
+    dim = ws.column_dimensions.get(letter)
+    if dim is None or dim.width is None:
+        for candidate in ws.column_dimensions.values():
+            if candidate.min and candidate.max and candidate.min <= col_idx <= candidate.max and candidate.width:
+                dim = candidate
+                break
+    if dim is not None and dim.width:
+        return max(24, min(int(dim.width * 7 + 5), 320))
+    return 64
+
+
+def _build_xlsx_preview(file_path, empty_cells, max_rows=300, max_cols=60):
+    """把生成好的 xlsx 解析成可渲染的网格数据（值 + 样式 + 合并 + 宽高）。"""
+    wb = load_workbook(file_path, data_only=False)
+    sheets = []
+    truncated = False
+
+    for ws in wb.worksheets:
+        if ws.sheet_state != 'visible':
+            continue
+
+        total_rows = ws.max_row or 1
+        total_cols = ws.max_column or 1
+        if total_rows > max_rows or total_cols > max_cols:
+            truncated = True
+        max_row = min(total_rows, max_rows)
+        max_col = min(total_cols, max_cols)
+
+        cells = []
+        for row in ws.iter_rows(min_row=1, max_row=max_row, max_col=max_col):
+            for cell in row:
+                text = _cell_text(cell.value, cell.number_format)
+                font = _cell_font(cell)
+                fill = _cell_fill(cell)
+                borders = _cell_borders(cell)
+                align = _cell_align(cell)
+                is_empty_slot = (ws.title, cell.row, cell.column) in empty_cells
+                if not text and not font and not fill and not borders and not align and not is_empty_slot:
+                    continue
+
+                item = {'r': cell.row, 'c': cell.column, 'v': text}
+                if font:
+                    item['f'] = font
+                if fill:
+                    item['bg'] = fill
+                if borders:
+                    item['bd'] = borders
+                if align:
+                    item['al'] = align
+                if is_empty_slot:
+                    item['empty'] = 1
+                if isinstance(cell.value, str) and '${' in cell.value:
+                    item['ph'] = 1
+                cells.append(item)
+
+        merges = [str(rng) for rng in ws.merged_cells.ranges
+                  if rng.min_row <= max_row and rng.min_col <= max_col]
+
+        col_widths = {str(c): _col_width_px(ws, c) for c in range(1, max_col + 1)}
+        row_heights = {}
+        for r in range(1, max_row + 1):
+            dim = ws.row_dimensions.get(r)
+            if dim is not None and dim.height:
+                row_heights[str(r)] = max(16, min(int(dim.height * 96 / 72), 300))
+            else:
+                row_heights[str(r)] = 20
+
+        sheets.append({
+            'name': ws.title,
+            'max_row': max_row,
+            'max_col': max_col,
+            'cells': cells,
+            'merges': merges,
+            'col_widths': col_widths,
+            'row_heights': row_heights,
+            'freeze': ws.freeze_panes,
+        })
+
+    wb.close()
+    return sheets, truncated
+
+
+@bp.route('/api/export/preview-render', methods=['POST'])
+@auth.admin_required
+def api_export_preview_render():
+    """生成真实导出文件的预览。
+
+    取当前筛选条件下的样本学生（默认前 3 条，可指定搜索学生），调用与正式导出
+    完全相同的填充函数生成文件：xlsx 解析成网格数据返回，docx 返回内联地址由前端
+    docx-preview 渲染版式。
+    """
+    auth_error = _require_admin_json()
+    if auth_error:
+        return auth_error
+
+    data = request.get_json() or {}
+    template_id = data.get('template_id')
+    mappings = data.get('mappings', [])
+    search = (data.get('search') or '').strip()
+    try:
+        limit = int(data.get('limit', 3))
+    except (TypeError, ValueError):
+        limit = 3
+    limit = max(1, min(limit, 5))
+
+    if not template_id:
+        return jsonify({'success': False, 'message': '缺少模板ID'}), 400
+    if not mappings:
+        return jsonify({'success': False, 'message': '请先配置字段映射'}), 400
+
+    tpl = models.get_template(template_id)
+    if not tpl:
+        return jsonify({'success': False, 'message': '模板不存在'}), 404
+    template_file = _resolve_template_path(tpl['file_path'])
+    if not os.path.exists(template_file):
+        return jsonify({'success': False, 'message': '模板文件已丢失，请重新上传'}), 404
+
+    filter_data = dict(_get_export_filter_from_session())
+    if search:
+        filter_data['search'] = search
+    students = _apply_filter_to_query(filter_data)
+    if not students:
+        message = f'未找到匹配「{search}」的学生' if search else '当前筛选条件下无数据可预览'
+        return jsonify({'success': False, 'message': message}), 400
+
+    preview_rows = _build_preview_rows(students, mappings, limit)
+    sample = students[:limit]
+
+    # Word 模板：生成真实 docx，返回内联地址供前端 docx-preview 渲染版式
+    if tpl['file_type'] != 'xlsx':
+        try:
+            docx_path = _export_docx(template_file, sample, mappings)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return jsonify({'success': False, 'message': f'预览生成失败: {str(e)}'}), 500
+
+        token = _register_preview_file(docx_path)
+        return jsonify({
+            'success': True,
+            'grid_supported': False,
+            'docx_supported': True,
+            'token': token,
+            'inline_url': f'/api/export/preview-file/{token}?inline=1',
+            'download_url': f'/api/export/preview-file/{token}',
+            'sample_count': len(sample),
+            'total_count': len(students),
+            'preview_rows': preview_rows,
+        })
+
+    empty_cells = set()
+    try:
+        output_path = _export_xlsx(template_file, sample, mappings, empty_cells=empty_cells)
+        sheets, truncated = _build_xlsx_preview(output_path, empty_cells)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'预览生成失败: {str(e)}'}), 500
+
+    token = _register_preview_file(output_path)
+    return jsonify({
+        'success': True,
+        'grid_supported': True,
+        'token': token,
+        'download_url': f'/api/export/preview-file/{token}',
+        'sheets': sheets,
+        'truncated': truncated,
+        'sample_count': len(sample),
+        'total_count': len(students),
+        'preview_rows': preview_rows,
+    })
+
+
+@bp.route('/api/export/preview-file/<token>')
+@auth.admin_required
+def api_export_preview_file(token):
+    """预览件：?inline=1 时内联输出（供 docx-preview 拉取字节），否则作为附件下载。"""
+    info = _PREVIEW_FILES.get(token)
+    if not info:
+        return '预览文件已过期，请重新刷新预览', 404
+    if info['expires_at'] <= time.time() or not os.path.exists(info['path']):
+        _PREVIEW_FILES.pop(token, None)
+        return '预览文件已过期，请重新刷新预览', 404
+
+    if request.args.get('inline') == '1':
+        return send_file(info['path'])
+
+    ext = os.path.splitext(info['path'])[1] or '.xlsx'
+    download_name = f'预览_{datetime.now().strftime("%Y%m%d_%H%M%S")}{ext}'
+    return send_file(info['path'], as_attachment=True, download_name=download_name)
