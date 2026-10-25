@@ -1089,7 +1089,11 @@
 
         const hint = document.getElementById('previewHint');
         hint.classList.remove('d-none');
-        hint.textContent = 'Word 版式预览由真实导出文档渲染：分页、表格与字体按模板设定；复杂浮动图形、艺术字可能有轻微偏差。';
+        let tip = 'Word 版式预览由真实导出文档渲染：分页、表格与字体按模板设定；复杂浮动图形、艺术字可能有轻微偏差。';
+        if (data.textbox_count > 0) {
+            tip += ' 文档中 ' + data.textbox_count + ' 个文本框已按文档流展开为边框表格显示，框体的悬浮位置与 Word 中可能略有差异。';
+        }
+        hint.textContent = tip;
 
         if (typeof window.docx === 'undefined' || typeof window.JSZip === 'undefined') {
             renderTablePreview(data.preview_rows);

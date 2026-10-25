@@ -869,21 +869,180 @@ def _cleanup_expired_previews():
     now = time.time()
     for token in [t for t, info in _PREVIEW_FILES.items() if info['expires_at'] <= now]:
         info = _PREVIEW_FILES.pop(token)
-        try:
-            os.remove(info['path'])
-        except OSError:
-            pass
+        for key in ('path', 'download_path'):
+            target = info.get(key)
+            if target:
+                try:
+                    os.remove(target)
+                except OSError:
+                    pass
 
 
-def _register_preview_file(path):
-    """登记预览文件并返回下载 token。"""
+def _register_preview_file(path, download_path=None):
+    """登记预览文件并返回 token。
+
+    path: 供渲染使用的文件（Word 预览件可能做过文本框展开处理）
+    download_path: 供「下载预览件」使用的原始文件，缺省与 path 相同
+    """
     _cleanup_expired_previews()
     token = secrets.token_urlsafe(16)
     _PREVIEW_FILES[token] = {
         'path': path,
+        'download_path': download_path or path,
         'expires_at': time.time() + config.EXPORT_TEMP_FILE_TTL_SECONDS,
     }
     return token
+
+
+# ========== Word 预览：把文本框内容提升为文档流表格 ==========
+
+_W_URI = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+_MC_URI = 'http://schemas.openxmlformats.org/markup-compatibility/2006'
+_W = '{%s}' % _W_URI
+_MC = '{%s}' % _MC_URI
+
+
+def _box_table(content):
+    """把 w:txbxContent 的段落包进一个带边框的单格表格，返回 w:tbl 元素。"""
+    from copy import deepcopy
+    from lxml import etree
+
+    tbl = etree.Element(_W + 'tbl')
+    tbl_pr = etree.SubElement(tbl, _W + 'tblPr')
+    tbl_w = etree.SubElement(tbl_pr, _W + 'tblW')
+    tbl_w.set(_W + 'w', '0')
+    tbl_w.set(_W + 'type', 'auto')
+    borders = etree.SubElement(tbl_pr, _W + 'tblBorders')
+    for side in ('top', 'left', 'bottom', 'right'):
+        el = etree.SubElement(borders, _W + side)
+        el.set(_W + 'val', 'single')
+        el.set(_W + 'sz', '4')
+        el.set(_W + 'space', '0')
+        el.set(_W + 'color', 'A6A6A6')
+
+    row = etree.SubElement(tbl, _W + 'tr')
+    cell = etree.SubElement(row, _W + 'tc')
+    cell_pr = etree.SubElement(cell, _W + 'tcPr')
+    cell_w = etree.SubElement(cell_pr, _W + 'tcW')
+    cell_w.set(_W + 'w', '0')
+    cell_w.set(_W + 'type', 'auto')
+    margins = etree.SubElement(cell_pr, _W + 'tcMar')
+    for side in ('top', 'left', 'bottom', 'right'):
+        el = etree.SubElement(margins, _W + side)
+        el.set(_W + 'w', '90')
+        el.set(_W + 'type', 'dxa')
+
+    moved = 0
+    for child in list(content):
+        if child.tag in (_W + 'p', _W + 'tbl'):
+            cell.append(deepcopy(child))
+            moved += 1
+    if moved == 0:
+        return None
+    if cell[-1].tag != _W + 'p':
+        etree.SubElement(cell, _W + 'p')
+    return tbl
+
+
+def _promote_textboxes_xml(xml_bytes):
+    """把文本框（w:txbxContent）内容提升为文档流中的带框表格。
+
+    docx-preview 会把文本框渲染成 0×0 的 foreignObject，导致框内文字不可见；
+    这里在预览件里把框内段落搬到锚点段落之后，用单格边框表格还原“框体”观感。
+    返回 (新 XML 字节, 提升的文本框数量)。
+    """
+    from lxml import etree
+
+    parser = etree.XMLParser(remove_blank_text=False, huge_tree=True)
+    root = etree.fromstring(xml_bytes, parser)
+    pending = {}
+
+    def find_anchor(content):
+        node = content
+        while node is not None and node.tag != _W + 'p':
+            node = node.getparent()
+        return node
+
+    def promote(content):
+        anchor = find_anchor(content)
+        if anchor is None or anchor.getparent() is None:
+            return 0
+        table = _box_table(content)
+        if table is None:
+            return 0
+        pending.setdefault(id(anchor), (anchor, []))[1].append(table)
+        return 1
+
+    promoted = 0
+
+    # 1) mc:AlternateContent（Choice=DrawingML 文本框，Fallback=VML 文本框，两者内容重复，只取一份）
+    for alt in list(root.iter(_MC + 'AlternateContent')):
+        scope = alt.find(_MC + 'Choice')
+        content = None
+        for node in (scope if scope is not None else alt).iter(_W + 'txbxContent'):
+            content = node
+            break
+        if content is None:
+            fallback = alt.find(_MC + 'Fallback')
+            if fallback is not None:
+                for node in fallback.iter(_W + 'txbxContent'):
+                    content = node
+                    break
+        if content is not None and promote(content):
+            promoted += 1
+        parent = alt.getparent()
+        if parent is not None:
+            parent.remove(alt)
+            # 清掉只剩空壳的 w:r，避免残留空行
+            if parent.tag == _W + 'r' and len(parent) == 0:
+                grand = parent.getparent()
+                if grand is not None:
+                    grand.remove(parent)
+
+    # 2) 独立 VML 文本框（w:pict / v:textbox）
+    for content in list(root.iter(_W + 'txbxContent')):
+        if promote(content):
+            promoted += 1
+        holder = content.getparent()
+        while holder is not None and holder.tag not in (_W + 'pict', _W + 'drawing'):
+            holder = holder.getparent()
+        if holder is not None and holder.getparent() is not None:
+            run = holder.getparent()
+            run.remove(holder)
+            if run.tag == _W + 'r' and len(run) == 0 and run.getparent() is not None:
+                run.getparent().remove(run)
+
+    # 统一把表格插入到各自锚点段落之后（保持原本先后顺序）
+    for anchor, tables in pending.values():
+        parent = anchor.getparent()
+        if parent is None:
+            continue
+        idx = parent.index(anchor) + 1
+        for table in tables:
+            parent.insert(idx, table)
+            idx += 1
+
+    return etree.tostring(root, xml_declaration=True, encoding='UTF-8', standalone=True), promoted
+
+
+def _flatten_docx_textboxes(src_path, dst_path):
+    """生成一份“文本框已展开”的 docx 副本，用于版式预览（不影响正式导出文件）。"""
+    import zipfile
+
+    promoted = 0
+    part_re = re.compile(r'word/(document|header\d*|footer\d*)\.xml$')
+    with zipfile.ZipFile(src_path) as zin, zipfile.ZipFile(dst_path, 'w', zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if part_re.match(item.filename):
+                try:
+                    data, n = _promote_textboxes_xml(data)
+                    promoted += n
+                except Exception:
+                    import traceback
+                    traceback.print_exc()
+            zout.writestr(item, data)
+    return promoted
 
 
 def _argb_to_hex(color):
@@ -1142,12 +1301,15 @@ def api_export_preview_render():
     if tpl['file_type'] != 'xlsx':
         try:
             docx_path = _export_docx(template_file, sample, mappings)
+            # 预览副本：把文本框内容展开为文档流表格（docx-preview 无法绘制框内文字）
+            flat_path = os.path.splitext(docx_path)[0] + '_preview.docx'
+            textbox_count = _flatten_docx_textboxes(docx_path, flat_path)
         except Exception as e:
             import traceback
             traceback.print_exc()
             return jsonify({'success': False, 'message': f'预览生成失败: {str(e)}'}), 500
 
-        token = _register_preview_file(docx_path)
+        token = _register_preview_file(flat_path, download_path=docx_path)
         return jsonify({
             'success': True,
             'grid_supported': False,
@@ -1157,6 +1319,7 @@ def api_export_preview_render():
             'download_url': f'/api/export/preview-file/{token}',
             'sample_count': len(sample),
             'total_count': len(students),
+            'textbox_count': textbox_count,
             'preview_rows': preview_rows,
         })
 
@@ -1195,8 +1358,14 @@ def api_export_preview_file(token):
         return '预览文件已过期，请重新刷新预览', 404
 
     if request.args.get('inline') == '1':
+        if not os.path.exists(info['path']):
+            _PREVIEW_FILES.pop(token, None)
+            return '预览文件已过期，请重新刷新预览', 404
         return send_file(info['path'])
 
-    ext = os.path.splitext(info['path'])[1] or '.xlsx'
+    target = info.get('download_path') or info['path']
+    if not os.path.exists(target):
+        target = info['path']
+    ext = os.path.splitext(target)[1] or '.xlsx'
     download_name = f'预览_{datetime.now().strftime("%Y%m%d_%H%M%S")}{ext}'
-    return send_file(info['path'], as_attachment=True, download_name=download_name)
+    return send_file(target, as_attachment=True, download_name=download_name)
