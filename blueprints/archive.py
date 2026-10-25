@@ -385,6 +385,52 @@ def api_study_import():
         return jsonify({'success': False, 'message': f'导入失败：{exc}'}), 400
 
 
+@bp.route('/admin/archive/further-study/template')
+@auth.admin_required
+def download_study_template():
+    """下载升学名单导入模板（表头 + 填写说明）。"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = '升学名单'
+    headers = ['学号', '姓名', '身份证号', '录取院校']
+    fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+    for idx, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=idx, value=h)
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = fill
+        cell.alignment = Alignment(horizontal='center')
+        ws.column_dimensions[cell.column_letter].width = 22
+    ws.freeze_panes = 'A2'
+
+    guide = wb.create_sheet('填写说明')
+    lines = [
+        '升学名单导入说明',
+        '',
+        '1. 文件格式：Excel（.xlsx / .xlsm），读取第一个工作表。',
+        '2. 表头要求：前 10 行内需出现「学号」或「身份证号」列，二者至少填一个；',
+        '   姓名、录取院校等其它列仅作备注，系统不读取。',
+        '3. 匹配范围：仅匹配学籍状态为「毕业」且未删除的学生；学号优先，学号未命中再用身份证号。',
+        '4. 导入结果：命中学生标记为「升学」，不再参与档案派遣；',
+        '   已是升学状态的学生自动跳过；未匹配到的学号/身份证号会在导入结果中提示。',
+        '5. 导入不受页面当前届别/校别筛选影响，请确保名单本身已核对准确。',
+        '6. 取消升学：在「升学名单」列表中勾选学生后点击「取消升学」。',
+    ]
+    for r, text in enumerate(lines, 1):
+        cell = guide.cell(row=r, column=1, value=text)
+        if r == 1:
+            cell.font = Font(bold=True, size=13)
+    guide.column_dimensions['A'].width = 100
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return send_file(output, as_attachment=True, download_name='升学名单导入模板.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
 @bp.route('/admin/archive/further-study/export')
 @auth.admin_required
 def export_study_list():

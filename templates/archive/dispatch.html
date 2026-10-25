@@ -237,6 +237,10 @@
                 <button type="button" class="btn btn-sm btn-outline-light" id="adStudyImportBtn">
                     <i class="bi bi-file-earmark-excel"></i> 导入名单
                 </button>
+                <a href="{{ url_for('archive.download_study_template') }}"
+                   class="btn btn-sm btn-outline-light" title="下载含表头与填写说明的 Excel 模板">
+                    <i class="bi bi-file-earmark-arrow-down"></i> 下载模板
+                </a>
                 <input type="file" id="adStudyImportFile" accept=".xlsx,.xlsm" hidden>
                 <button type="button" class="btn btn-sm btn-outline-light" id="adStudyExportBtn">
                     <i class="bi bi-download"></i> 导出名单
@@ -254,7 +258,10 @@
                 <option value="">全部县（区）</option>
             </select>
             <span class="ad-sel-count" id="adStudySelCount">已选 0 人</span>
-            <span class="ms-auto small text-muted">导入模板需含「学号」或「身份证号」列</span>
+            <span class="ms-auto small text-muted text-end">
+                支持 .xlsx / .xlsm：表头在前 10 行内需含「学号」或「身份证号」列（二者至少填一个，
+                姓名等其它列自动忽略），仅匹配学籍状态为「毕业」的学生；未知格式请先下载模板
+            </span>
         </div>
         <div class="ad-table-wrap" style="max-height:60vh">
             <table class="ad-table">
