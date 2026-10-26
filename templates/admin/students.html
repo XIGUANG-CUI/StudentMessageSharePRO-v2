@@ -207,7 +207,7 @@
 </div>
 
 {% with _fh_type='export', _fh_title='导出功能说明', _fh_icon='bi-box-arrow-up',
-    _fh_fields=['学号','国网学籍号','学生身份证号','学生姓名','性别','年龄','民族','住址','专业','行政班级','虚拟班级','家长姓名','家长身份证号','家长电话','学生电话','年级','学籍状态','在校状态','签发机关','有效期开始','有效期结束','专业方向','户口性质','初中毕业学校','入学形式','初中毕业时间','异动信息','备注','入学年份','姓名拼音','学平险保单号','学平险缴费日期','学平险到期时间','学平险保费金额','实习险缴费日期','主管标记','申报日期','保单更新日期','学费总体情况'],
+    _fh_fields=['学号','国网学籍号','学生身份证号','学生姓名','性别','年龄','民族','住址','专业','行政班级','虚拟班级','家长姓名','家长身份证号','家长电话','家长关系','备用电话1','备用电话2','学生电话','年级','学籍状态','在校状态','签发机关','有效期开始','有效期结束','专业方向','户口性质','初中毕业学校','入学形式','初中毕业时间','异动信息','备注','入学年份','姓名拼音','学平险保单号','学平险缴费日期','学平险到期时间','学平险保费金额','实习险缴费日期','主管标记','申报日期','保单更新日期','学费总体情况'],
     _fh_note='«导出筛选照片» 按当前筛选条件导出学生照片 ZIP 压缩包，按入学年份分目录；«导出筛选列表» 导出全部 ' ~ field_help.import_count|string ~ ' 列 Excel 数据。' %}
 {% include '_field_help.html' %}
 {% endwith %}
@@ -558,16 +558,32 @@
                                     <input type="text" id="edit_parent_name" class="form-control">
                                 </div>
                                 <div class="col-md-4">
+                                    <label class="edit-form-label">家长关系</label>
+                                    <input type="text" id="edit_parent_relation" class="form-control" list="dict_parent_relation">
+                                </div>
+                                <div class="col-md-4">
                                     <label class="edit-form-label">家长身份证号</label>
                                     <input type="text" id="edit_parent_id_card" class="form-control" maxlength="18">
                                     <div class="invalid-feedback" id="parentIdCardError"></div>
                                 </div>
-                                <div class="col-md-2">
+                            </div>
+                            <div class="row g-2 mb-1">
+                                <div class="col-md-3">
                                     <label class="edit-form-label">家长电话</label>
                                     <input type="text" id="edit_parent_phone" class="form-control">
                                     <div class="invalid-feedback">请输入正确的手机号码</div>
                                 </div>
-                                <div class="col-md-2">
+                                <div class="col-md-3">
+                                    <label class="edit-form-label">备用电话1</label>
+                                    <input type="text" id="edit_backup_phone_1" class="form-control">
+                                    <div class="invalid-feedback">请输入正确的手机号码</div>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="edit-form-label">备用电话2</label>
+                                    <input type="text" id="edit_backup_phone_2" class="form-control">
+                                    <div class="invalid-feedback">请输入正确的手机号码</div>
+                                </div>
+                                <div class="col-md-3">
                                     <label class="edit-form-label">学生电话</label>
                                     <input type="text" id="edit_student_phone" class="form-control">
                                     <div class="invalid-feedback">请输入正确的手机号码</div>
@@ -634,6 +650,15 @@
 </div>
 
 <datalist id="dict_nation"></datalist>
+<datalist id="dict_parent_relation">
+    <option value="父亲"></option>
+    <option value="母亲"></option>
+    <option value="祖父"></option>
+    <option value="祖母"></option>
+    <option value="外祖父"></option>
+    <option value="外祖母"></option>
+    <option value="其他"></option>
+</datalist>
 <datalist id="dict_major"></datalist>
 <datalist id="dict_major_direction"></datalist>
 <datalist id="dict_household_type"></datalist>
@@ -782,8 +807,11 @@ function fieldMap() {
         admin_class: 'edit_admin_class',
         school: 'edit_school',
         parent_name: 'edit_parent_name',
+        parent_relation: 'edit_parent_relation',
         parent_id_card: 'edit_parent_id_card',
         parent_phone: 'edit_parent_phone',
+        backup_phone_1: 'edit_backup_phone_1',
+        backup_phone_2: 'edit_backup_phone_2',
         student_phone: 'edit_student_phone',
         address: 'edit_address',
         photo_url: 'edit_photo_url',
@@ -812,6 +840,7 @@ function openEditModal(studentId) {
     showPhotoPreview(null);
 
     clearIdCardErrors();
+    clearPhoneErrors();
 
     if (editModal) {
         editModal.show();
@@ -914,6 +943,7 @@ function openAddModal() {
     showPhotoPreview(null);
 
     clearIdCardErrors();
+    clearPhoneErrors();
 
     document.getElementById('edit_major').disabled = false;
     document.getElementById('edit_admin_class').disabled = false;
@@ -945,6 +975,13 @@ function clearIdCardErrors() {
     if (idErr) { idErr.textContent = ''; idErr.style.display = 'none'; }
     if (pIdErr) { pIdErr.textContent = ''; pIdErr.style.display = 'none'; }
     if (noErr) { noErr.textContent = ''; noErr.style.display = 'none'; }
+}
+
+function clearPhoneErrors() {
+    ['edit_parent_phone', 'edit_backup_phone_1', 'edit_backup_phone_2', 'edit_student_phone'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) { el.classList.remove('is-invalid', 'is-valid'); }
+    });
 }
 
 function validateIdCardFull(idCard) {
@@ -1078,21 +1115,21 @@ function setupIdCardValidation() {
     });
     if (parentIdCardInput) parentIdCardInput.addEventListener('input', checkParentIdCard);
 
-    var parentPhoneInput = document.getElementById('edit_parent_phone');
-    var studentPhoneInput = document.getElementById('edit_student_phone');
-    if (parentPhoneInput) parentPhoneInput.addEventListener('input', function() {
-        if (!validatePhone(parentPhoneInput.value.trim())) {
-            parentPhoneInput.classList.add('is-invalid');
-        } else {
-            parentPhoneInput.classList.remove('is-invalid');
-        }
-    });
-    if (studentPhoneInput) studentPhoneInput.addEventListener('input', function() {
-        if (!validatePhone(studentPhoneInput.value.trim())) {
-            studentPhoneInput.classList.add('is-invalid');
-        } else {
-            studentPhoneInput.classList.remove('is-invalid');
-        }
+    var phoneFields = [
+        document.getElementById('edit_parent_phone'),
+        document.getElementById('edit_backup_phone_1'),
+        document.getElementById('edit_backup_phone_2'),
+        document.getElementById('edit_student_phone')
+    ];
+    phoneFields.forEach(function(input) {
+        if (!input) return;
+        input.addEventListener('input', function() {
+            if (input.value.trim() && !validatePhone(input.value.trim())) {
+                input.classList.add('is-invalid');
+            } else {
+                input.classList.remove('is-invalid');
+            }
+        });
     });
 }
 
@@ -1134,6 +1171,20 @@ function saveEditStudent() {
     if (studentPhone && !validatePhone(studentPhone)) {
         showToast('学生手机号格式不正确', 'warning');
         document.getElementById('edit_student_phone').focus();
+        return;
+    }
+
+    var backupPhone1 = document.getElementById('edit_backup_phone_1').value.trim();
+    if (backupPhone1 && !validatePhone(backupPhone1)) {
+        showToast('备用电话1格式不正确', 'warning');
+        document.getElementById('edit_backup_phone_1').focus();
+        return;
+    }
+
+    var backupPhone2 = document.getElementById('edit_backup_phone_2').value.trim();
+    if (backupPhone2 && !validatePhone(backupPhone2)) {
+        showToast('备用电话2格式不正确', 'warning');
+        document.getElementById('edit_backup_phone_2').focus();
         return;
     }
 

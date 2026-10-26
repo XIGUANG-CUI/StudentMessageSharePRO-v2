@@ -365,6 +365,9 @@ def _build_form_student():
         'parent_name': request.form.get('parent_name', '').strip(),
         'parent_id_card': request.form.get('parent_id_card', '').strip(),
         'parent_phone': request.form.get('parent_phone', '').strip(),
+        'parent_relation': request.form.get('parent_relation', '').strip(),
+        'backup_phone_1': request.form.get('backup_phone_1', '').strip(),
+        'backup_phone_2': request.form.get('backup_phone_2', '').strip(),
         'student_phone': request.form.get('student_phone', '').strip(),
         'grade': request.form.get('grade', '').strip(),
         'school': int(request.form.get('school') or _default_school_code()),
@@ -410,6 +413,16 @@ def admin_student_add():
         student_phone = request.form.get('student_phone', '').strip()
         if student_phone and not utils.validate_phone(student_phone):
             flash('学生手机号格式不正确', 'danger')
+            return render_template('admin/student_form.html', student=_build_form_student(), filter_values=models.get_filter_values(), next_url=_students_back_url())
+
+        backup_phone_1 = request.form.get('backup_phone_1', '').strip()
+        if backup_phone_1 and not utils.validate_phone(backup_phone_1):
+            flash('备用电话1格式不正确', 'danger')
+            return render_template('admin/student_form.html', student=_build_form_student(), filter_values=models.get_filter_values(), next_url=_students_back_url())
+
+        backup_phone_2 = request.form.get('backup_phone_2', '').strip()
+        if backup_phone_2 and not utils.validate_phone(backup_phone_2):
+            flash('备用电话2格式不正确', 'danger')
             return render_template('admin/student_form.html', student=_build_form_student(), filter_values=models.get_filter_values(), next_url=_students_back_url())
 
         student_data = _build_form_student()
@@ -469,6 +482,16 @@ def admin_student_edit(student_id):
         student_phone = request.form.get('student_phone', '').strip()
         if student_phone and not utils.validate_phone(student_phone):
             flash('学生手机号格式不正确', 'danger')
+            return render_template('admin/student_form.html', student={**student, **_build_form_student()}, filter_values=models.get_filter_values(), next_url=_students_back_url())
+
+        backup_phone_1 = request.form.get('backup_phone_1', '').strip()
+        if backup_phone_1 and not utils.validate_phone(backup_phone_1):
+            flash('备用电话1格式不正确', 'danger')
+            return render_template('admin/student_form.html', student={**student, **_build_form_student()}, filter_values=models.get_filter_values(), next_url=_students_back_url())
+
+        backup_phone_2 = request.form.get('backup_phone_2', '').strip()
+        if backup_phone_2 and not utils.validate_phone(backup_phone_2):
+            flash('备用电话2格式不正确', 'danger')
             return render_template('admin/student_form.html', student={**student, **_build_form_student()}, filter_values=models.get_filter_values(), next_url=_students_back_url())
 
         student_data = _build_form_student()
@@ -659,6 +682,9 @@ def admin_import_confirm():
                     'parent_name': _safe_str(data.get('家长姓名', '')),
                     'parent_id_card': _safe_str(data.get('家长身份证号', '')),
                     'parent_phone': _safe_str(data.get('家长电话', '')),
+                    'parent_relation': _safe_str(data.get('家长关系', '')),
+                    'backup_phone_1': _safe_str(data.get('备用电话1', '')),
+                    'backup_phone_2': _safe_str(data.get('备用电话2', '')),
                     'student_phone': _safe_str(data.get('学生电话', '')),
                     'grade': _safe_str(data.get('年级', '')),
                     'school': int(data.get('学校类型', 1)),

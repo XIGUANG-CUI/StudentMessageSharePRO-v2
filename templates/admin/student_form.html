@@ -131,32 +131,51 @@
 
             <h6 class="border-bottom pb-1 mb-2 text-warning"><i class="bi bi-people me-1"></i>家长信息</h6>
             <div class="row g-2 mb-2">
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <label class="form-label small">家长姓名</label>
                     <input type="text" name="parent_name" class="form-control form-control-sm"
                            value="{{ student.parent_name if student else '' }}">
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
+                    <label class="form-label small">家长关系</label>
+                    <input type="text" name="parent_relation" class="form-control form-control-sm"
+                           list="dict_parent_relation" value="{{ student.parent_relation if student else '' }}">
+                </div>
+                <div class="col-md-3">
                     <label class="form-label small">家长身份证号</label>
                     <input type="text" name="parent_id_card" class="form-control form-control-sm"
                            value="{{ student.parent_id_card if student else '' }}" maxlength="18">
                     <div class="invalid-feedback" id="parentIdCardError"></div>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <label class="form-label small">家长电话</label>
                     <input type="text" name="parent_phone" class="form-control form-control-sm"
                            value="{{ student.parent_phone if student else '' }}">
+                    <div class="invalid-feedback">请输入正确的手机号码</div>
                 </div>
             </div>
 
             <h6 class="border-bottom pb-1 mb-2 text-info"><i class="bi bi-telephone me-1"></i>联系方式与住址</h6>
             <div class="row g-2 mb-2">
-                <div class="col-md-6">
+                <div class="col-md-4">
                     <label class="form-label small">学生电话</label>
                     <input type="text" name="student_phone" class="form-control form-control-sm"
                            value="{{ student.student_phone if student else '' }}">
+                    <div class="invalid-feedback">请输入正确的手机号码</div>
                 </div>
-                <div class="col-md-6">
+                <div class="col-md-4">
+                    <label class="form-label small">备用电话1</label>
+                    <input type="text" name="backup_phone_1" class="form-control form-control-sm"
+                           value="{{ student.backup_phone_1 if student else '' }}">
+                    <div class="invalid-feedback">请输入正确的手机号码</div>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">备用电话2</label>
+                    <input type="text" name="backup_phone_2" class="form-control form-control-sm"
+                           value="{{ student.backup_phone_2 if student else '' }}">
+                    <div class="invalid-feedback">请输入正确的手机号码</div>
+                </div>
+                <div class="col-md-12">
                     <label class="form-label small">住址</label>
                     <textarea name="address" class="form-control form-control-sm" rows="1">{{ student.address if student else '' }}</textarea>
                 </div>
@@ -406,6 +425,22 @@ function validateIdCardFullForm(idCard) {
     });
 })();
 
+(function() {
+    var phoneNames = ['parent_phone', 'backup_phone_1', 'backup_phone_2', 'student_phone'];
+    phoneNames.forEach(function(name) {
+        var el = document.querySelector('[name="' + name + '"]');
+        if (!el) return;
+        el.addEventListener('input', function() {
+            var val = el.value.trim();
+            if (val && !validatePhone(val)) {
+                el.classList.add('is-invalid');
+            } else {
+                el.classList.remove('is-invalid');
+            }
+        });
+    });
+})();
+
 {% if student and student.id_card %}
 (function() {
     var photoEl = document.getElementById('photoPreview');
@@ -415,6 +450,16 @@ function validateIdCardFullForm(idCard) {
 })();
 {% endif %}
 </script>
+
+<datalist id="dict_parent_relation">
+    <option value="父亲"></option>
+    <option value="母亲"></option>
+    <option value="祖父"></option>
+    <option value="祖母"></option>
+    <option value="外祖父"></option>
+    <option value="外祖母"></option>
+    <option value="其他"></option>
+</datalist>
 
 <!-- 读卡器地址设置弹窗 -->
 <div class="modal fade" id="cardReaderSettingsModal" tabindex="-1">

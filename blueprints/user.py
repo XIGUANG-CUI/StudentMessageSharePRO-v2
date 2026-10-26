@@ -44,6 +44,7 @@ def user_query():
     visible_fields = auth.get_visible_fields()
 
     SENSITIVE_FIELDS = {'学生身份证号', '国网学籍号', '学生电话', '家长电话', '家长身份证号',
+                        '备用电话1', '备用电话2',
                         '住址', '家长姓名', '签发机关', '有效期开始', '有效期结束'}
     BADGE_FIELDS = {'学籍状态': {'正式学籍': 'success', '未注册': 'warning'},
                     '在校状态': {'在校': 'success', '非在校': 'danger', '托管': 'info'}}
@@ -76,7 +77,8 @@ def user_query():
         student['age'] = utils.calculate_age(bd) if bd else '-'
         filtered = auth.filter_student_data(student)
         for key in filtered:
-            if key in ('id_card', 'parent_id_card', 'parent_phone', 'student_phone'):
+            if key in ('id_card', 'parent_id_card', 'parent_phone', 'student_phone',
+                       'backup_phone_1', 'backup_phone_2'):
                 filtered[key] = auth.mask_sensitive_data(filtered[key], key)
         students_filtered.append(filtered)
 

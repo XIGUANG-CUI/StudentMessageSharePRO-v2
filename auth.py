@@ -307,7 +307,7 @@ def mask_sensitive_data(value, field_name):
         if value and len(value) >= 6:
             return value[:3] + '********' + value[-4:]
 
-    if field_name in ['parent_phone', 'student_phone']:
+    if field_name in ['parent_phone', 'student_phone', 'backup_phone_1', 'backup_phone_2']:
         if value and len(value) >= 7:
             return value[:3] + '****' + value[-4:]
 

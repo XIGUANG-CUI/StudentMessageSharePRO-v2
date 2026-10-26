@@ -63,7 +63,8 @@ def api_students():
         filtered_student = auth.filter_student_data(student)
         
         for key in filtered_student:
-            if key in ['id_card', 'parent_id_card', 'parent_phone', 'student_phone']:
+            if key in ['id_card', 'parent_id_card', 'parent_phone', 'student_phone',
+                       'backup_phone_1', 'backup_phone_2']:
                 filtered_student[key] = auth.mask_sensitive_data(filtered_student[key], key)
         
         students_data.append(filtered_student)
@@ -92,7 +93,8 @@ def api_student(student_id):
     filtered_student = auth.filter_student_data(student)
     
     for key in filtered_student:
-        if key in ['id_card', 'parent_id_card', 'parent_phone', 'student_phone']:
+        if key in ['id_card', 'parent_id_card', 'parent_phone', 'student_phone',
+                   'backup_phone_1', 'backup_phone_2']:
             filtered_student[key] = auth.mask_sensitive_data(filtered_student[key], key)
     
     return jsonify(filtered_student)
@@ -159,6 +161,14 @@ def api_admin_student_update(student_id):
     if student_phone and not utils.validate_phone(student_phone):
         return jsonify({'error': '学生手机号格式不正确'}), 400
 
+    backup_phone_1 = data.get('backup_phone_1', '').strip()
+    if backup_phone_1 and not utils.validate_phone(backup_phone_1):
+        return jsonify({'error': '备用电话1格式不正确'}), 400
+
+    backup_phone_2 = data.get('backup_phone_2', '').strip()
+    if backup_phone_2 and not utils.validate_phone(backup_phone_2):
+        return jsonify({'error': '备用电话2格式不正确'}), 400
+
     student_data = {
         'student_no': data.get('student_no', '').strip(),
         'national_no': data.get('national_no', '').strip(),
@@ -172,6 +182,9 @@ def api_admin_student_update(student_id):
         'parent_name': data.get('parent_name', '').strip(),
         'parent_id_card': data.get('parent_id_card', '').strip(),
         'parent_phone': parent_phone,
+        'parent_relation': data.get('parent_relation', '').strip(),
+        'backup_phone_1': backup_phone_1,
+        'backup_phone_2': backup_phone_2,
         'student_phone': student_phone,
         'photo_url': data.get('photo_url', '').strip(),
         'issue_authority': data.get('issue_authority', '').strip(),
@@ -247,6 +260,18 @@ def api_admin_student_add():
         if not pcheck['valid']:
             return jsonify({'error': '家长' + pcheck['message']}), 400
 
+    backup_phone_1 = data.get('backup_phone_1', '').strip()
+    if backup_phone_1 and not utils.validate_phone(backup_phone_1):
+        return jsonify({'error': '备用电话1格式不正确'}), 400
+
+    backup_phone_2 = data.get('backup_phone_2', '').strip()
+    if backup_phone_2 and not utils.validate_phone(backup_phone_2):
+        return jsonify({'error': '备用电话2格式不正确'}), 400
+
+    student_phone = data.get('student_phone', '').strip()
+    if student_phone and not utils.validate_phone(student_phone):
+        return jsonify({'error': '学生手机号格式不正确'}), 400
+
     student_data = {
         'student_no': data.get('student_no', '').strip(),
         'national_no': data.get('national_no', '').strip(),
@@ -261,7 +286,10 @@ def api_admin_student_add():
         'parent_name': data.get('parent_name', '').strip(),
         'parent_id_card': data.get('parent_id_card', '').strip(),
         'parent_phone': data.get('parent_phone', '').strip(),
-        'student_phone': data.get('student_phone', '').strip(),
+        'parent_relation': data.get('parent_relation', '').strip(),
+        'backup_phone_1': backup_phone_1,
+        'backup_phone_2': backup_phone_2,
+        'student_phone': student_phone,
         'grade': data.get('grade', '').strip(),
         'school': int(data.get('school', 0)) or utils._derive_school(data.get('major', ''))[0],
         'registration_status': data.get('registration_status', '未注册'),

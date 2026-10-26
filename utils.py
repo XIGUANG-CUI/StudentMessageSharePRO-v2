@@ -251,7 +251,7 @@ def create_import_template():
     headers = [
         '学号', '国网学籍号', '学生身份证号', '学生姓名', '性别', 
         '民族', '住址', '专业', '行政班级', '虚拟班级', 
-        '家长姓名', '家长身份证号', '家长电话', '学生电话', 
+        '家长姓名', '家长身份证号', '家长电话', '家长关系', '备用电话1', '备用电话2', '学生电话', 
         '年级', '学校类型', '学籍状态', '在校状态',
         '签发机关', '有效期开始', '有效期结束', '专业方向',
         '户口性质', '初中毕业学校', '入学形式', '初中毕业时间',
@@ -267,13 +267,13 @@ def create_import_template():
     sample_data = [
         ['2023001', 'G202300001', '110101200801151234', '张小明', '男', 
          '汉族', '北京市朝阳区XX街道XX号', '计算机应用', '计应2301班', '计应2301-1班', 
-         '张建国', '110101197805201234', '13800138001', '13900139001', 
+         '张建国', '110101197805201234', '13800138001', '父亲', '13800138003', '13800138004', '13900139001', 
          '2023级', '1', '正式学籍', '在校',
          '北京市公安局朝阳分局', '20210601', '20210601', '就业',
          '城市', '测试第一初中', '普通入学', '202106', '', '', '2023'],
         ['2023002', 'G202300002', '310101200805205678', '李小红', '女', 
          '汉族', '上海市浦东新区XX路XX号', '数控技术', '数控2301班', '数控2301-2班', 
-         '李明华', '310101197508155678', '13800138002', '13900139002', 
+         '李明华', '310101197508155678', '13800138002', '母亲', '13800138005', '13800138006', '13900139002', 
          '2023级', '2', '正式学籍', '在校',
          '上海市公安局浦东分局', '20220501', '20220501', '升学',
          '县镇', '测试第二初中', '转学生', '202205', '', '', '2023']
@@ -316,16 +316,19 @@ def create_import_template():
     ws.column_dimensions['AA'].width = 12
     ws.column_dimensions['AB'].width = 20
     ws.column_dimensions['AC'].width = 12
+    ws.column_dimensions['AD'].width = 12
+    ws.column_dimensions['AE'].width = 12
+    ws.column_dimensions['AF'].width = 12
     
-    ws.cell(row=1, column=30, value='填写说明：')
+    ws.cell(row=1, column=33, value='填写说明：')
     school_hint = '，'.join(f"{st['code']}={st['name']}" for st in models.get_school_types())
-    ws.cell(row=2, column=30, value=f'学校类型（填编码）：{school_hint}')
-    ws.cell(row=3, column=30, value='学籍状态：正式学籍/未注册')
-    ws.cell(row=4, column=30, value='在校状态：在校/非在校/托管')
-    ws.cell(row=5, column=30, value='入学年份：填写如2023，不填则默认0')
-    ws.cell(row=6, column=30, value='新字段为选填，不填留空即可')
+    ws.cell(row=2, column=33, value=f'学校类型（填编码）：{school_hint}')
+    ws.cell(row=3, column=33, value='学籍状态：正式学籍/未注册')
+    ws.cell(row=4, column=33, value='在校状态：在校/非在校/托管')
+    ws.cell(row=5, column=33, value='入学年份：填写如2023，不填则默认0')
+    ws.cell(row=6, column=33, value='新字段为选填，不填留空即可')
     
-    ws.column_dimensions['AD'].width = 30
+    ws.column_dimensions['AG'].width = 30
     
     return wb
 
@@ -342,7 +345,8 @@ def create_batch_update_template(students, attendance_date=None):
     
     headers = ['身份证号', '姓名', '学号', '国网学籍号'] + [
         '学籍状态', '在校状态', '行政班级', '虚拟班级',
-        '专业', '年级', '学生电话', '家长电话', '住址',
+        '专业', '年级', '学生电话', '家长电话',
+        '家长关系', '备用电话1', '备用电话2', '住址',
         '性别', '民族', '家长姓名', '家长身份证号',
         '学校类型', '专业方向', '户口性质', '初中毕业学校',
         '入学形式', '初中毕业时间', '签发机关', '有效期开始',
@@ -368,39 +372,43 @@ def create_batch_update_template(students, attendance_date=None):
         ws.cell(row=row, column=10, value=student.get('grade', ''))
         ws.cell(row=row, column=11, value=student.get('student_phone', ''))
         ws.cell(row=row, column=12, value=student.get('parent_phone', ''))
-        ws.cell(row=row, column=13, value=student.get('address', ''))
-        ws.cell(row=row, column=14, value=student.get('gender', ''))
-        ws.cell(row=row, column=15, value=student.get('ethnicity', ''))
-        ws.cell(row=row, column=16, value=student.get('parent_name', ''))
-        ws.cell(row=row, column=17, value=student.get('parent_id_card', ''))
-        ws.cell(row=row, column=18, value=student.get('school'))
-        ws.cell(row=row, column=19, value=student.get('major_direction', ''))
-        ws.cell(row=row, column=20, value=student.get('household_type', ''))
-        ws.cell(row=row, column=21, value=student.get('junior_school', ''))
-        ws.cell(row=row, column=22, value=student.get('admission_type', ''))
-        ws.cell(row=row, column=23, value=student.get('junior_graduation_time', ''))
-        ws.cell(row=row, column=24, value=student.get('issue_authority', ''))
-        ws.cell(row=row, column=25, value=student.get('valid_start', ''))
-        ws.cell(row=row, column=26, value=student.get('valid_end', ''))
-        ws.cell(row=row, column=27, value=student.get('change_info', ''))
-        ws.cell(row=row, column=28, value=student.get('remark', ''))
+        ws.cell(row=row, column=13, value=student.get('parent_relation', ''))
+        ws.cell(row=row, column=14, value=student.get('backup_phone_1', ''))
+        ws.cell(row=row, column=15, value=student.get('backup_phone_2', ''))
+        ws.cell(row=row, column=16, value=student.get('address', ''))
+        ws.cell(row=row, column=17, value=student.get('gender', ''))
+        ws.cell(row=row, column=18, value=student.get('ethnicity', ''))
+        ws.cell(row=row, column=19, value=student.get('parent_name', ''))
+        ws.cell(row=row, column=20, value=student.get('parent_id_card', ''))
+        ws.cell(row=row, column=21, value=student.get('school'))
+        ws.cell(row=row, column=22, value=student.get('major_direction', ''))
+        ws.cell(row=row, column=23, value=student.get('household_type', ''))
+        ws.cell(row=row, column=24, value=student.get('junior_school', ''))
+        ws.cell(row=row, column=25, value=student.get('admission_type', ''))
+        ws.cell(row=row, column=26, value=student.get('junior_graduation_time', ''))
+        ws.cell(row=row, column=27, value=student.get('issue_authority', ''))
+        ws.cell(row=row, column=28, value=student.get('valid_start', ''))
+        ws.cell(row=row, column=29, value=student.get('valid_end', ''))
+        ws.cell(row=row, column=30, value=student.get('change_info', ''))
+        ws.cell(row=row, column=31, value=student.get('remark', ''))
         ey_val = student.get('enrollment_year')
-        ws.cell(row=row, column=29, value=ey_val if ey_val and ey_val != 0 else None)
+        ws.cell(row=row, column=32, value=ey_val if ey_val and ey_val != 0 else None)
         
         id_card = student.get('id_card', '')
         att_status = attendance_map.get(id_card)
         if att_status == '出勤':
-            ws.cell(row=row, column=30, value='出勤')
+            ws.cell(row=row, column=33, value='出勤')
         elif att_status == '缺勤':
-            ws.cell(row=row, column=30, value='缺勤')
+            ws.cell(row=row, column=33, value='缺勤')
         else:
-            ws.cell(row=row, column=30, value='')
+            ws.cell(row=row, column=33, value='')
     
     ws.column_dimensions['A'].width = 20
     ws.column_dimensions['B'].width = 12
     for col_letter in ['C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L',
                        'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V',
-                       'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC', 'AD']:
+                       'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC', 'AD', 'AE',
+                       'AF', 'AG']:
         ws.column_dimensions[col_letter].width = 14
 
     return wb
@@ -557,6 +565,9 @@ _BATCH_UPDATE_FIELD_MAPPING = {
     '年级': 'grade',
     '学生电话': 'student_phone',
     '家长电话': 'parent_phone',
+    '家长关系': 'parent_relation',
+    '备用电话1': 'backup_phone_1',
+    '备用电话2': 'backup_phone_2',
     '住址': 'address',
     '性别': 'gender',
     '民族': 'ethnicity',

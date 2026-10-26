@@ -25,6 +25,9 @@ ${入学形式}          → admission_type
 ${家长姓名}          → parent_name
 ${家长身份证号}      → parent_id_card
 ${家长电话}          → parent_phone
+${家长关系}          → parent_relation
+${备用电话1}         → backup_phone_1
+${备用电话2}         → backup_phone_2
 ${学生电话}          → student_phone
 
 ${姓名拼音}          → name_pinyin

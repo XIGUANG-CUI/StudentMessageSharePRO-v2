@@ -300,6 +300,9 @@ def init_db():
             parent_name TEXT,
             parent_id_card TEXT,
             parent_phone TEXT,
+            parent_relation TEXT,
+            backup_phone_1 TEXT,
+            backup_phone_2 TEXT,
             student_phone TEXT,
             grade TEXT,
             school INTEGER NOT NULL,
@@ -356,6 +359,9 @@ def init_db():
         ('declaration_date', "TEXT DEFAULT ''"),
         ('insurance_update_date', "TEXT DEFAULT ''"),
         ('tuition_status', "TEXT DEFAULT ''"),
+        ('parent_relation', "TEXT DEFAULT ''"),
+        ('backup_phone_1', "TEXT DEFAULT ''"),
+        ('backup_phone_2', "TEXT DEFAULT ''"),
     ]
     for col_name, col_def in new_columns_v2:
         try:

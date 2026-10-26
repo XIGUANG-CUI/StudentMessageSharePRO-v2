@@ -220,7 +220,7 @@ class TestSchoolTypeCode3:
     def test_template_hint_lists_school_3(self, school_type_3):
         """导入模板填写说明动态列出 3=技师学院。"""
         ws = create_import_template().active
-        hint = ws.cell(row=2, column=30).value
+        hint = ws.cell(row=2, column=33).value
         assert '1=中职' in hint and '2=技工' in hint and '3=技师学院' in hint
 
     def test_school_name_map_contains_3(self, school_type_3):

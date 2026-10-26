@@ -46,7 +46,8 @@ def create_student(student_data):
         cursor.execute('''
             INSERT INTO students (student_no, national_no, id_card, name, gender, birth_date,
                                   ethnicity, address, major, admin_class, virtual_class,
-                                  parent_name, parent_id_card, parent_phone, student_phone,
+                                  parent_name, parent_id_card, parent_phone,
+                                  parent_relation, backup_phone_1, backup_phone_2, student_phone,
                                   grade, school, registration_status, attendance_status,
                                   issue_authority, valid_start, valid_end, major_direction,
                                   household_type, junior_school, admission_type,
@@ -56,7 +57,7 @@ def create_student(student_data):
                                   district_county_code, district_match_status, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    datetime('now', 'localtime'))
+                    ?, ?, ?, datetime('now', 'localtime'))
         ''', (
             student_no,
             national_no,
@@ -72,6 +73,9 @@ def create_student(student_data):
             _to_null_if_empty(student_data.get('parent_name')),
             _to_null_if_empty(student_data.get('parent_id_card')),
             _to_null_if_empty(student_data.get('parent_phone')),
+            _to_null_if_empty(student_data.get('parent_relation')),
+            _to_null_if_empty(student_data.get('backup_phone_1')),
+            _to_null_if_empty(student_data.get('backup_phone_2')),
             _to_null_if_empty(student_data.get('student_phone')),
             _to_null_if_empty(student_data.get('grade')),
             student_data.get('school'),
@@ -146,7 +150,8 @@ def create_student_with_conn(conn, student_data):
         cursor.execute('''
             INSERT INTO students (student_no, national_no, id_card, name, gender, birth_date,
                                   ethnicity, address, major, admin_class, virtual_class,
-                                  parent_name, parent_id_card, parent_phone, student_phone,
+                                  parent_name, parent_id_card, parent_phone,
+                                  parent_relation, backup_phone_1, backup_phone_2, student_phone,
                                   grade, school, registration_status, attendance_status,
                                   issue_authority, valid_start, valid_end, major_direction,
                                   household_type, junior_school, admission_type,
@@ -156,7 +161,7 @@ def create_student_with_conn(conn, student_data):
                                   district_county_code, district_match_status, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    datetime('now', 'localtime'))
+                    ?, ?, ?, datetime('now', 'localtime'))
         ''', (
             student_no,
             national_no,
@@ -172,6 +177,9 @@ def create_student_with_conn(conn, student_data):
             _to_null_if_empty(student_data.get('parent_name')),
             _to_null_if_empty(student_data.get('parent_id_card')),
             _to_null_if_empty(student_data.get('parent_phone')),
+            _to_null_if_empty(student_data.get('parent_relation')),
+            _to_null_if_empty(student_data.get('backup_phone_1')),
+            _to_null_if_empty(student_data.get('backup_phone_2')),
             _to_null_if_empty(student_data.get('student_phone')),
             _to_null_if_empty(student_data.get('grade')),
             student_data.get('school'),
@@ -283,7 +291,8 @@ def update_student(student_id, student_data):
     
     allowed_fields = ['student_no', 'national_no', 'id_card', 'name', 'gender', 'birth_date',
                       'ethnicity', 'address', 'major', 'admin_class', 'virtual_class',
-                      'parent_name', 'parent_id_card', 'parent_phone', 'student_phone',
+                      'parent_name', 'parent_id_card', 'parent_phone',
+                      'parent_relation', 'backup_phone_1', 'backup_phone_2', 'student_phone',
                       'grade', 'school', 'registration_status', 'attendance_status', 'photo_url',
                       'issue_authority', 'valid_start', 'valid_end', 'major_direction',
                       'household_type', 'junior_school', 'admission_type',
@@ -338,7 +347,8 @@ def update_student(student_id, student_data):
                 updates.append(f'{field} = ?')
                 if field in ['student_no', 'national_no', 'id_card', 'ethnicity', 'address', 
                              'major', 'admin_class', 'virtual_class', 'parent_name', 
-                             'parent_id_card', 'parent_phone', 'student_phone', 'grade', 'photo_url',
+                             'parent_id_card', 'parent_phone', 'parent_relation',
+                             'backup_phone_1', 'backup_phone_2', 'student_phone', 'grade', 'photo_url',
                              'issue_authority', 'valid_start', 'valid_end', 'major_direction',
                              'household_type', 'junior_school', 'admission_type',
                              'junior_graduation_time', 'change_info', 'remark']:
