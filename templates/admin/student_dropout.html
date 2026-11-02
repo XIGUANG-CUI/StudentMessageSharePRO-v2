@@ -125,6 +125,14 @@
         font-size: .8125rem;
         color: var(--sdp-gray-500);
     }
+    .sdp-changeinfo {
+        display: inline-block;
+        max-width: 240px;
+        font-size: .8125rem;
+        line-height: 1.5;
+        color: var(--sdp-gray-700);
+        word-break: break-all;
+    }
 
     .sdp-badge {
         display: inline-flex;
@@ -270,6 +278,7 @@
                         <th>学生电话</th>
                         <th>家长电话</th>
                         <th>学籍状态</th>
+                        <th>异动信息</th>
                         <th>退学表提交日期</th>
                         <th>处理日期</th>
                         <th>软删除标记</th>
@@ -287,6 +296,13 @@
                         <td>{{ s.student_phone or '-' }}</td>
                         <td>{{ s.parent_phone or '-' }}</td>
                         <td>{{ s.registration_status or '-' }}</td>
+                        <td>
+                            {% if s.change_info %}
+                            <span class="sdp-changeinfo">{{ s.change_info }}</span>
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
                         <td>
                             {% if s.dropout_date %}
                             {{ s.dropout_date[:10] }}
@@ -318,7 +334,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="12">
+                        <td colspan="13">
                             <div class="sdp-empty">
                                 <div class="sdp-empty-icon"><i class="bi bi-emoji-smile"></i></div>
                                 <div class="sdp-empty-title">暂无退学学生</div>

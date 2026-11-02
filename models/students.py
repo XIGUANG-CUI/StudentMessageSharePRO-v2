@@ -256,14 +256,14 @@ def get_student_by_national_no(national_no):
     return dict(student) if student else None
 
 def get_public_roster():
-    """获取公开班级花名册：按行政班级列出在册学生姓名与学籍状态。
+    """获取公开班级花名册：按行政班级列出在册学生姓名、学号与学籍状态。
 
-    仅公开 姓名/学籍状态/行政班级 三个字段；排除软删除、毕业、退学办结及未分班学生。
+    仅公开 姓名/学号/学籍状态/行政班级 四个字段；排除软删除、毕业、退学办结及未分班学生。
     """
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute(f'''
-        SELECT s.name, s.registration_status, s.admin_class
+        SELECT s.name, s.student_no, s.registration_status, s.admin_class
         FROM students s
         WHERE s.is_deleted = 0
           AND {_exclude_graduated_clause('s')}

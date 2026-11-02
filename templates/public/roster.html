@@ -159,6 +159,13 @@
             color: var(--text);
             line-height: 1.3;
         }
+        .student-card .info .name .stu-no {
+            margin-left: 8px;
+            font-size: 12px;
+            font-weight: 400;
+            color: var(--text-secondary);
+            letter-spacing: 0.2px;
+        }
         .student-card .status-pill {
             font-size: 11px;
             padding: 4px 12px;
@@ -372,7 +379,9 @@
                 html += '<div class="student-card ' + st.cls + '">' +
                     '<div class="avatar">' + escapeHtml(initial) + '</div>' +
                     '<div class="info">' +
-                        '<div class="name">' + escapeHtml(s.name) + '</div>' +
+                        '<div class="name">' + escapeHtml(s.name) +
+                            (s.student_no ? '<span class="stu-no">' + escapeHtml(s.student_no) + '</span>' : '') +
+                        '</div>' +
                     '</div>' +
                     '<div class="status-pill ' + st.pill + '">' + escapeHtml(st.text) + '</div>' +
                 '</div>';

@@ -403,12 +403,13 @@
                                 <th>身份证号</th>
                                 <th>班级</th>
                                 <th>校别</th>
+                                <th>异动信息</th>
                                 <th>删除时间</th>
                                 <th style="width:160px;">操作</th>
                             </tr>
                         </thead>
                         <tbody id="trashTableBody">
-                            <tr><td colspan="7" class="text-center text-muted py-4">加载中…</td></tr>
+                            <tr><td colspan="8" class="text-center text-muted py-4">加载中…</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -450,7 +451,7 @@ function loadTrashStudents() {
             document.getElementById('trashDeleteAllBtn').disabled = filteredCount === 0;
 
             if (filteredCount === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">没有符合条件的软删除学生记录</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">没有符合条件的软删除学生记录</td></tr>';
                 return;
             }
 
@@ -462,6 +463,7 @@ function loadTrashStudents() {
                 html += '<td><small>' + (s.id_card || '-') + '</small></td>';
                 html += '<td>' + (s.admin_class || '-') + '</td>';
                 html += '<td>' + (s.school_name || '-') + '</td>';
+                html += '<td><small>' + (s.change_info || '-') + '</small></td>';
                 html += '<td><small>' + (s.updated_at || '-') + '</small></td>';
                 html += '<td>';
                 html += '<button class="btn btn-outline-success btn-sm me-1" onclick="trashRestore(' + s.id + ', this)" title="恢复该学生"><i class="bi bi-arrow-counterclockwise"></i></button>';
@@ -472,7 +474,7 @@ function loadTrashStudents() {
             tbody.innerHTML = html;
         })
         .catch(function() {
-            document.getElementById('trashTableBody').innerHTML = '<tr><td colspan="7" class="text-center text-danger py-4">加载失败，<a href="javascript:loadTrashStudents()">点击重试</a></td></tr>';
+            document.getElementById('trashTableBody').innerHTML = '<tr><td colspan="8" class="text-center text-danger py-4">加载失败，<a href="javascript:loadTrashStudents()">点击重试</a></td></tr>';
             document.getElementById('trashCount').textContent = '加载失败';
             document.getElementById('trashRestoreAllBtn').disabled = true;
             document.getElementById('trashDeleteAllBtn').disabled = true;

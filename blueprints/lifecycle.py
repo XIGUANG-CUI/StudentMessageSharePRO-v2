@@ -5,6 +5,7 @@ import re
 import models
 import auth
 import utils
+import config
 from auth import _require_admin_json, _get_current_enrollment_year
 
 bp = Blueprint('lifecycle', __name__)
@@ -14,7 +15,8 @@ bp = Blueprint('lifecycle', __name__)
 @auth.admin_required
 def admin_student_change():
     """学生异动相关接口。"""
-    return render_template('admin/student_change.html')
+    return render_template('admin/student_change.html',
+                           attendance_statuses=config.ATTENDANCE_STATUS)
 
 
 @bp.route('/admin/student-dropout', methods=['GET'])
@@ -592,13 +594,13 @@ def api_student_search_quick():
 
     if by_id_card:
         cursor.execute('''
-            SELECT id, student_no, id_card, name, gender, major, admin_class,
+            SELECT id, student_no, id_card, name, gender, major, major_direction, grade, admin_class,
                    attendance_status, registration_status, change_info
             FROM students WHERE id_card = ? AND is_deleted = 0
         ''', (keyword,))
     elif keyword.isdigit() and len(keyword) == 4:
         cursor.execute('''
-            SELECT id, student_no, id_card, name, gender, major, admin_class,
+            SELECT id, student_no, id_card, name, gender, major, major_direction, grade, admin_class,
                    attendance_status, registration_status, change_info
             FROM students WHERE id_card LIKE ? AND is_deleted = 0
             ORDER BY student_no
@@ -606,7 +608,7 @@ def api_student_search_quick():
         ''', ('%' + keyword,))
     else:
         cursor.execute('''
-            SELECT id, student_no, id_card, name, gender, major, admin_class,
+            SELECT id, student_no, id_card, name, gender, major, major_direction, grade, admin_class,
                    attendance_status, registration_status, change_info
             FROM students WHERE (name LIKE ? OR name_pinyin LIKE ?) AND is_deleted = 0
             ORDER BY student_no
@@ -625,6 +627,8 @@ def api_student_search_quick():
             'name': row['name'] or '',
             'gender': row['gender'] or '',
             'major': row['major'] or '',
+            'major_direction': row['major_direction'] or '',
+            'grade': row['grade'] or '',
             'admin_class': row['admin_class'] or '',
             'attendance_status': row['attendance_status'] or '',
             'registration_status': row['registration_status'] or '',
@@ -664,6 +668,10 @@ def api_student_change_record():
     id_card = data.get('id_card', '').strip()
     new_class = data.get('new_class', '').strip()
     new_major = data.get('new_major', '').strip()
+    new_major_direction = data.get('new_major_direction', '').strip()
+    clear_major_direction = bool(data.get('clear_major_direction'))
+    new_grade = data.get('new_grade', '').strip()
+    new_attendance_status = data.get('new_attendance_status', '').strip()
     change_info = data.get('change_info', '').strip()
 
     if not id_card or not action:
@@ -675,25 +683,45 @@ def api_student_change_record():
 
     operator = session.get('display_name', session.get('username', 'unknown'))
 
+    def _resolve_direction(old_direction):
+        """解析目标专业方向，返回 (新值, 是否发生变化)。clear_major_direction 时清空。"""
+        if clear_major_direction:
+            return '', bool(old_direction)
+        if new_major_direction and new_major_direction != old_direction:
+            return new_major_direction, True
+        return old_direction, False
+
     try:
         if action == 'class_change':
             if not new_class or not change_info:
                 return jsonify({'success': False, 'message': '参数不完整'}), 400
             old_class = student.get('admin_class', '') or ''
+            old_major_direction = student.get('major_direction', '') or ''
+            new_direction, direction_changed = _resolve_direction(old_major_direction)
             old_change_info = student.get('change_info', '') or ''
-            models.update_student(student['id'], {
+            update_data = {
                 'admin_class': new_class,
                 'change_info': change_info
-            })
+            }
+            if direction_changed:
+                update_data['major_direction'] = new_direction
+            models.update_student(student['id'], update_data)
             models.log_update(student['id'], id_card, 'admin_class', old_class, new_class, operator)
+            if direction_changed:
+                models.log_update(student['id'], id_card, 'major_direction',
+                                  old_major_direction, new_direction, operator)
             models.log_update(student['id'], id_card, 'change_info', old_change_info, change_info, operator)
             models.update_sync_timestamp()
+            message = student['name'] + ' 班级已由 ' + old_class + ' 变更为 ' + new_class
+            if direction_changed:
+                message += '，专业方向已由 ' + (old_major_direction or '无') + ' 变更为 ' + (new_direction or '空')
             return jsonify({
                 'success': True,
-                'message': student['name'] + ' 班级已由 ' + old_class + ' 变更为 ' + new_class,
+                'message': message,
                 'student': {
                     'admin_class': new_class,
                     'major': student.get('major', ''),
+                    'major_direction': new_direction,
                     'attendance_status': student.get('attendance_status', ''),
                     'change_info': change_info
                 }
@@ -704,11 +732,15 @@ def api_student_change_record():
                 return jsonify({'success': False, 'message': '参数不完整'}), 400
             old_class = student.get('admin_class', '') or ''
             old_major = student.get('major', '') or ''
+            old_major_direction = student.get('major_direction', '') or ''
+            new_direction, direction_changed = _resolve_direction(old_major_direction)
             old_change_info = student.get('change_info', '') or ''
 
             update_data = {'change_info': change_info}
             update_data['admin_class'] = new_class
             update_data['major'] = new_major
+            if direction_changed:
+                update_data['major_direction'] = new_direction
             if new_major != old_major:
                 frontend_school = data.get('school')
                 if frontend_school and int(frontend_school) > 0:
@@ -721,17 +753,71 @@ def api_student_change_record():
                 models.log_update(student['id'], id_card, 'admin_class', old_class, new_class, operator)
             if new_major != old_major:
                 models.log_update(student['id'], id_card, 'major', old_major, new_major, operator)
+            if direction_changed:
+                models.log_update(student['id'], id_card, 'major_direction',
+                                  old_major_direction, new_direction, operator)
             models.log_update(student['id'], id_card, 'change_info', old_change_info, change_info, operator)
             models.update_sync_timestamp()
 
+            message = student['name'] + ' 专业/班级变更成功'
+            if direction_changed:
+                message += '，专业方向已由 ' + (old_major_direction or '无') + ' 变更为 ' + (new_direction or '空')
             return jsonify({
                 'success': True,
-                'message': student['name'] + ' 专业/班级变更成功',
+                'message': message,
                 'student': {
                     'admin_class': new_class,
                     'major': new_major,
+                    'major_direction': new_direction,
                     'attendance_status': student.get('attendance_status', ''),
                     'change_info': change_info
+                }
+            })
+
+        elif action == 'grade_status_change':
+            if not new_grade and not new_attendance_status:
+                return jsonify({'success': False, 'message': '参数不完整'}), 400
+            if new_grade and not re.match(r'^\d{4}$', new_grade):
+                return jsonify({'success': False, 'message': '年级需为 4 位年份，如 2025'}), 400
+            if new_attendance_status and new_attendance_status not in config.ATTENDANCE_STATUS:
+                return jsonify({'success': False, 'message': '在校状态不合法'}), 400
+
+            old_grade = student.get('grade', '') or ''
+            old_status = student.get('attendance_status', '') or ''
+            grade_changed = bool(new_grade) and new_grade != old_grade
+            status_changed = bool(new_attendance_status) and new_attendance_status != old_status
+            if not grade_changed and not status_changed:
+                return jsonify({'success': False, 'message': '目标值与当前相同，无需调整'}), 400
+
+            update_data = {}
+            if grade_changed:
+                update_data['grade'] = new_grade
+            if status_changed:
+                update_data['attendance_status'] = new_attendance_status
+            models.update_student(student['id'], update_data)
+
+            if grade_changed:
+                models.log_update(student['id'], id_card, 'grade', old_grade, new_grade, operator)
+            if status_changed:
+                models.log_update(student['id'], id_card, 'attendance_status',
+                                  old_status, new_attendance_status, operator)
+            models.update_sync_timestamp()
+
+            message_parts = []
+            if grade_changed:
+                message_parts.append('年级已由 ' + (old_grade or '无') + ' 调整为 ' + new_grade)
+            if status_changed:
+                message_parts.append('在校状态已由 ' + (old_status or '无') + ' 调整为 ' + new_attendance_status)
+            return jsonify({
+                'success': True,
+                'message': student['name'] + ' ' + '，'.join(message_parts),
+                'student': {
+                    'admin_class': student.get('admin_class', ''),
+                    'major': student.get('major', ''),
+                    'major_direction': student.get('major_direction', ''),
+                    'grade': new_grade if grade_changed else old_grade,
+                    'attendance_status': new_attendance_status if status_changed else old_status,
+                    'change_info': student.get('change_info', '')
                 }
             })
 

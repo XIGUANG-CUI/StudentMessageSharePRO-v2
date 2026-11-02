@@ -534,6 +534,14 @@
                             <div class="sc-info-value" id="detMajor">-</div>
                         </div>
                         <div>
+                            <div class="sc-info-label">当前专业方向</div>
+                            <div class="sc-info-value" id="detMajorDirection">-</div>
+                        </div>
+                        <div>
+                            <div class="sc-info-label">当前年级</div>
+                            <div class="sc-info-value" id="detGrade">-</div>
+                        </div>
+                        <div>
                             <div class="sc-info-label">当前行政班级</div>
                             <div class="sc-info-value" id="detClass">-</div>
                         </div>
@@ -553,16 +561,53 @@
 
                     <div class="sc-change-section">
                         <div class="sc-change-section-title">
+                            <i class="bi bi-sliders" style="color:var(--sc-warning);"></i>年级 / 在校状态调整
+                        </div>
+                        <div class="sc-change-section-desc">
+                            单独调整年级或在校状态（如临时标记为「托管」），不修改班级、专业与异动信息，操作会记录变更日志
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="sc-info-label">目标年级</label>
+                                <select class="sc-form-select" id="modalNewGrade">
+                                    <option value="">保持不变（不修改年级）</option>
+                                </select>
+                            </div>
+                            <div class="col-6">
+                                <label class="sc-info-label">目标在校状态</label>
+                                <select class="sc-form-select" id="modalNewAttendanceStatus">
+                                    <option value="">保持不变（不修改在校状态）</option>
+                                    {% for status in attendance_statuses %}
+                                    <option value="{{ status }}">{{ status }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <button type="button" class="sc-btn-action sc-btn-action-primary" onclick="doGradeStatusChange()">
+                            <i class="bi bi-check2-circle"></i>确认调整
+                        </button>
+                    </div>
+
+                    <div class="sc-change-section">
+                        <div class="sc-change-section-title">
                             <i class="bi bi-building" style="color:var(--sc-primary);"></i>班级变更
                         </div>
                         <div class="sc-change-section-desc">
-                            仅变更行政班级，系统记录异动信息为「异动至此&文件编号」
+                            仅变更行政班级，可选同时变更专业方向，系统记录异动信息为「异动至此&文件编号」
                         </div>
-                        <div class="mb-2">
-                            <label class="sc-info-label">目标行政班级</label>
-                            <select class="sc-form-select" id="modalNewClass">
-                                <option value="">请选择目标班级...</option>
-                            </select>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="sc-info-label">目标行政班级</label>
+                                <select class="sc-form-select" id="modalNewClass">
+                                    <option value="">请选择目标班级...</option>
+                                </select>
+                            </div>
+                            <div class="col-6">
+                                <label class="sc-info-label">目标专业方向 <span class="text-muted">(选填)</span></label>
+                                <select class="sc-form-select" id="modalClassNewMajorDirection">
+                                    <option value="">保持不变（不修改专业方向）</option>
+                                </select>
+                            </div>
                         </div>
                         <div class="mb-2">
                             <label class="sc-info-label">班级变更文件编号</label>
@@ -578,19 +623,25 @@
                             <i class="bi bi-journal-text" style="color:var(--sc-info);"></i>专业变更
                         </div>
                         <div class="sc-change-section-desc">
-                            同时变更行政班级与专业，系统记录异动信息为「专业变更&文件编号」
+                            同时变更行政班级与专业，可选同时变更专业方向，系统记录异动信息为「专业变更&文件编号」
                         </div>
                         <div class="row g-2 mb-2">
-                            <div class="col-6">
+                            <div class="col-4">
                                 <label class="sc-info-label">目标行政班级</label>
                                 <select class="sc-form-select" id="modalMajorNewClass">
                                     <option value="">请选择目标班级...</option>
                                 </select>
                             </div>
-                            <div class="col-6">
+                            <div class="col-4">
                                 <label class="sc-info-label">目标专业</label>
                                 <select class="sc-form-select" id="modalNewMajor">
                                     <option value="">请选择目标专业...</option>
+                                </select>
+                            </div>
+                            <div class="col-4">
+                                <label class="sc-info-label">目标专业方向 <span class="text-muted">(选填)</span></label>
+                                <select class="sc-form-select" id="modalMajorNewMajorDirection">
+                                    <option value="">保持不变（不修改专业方向）</option>
                                 </select>
                             </div>
                         </div>
@@ -780,11 +831,30 @@ function loadMajorOptions() {
     fetch('{{ url_for("api.api_get_dicts") }}')
         .then(function(res) { return safeJSON(res); })
         .then(function(data) {
-            if (!data.success || !data.grouped_dicts || !data.grouped_dicts.major) return;
-            var opts = data.grouped_dicts.major.map(function(m) {
+            if (!data.success || !data.grouped_dicts) return;
+            var majors = data.grouped_dicts.major || [];
+            var opts = majors.map(function(m) {
                 return '<option value="' + m + '">' + m + '</option>';
             }).join('');
             document.getElementById('modalNewMajor').innerHTML = '<option value="">请选择目标专业...</option>' + opts;
+
+            var directions = data.grouped_dicts.major_direction || [];
+            var dirOpts = directions.map(function(d) {
+                return '<option value="' + d + '">' + d + '</option>';
+            }).join('');
+            var keepLabel = '<option value="">保持不变（不修改专业方向）</option>' +
+                '<option value="__clear__">清空专业方向（留空）</option>';
+            document.getElementById('modalClassNewMajorDirection').innerHTML = keepLabel + dirOpts;
+            document.getElementById('modalMajorNewMajorDirection').innerHTML = keepLabel + dirOpts;
+
+            var grades = (data.grouped_dicts.grade && data.grouped_dicts.grade.length)
+                ? data.grouped_dicts.grade
+                : (data.grouped_dicts.enrollment_year || []);
+            var gradeOpts = grades.map(function(g) {
+                return '<option value="' + g + '">' + g + '</option>';
+            }).join('');
+            document.getElementById('modalNewGrade').innerHTML =
+                '<option value="">保持不变（不修改年级）</option>' + gradeOpts;
         });
 }
 
@@ -880,6 +950,8 @@ function selectStudent(idCard) {
             document.getElementById('detIdCard').textContent = s.id_card || '-';
             document.getElementById('detGender').textContent = s.gender || '-';
             document.getElementById('detMajor').textContent = s.major || '-';
+            document.getElementById('detMajorDirection').textContent = s.major_direction || '-';
+            document.getElementById('detGrade').textContent = s.grade || '-';
             document.getElementById('detClass').textContent = s.admin_class || '-';
             document.getElementById('detStatus').textContent = s.attendance_status || '-';
             document.getElementById('detRegistrationStatus').textContent = s.registration_status || '-';
@@ -888,6 +960,10 @@ function selectStudent(idCard) {
             document.getElementById('modalNewClass').value = '';
             document.getElementById('modalMajorNewClass').value = '';
             document.getElementById('modalNewMajor').value = '';
+            document.getElementById('modalClassNewMajorDirection').value = '';
+            document.getElementById('modalMajorNewMajorDirection').value = '';
+            document.getElementById('modalNewGrade').value = '';
+            document.getElementById('modalNewAttendanceStatus').value = '';
             document.getElementById('modalClassFileNo').value = '';
             document.getElementById('modalMajorFileNo').value = '';
             document.getElementById('modalDropoutFileNo').value = '';
@@ -909,8 +985,70 @@ function _buildChangeInfo(prefix, fileNo) {
     return newInfo;
 }
 
+function _resolveDirectionChange(rawValue) {
+    var oldValue = (selectedStudent && selectedStudent.major_direction) || '';
+    if (rawValue === '__clear__') {
+        return {changed: !!oldValue, clear: true, value: '', oldValue: oldValue};
+    }
+    if (rawValue && rawValue !== oldValue) {
+        return {changed: true, clear: false, value: rawValue, oldValue: oldValue};
+    }
+    return {changed: false, clear: false, value: oldValue, oldValue: oldValue};
+}
+
+function _directionText(direction) {
+    return direction.clear ? '空' : direction.value;
+}
+
+function doGradeStatusChange() {
+    var newGrade = document.getElementById('modalNewGrade').value;
+    var newStatus = document.getElementById('modalNewAttendanceStatus').value;
+    if (!selectedStudent) {
+        showToast('请先选择学生', 'warning');
+        return;
+    }
+    if (newGrade && !/^\d{4}$/.test(newGrade)) {
+        showToast('年级需为 4 位年份，如 2025', 'warning');
+        return;
+    }
+
+    var oldGrade = selectedStudent.grade || '';
+    var oldStatus = selectedStudent.attendance_status || '';
+    var gradeChanged = !!newGrade && newGrade !== oldGrade;
+    var statusChanged = !!newStatus && newStatus !== oldStatus;
+
+    if (!gradeChanged && !statusChanged) {
+        showToast('目标年级和在校状态与当前相同，无需调整', 'warning');
+        return;
+    }
+
+    pendingAction = 'grade_status_change';
+    pendingData = {
+        id_card: selectedStudent.id_card,
+        new_grade: gradeChanged ? newGrade : '',
+        new_attendance_status: statusChanged ? newStatus : ''
+    };
+
+    var msgParts = [];
+    if (gradeChanged) {
+        msgParts.push('年级：' + (oldGrade || '无') + ' → <strong>' + newGrade + '</strong>');
+    }
+    if (statusChanged) {
+        msgParts.push('在校状态：' + (oldStatus || '无') + ' → <strong>' + newStatus + '</strong>');
+    }
+
+    document.getElementById('confirmMsg').innerHTML =
+        '<div class="fw-bold mb-1">' + selectedStudent.name + '</div>' +
+        '<div class="text-muted small">' + msgParts.join('<br>') + '</div>';
+    document.getElementById('confirmSchoolRow').classList.add('d-none');
+    document.getElementById('confirmBtn').innerHTML = '<i class="bi bi-check2-circle"></i>确认调整';
+    document.getElementById('confirmBtn').disabled = false;
+    confirmModal.show();
+}
+
 function doClassChange() {
     var newClass = document.getElementById('modalNewClass').value;
+    var direction = _resolveDirectionChange(document.getElementById('modalClassNewMajorDirection').value);
     var fileNo = document.getElementById('modalClassFileNo').value.trim();
     if (!newClass) {
         showToast('请选择目标行政班级', 'warning');
@@ -929,18 +1067,24 @@ function doClassChange() {
         return;
     }
 
+    var directionChanged = direction.changed;
     var changeInfo = _buildChangeInfo('异动至此', fileNo);
 
     pendingAction = 'class_change';
     pendingData = {
         id_card: selectedStudent.id_card,
         new_class: newClass,
+        new_major_direction: direction.changed && !direction.clear ? direction.value : '',
+        clear_major_direction: direction.changed && direction.clear ? 1 : 0,
         change_info: changeInfo
     };
 
     document.getElementById('confirmMsg').innerHTML =
         '<div class="fw-bold mb-1">' + selectedStudent.name + '</div>' +
         '<div class="text-muted small">班级变更：' + selectedStudent.admin_class + ' → <strong>' + newClass + '</strong></div>' +
+        (directionChanged
+            ? '<div class="text-muted small">专业方向：' + (direction.oldValue || '无') + ' → <strong>' + _directionText(direction) + '</strong></div>'
+            : '') +
         '<div class="text-muted small mt-1">将记录异动信息：<strong>' + changeInfo + '</strong></div>';
     document.getElementById('confirmBtn').innerHTML = '<i class="bi bi-check2-circle"></i>确认变更班级';
     document.getElementById('confirmBtn').disabled = false;
@@ -950,6 +1094,7 @@ function doClassChange() {
 function doMajorChange() {
     var newClass = document.getElementById('modalMajorNewClass').value;
     var newMajor = document.getElementById('modalNewMajor').value;
+    var direction = _resolveDirectionChange(document.getElementById('modalMajorNewMajorDirection').value);
     var fileNo = document.getElementById('modalMajorFileNo').value.trim();
     if (!newClass) {
         showToast('请选择目标行政班级', 'warning');
@@ -967,7 +1112,8 @@ function doMajorChange() {
         showToast('请先选择学生', 'warning');
         return;
     }
-    if (newClass === selectedStudent.admin_class && newMajor === selectedStudent.major) {
+    var directionChanged = direction.changed;
+    if (newClass === selectedStudent.admin_class && newMajor === selectedStudent.major && !directionChanged) {
         showToast('目标班级和专业与当前相同，无需变更', 'warning');
         return;
     }
@@ -981,12 +1127,17 @@ function doMajorChange() {
     if (newMajor !== selectedStudent.major) {
         msgParts.push('专业：' + (selectedStudent.major || '无') + ' → <strong>' + newMajor + '</strong>');
     }
+    if (directionChanged) {
+        msgParts.push('专业方向：' + (direction.oldValue || '无') + ' → <strong>' + _directionText(direction) + '</strong>');
+    }
 
     pendingAction = 'major_change';
     pendingData = {
         id_card: selectedStudent.id_card,
         new_class: newClass,
         new_major: newMajor,
+        new_major_direction: direction.changed && !direction.clear ? direction.value : '',
+        clear_major_direction: direction.changed && direction.clear ? 1 : 0,
         change_info: changeInfo
     };
 
@@ -1069,10 +1220,14 @@ function executeChange() {
 
     if (pendingAction === 'class_change') {
         body.new_class = pendingData.new_class;
+        body.new_major_direction = pendingData.new_major_direction;
+        body.clear_major_direction = pendingData.clear_major_direction;
         body.change_info = pendingData.change_info;
     } else if (pendingAction === 'major_change') {
         body.new_class = pendingData.new_class;
         body.new_major = pendingData.new_major;
+        body.new_major_direction = pendingData.new_major_direction;
+        body.clear_major_direction = pendingData.clear_major_direction;
         body.change_info = pendingData.change_info;
         if (pendingData.school) {
             body.school = pendingData.school;
@@ -1082,6 +1237,9 @@ function executeChange() {
                 body.school = parseInt(schoolSelect.value);
             }
         }
+    } else if (pendingAction === 'grade_status_change') {
+        body.new_grade = pendingData.new_grade;
+        body.new_attendance_status = pendingData.new_attendance_status;
     } else if (pendingAction === 'dropout') {
         body.change_info = pendingData.change_info;
     }
@@ -1099,16 +1257,24 @@ function executeChange() {
                 if (selectedStudent) {
                     selectedStudent.admin_class = data.student ? data.student.admin_class : selectedStudent.admin_class;
                     selectedStudent.major = data.student ? data.student.major : selectedStudent.major;
+                    selectedStudent.major_direction = data.student ? data.student.major_direction : selectedStudent.major_direction;
+                    selectedStudent.grade = data.student ? data.student.grade : selectedStudent.grade;
                     selectedStudent.attendance_status = data.student ? data.student.attendance_status : selectedStudent.attendance_status;
                     selectedStudent.change_info = data.student ? data.student.change_info : selectedStudent.change_info;
                     document.getElementById('detClass').textContent = selectedStudent.admin_class || '-';
                     document.getElementById('detMajor').textContent = selectedStudent.major || '-';
+                    document.getElementById('detMajorDirection').textContent = selectedStudent.major_direction || '-';
+                    document.getElementById('detGrade').textContent = selectedStudent.grade || '-';
                     document.getElementById('detStatus').textContent = selectedStudent.attendance_status || '-';
                     document.getElementById('detChangeInfo').textContent = selectedStudent.change_info || '-';
                 }
                 document.getElementById('modalNewClass').value = '';
                 document.getElementById('modalMajorNewClass').value = '';
                 document.getElementById('modalNewMajor').value = '';
+                document.getElementById('modalClassNewMajorDirection').value = '';
+                document.getElementById('modalMajorNewMajorDirection').value = '';
+                document.getElementById('modalNewGrade').value = '';
+                document.getElementById('modalNewAttendanceStatus').value = '';
                 document.getElementById('modalClassFileNo').value = '';
                 document.getElementById('modalMajorFileNo').value = '';
                 document.getElementById('modalDropoutFileNo').value = '';
