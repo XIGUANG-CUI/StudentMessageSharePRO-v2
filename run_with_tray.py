@@ -3,6 +3,7 @@ import sys
 import ctypes
 import threading
 import logging
+import logging.handlers
 import tkinter as tk
 from tkinter import messagebox
 
@@ -39,6 +40,47 @@ else:
     BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
 sys.path.insert(0, BASE_DIR)
+
+# ====================== 日志配置 ======================
+def setup_logging():
+    """初始化日志：写入 <数据目录>/logs/app.log，按 5MB 轮转保留 5 份。
+    必须在导入 config/app 之前调用，确保启动早期异常也能落盘。"""
+    log_dir = os.path.join(BASE_DIR, 'logs')
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+    except OSError as e:
+        print(f"[日志] 创建日志目录失败: {e}")
+        return
+
+    root = logging.getLogger()
+    if root.handlers:
+        return
+    root.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s')
+
+    try:
+        file_handler = logging.handlers.RotatingFileHandler(
+            os.path.join(log_dir, 'app.log'),
+            maxBytes=5 * 1024 * 1024,
+            backupCount=5,
+            encoding='utf-8',
+        )
+        file_handler.setFormatter(formatter)
+        root.addHandler(file_handler)
+    except OSError as e:
+        print(f"[日志] 无法创建日志文件: {e}")
+
+    # 有控制台时同步输出一份便于开发调试；打包窗口模式下 stderr 为 None，跳过
+    if sys.stderr is not None:
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        root.addHandler(console_handler)
+
+    # 静态资源/逐请求访问日志噪声过大，只保留告警及以上
+    logging.getLogger('werkzeug').setLevel(logging.WARNING)
+
+
+setup_logging()
 
 # ====================== 单实例锁（Windows 命名互斥体） ======================
 def check_already_running():
