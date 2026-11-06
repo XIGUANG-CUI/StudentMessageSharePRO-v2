@@ -1,0 +1,471 @@
+{% extends "base.html" %}
+{% block title %}第二年续保 - 学生数据管理系统{% endblock %}
+{% block head %}
+<style>
+    .irn-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+                   background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+    .irn-toolbar .form-control, .irn-toolbar .form-select { font-size: 0.8rem; }
+    .irn-search { width: 220px; }
+    .irn-table-wrap { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; overflow: auto;
+                      max-height: calc(100vh - 260px); }
+    .irn-table-wrap thead th { position: sticky; top: 0; background: #f1f3f5; z-index: 2; font-size: 0.78rem; white-space: nowrap; }
+    .irn-table-wrap td { font-size: 0.8rem; }
+    .irn-batch { display: inline-block; padding: 1px 8px; border-radius: 8px; background: #f0ebff; color: #59359a; font-size: 0.72rem; }
+    .irn-days { font-weight: 600; }
+    .irn-days.warn { color: #dc3545; }
+    .irn-days.soon { color: #fd7e14; }
+    .irn-chip { display: inline-block; padding: 1px 8px; border-radius: 8px; font-size: 0.72rem; }
+    .irn-chip-approved { background: #e7f1ff; color: #0d6efd; }
+    .irn-chip-exported { background: #fff3cd; color: #997404; }
+    .irn-chip-done { background: #e8f5e9; color: #198754; }
+    .irn-toast { position: fixed; bottom: 20px; right: 20px; z-index: 9999; padding: 10px 18px;
+                 border-radius: 6px; color: #fff; font-size: 0.85rem; }
+    .irn-toast.success { background: #198754; }
+    .irn-toast.error { background: #dc3545; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h5 class="mb-0"><i class="bi bi-arrow-repeat me-2"></i>第二年续保</h5>
+    <span class="text-muted small">保单到期前 <strong id="irnWindowLabel">30</strong> 天（含同月批次）自动进入续保池</span>
+</div>
+
+<ul class="nav nav-pills mb-2" id="irnTabs">
+    <li class="nav-item">
+        <button class="nav-link active" data-view="pool" type="button">待续保</button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-view="stage" type="button">已进入参保（导出 / 补录保单）</button>
+    </li>
+</ul>
+
+<div class="irn-toolbar">
+    <input type="text" class="form-control form-control-sm irn-search" id="irnSearch" placeholder="学号 / 姓名 / 拼音 / 身份证号">
+    <select class="form-select form-select-sm" id="irnSchool" style="width:120px">
+        <option value="">全部校别</option>
+        {% for st in school_types %}
+        <option value="{{ st.code }}">{{ st.name }}</option>
+        {% endfor %}
+    </select>
+    <select class="form-select form-select-sm" id="irnGrade" style="width:110px">
+        <option value="">全部年级</option>
+        {% for g in filter_values.grades %}
+        <option value="{{ g }}">{{ g }}级</option>
+        {% endfor %}
+    </select>
+    <select class="form-select form-select-sm" id="irnClass" style="width:120px">
+        <option value="">全部班级</option>
+        {% for c in filter_values.classes %}
+        <option value="{{ c }}">{{ c }}</option>
+        {% endfor %}
+    </select>
+    <select class="form-select form-select-sm" id="irnWindow" style="width:130px">
+        <option value="15">到期前 15 天</option>
+        <option value="30" selected>到期前 30 天</option>
+        <option value="60">到期前 60 天</option>
+        <option value="90">到期前 90 天</option>
+    </select>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="irnReset">重置</button>
+
+    <div class="ms-auto d-flex gap-2 align-items-center">
+        <span class="text-muted small">共 <strong id="irnTotal">0</strong> 人</span>
+        <button type="button" class="btn btn-sm btn-success" id="irnStartBtn">
+            <i class="bi bi-arrow-right-circle me-1"></i>进入参保流程
+        </button>
+        <button type="button" class="btn btn-sm btn-primary d-none" id="irnExportBtn">
+            <i class="bi bi-file-earmark-excel me-1"></i>导出已选（待导出）
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-primary d-none" id="irnPolicyBtn">
+            <i class="bi bi-pencil-square me-1"></i>批量补录保单
+        </button>
+    </div>
+</div>
+
+<div class="irn-table-wrap" id="irnPoolWrap">
+    <table class="table table-sm table-hover align-middle mb-0">
+        <thead>
+            <tr>
+                <th style="width:36px"><input type="checkbox" id="irnCheckAll"></th>
+                <th>姓名</th>
+                <th>学号</th>
+                <th>身份证号</th>
+                <th>校别</th>
+                <th>班级</th>
+                <th>年级</th>
+                <th>原批次</th>
+                <th>保单号</th>
+                <th>到期日期</th>
+                <th>剩余天数</th>
+            </tr>
+        </thead>
+        <tbody id="irnBody">
+            <tr><td colspan="11" class="text-center text-muted py-4">加载中…</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="irn-table-wrap d-none" id="irnStageWrap">
+    <table class="table table-sm table-hover align-middle mb-0">
+        <thead>
+            <tr>
+                <th style="width:36px"><input type="checkbox" id="irnStageCheckAll"></th>
+                <th>姓名</th>
+                <th>学号</th>
+                <th>班级</th>
+                <th>年级</th>
+                <th>本批次</th>
+                <th>状态</th>
+                <th>保单号</th>
+                <th>到期日期</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody id="irnStageBody">
+            <tr><td colspan="10" class="text-center text-muted py-4">加载中…</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="modal fade" id="irnPolicyModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title">补录续保保单（<span id="irnPolicyCount">0</span> 人）</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-2">
+                    <label class="form-label small fw-semibold">保单号</label>
+                    <input type="text" class="form-control form-control-sm" id="irnPolicyNo">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small fw-semibold">到期日期</label>
+                    <input type="date" class="form-control form-control-sm" id="irnPolicyExpiry">
+                </div>
+                <div class="text-muted small">统一套用到所选记录；若每名学生保单号不同，请逐行点击「补录」。</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-sm btn-primary" id="irnPolicySave">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+    var view = 'pool';
+    var items = [];
+    var selected = {};
+    var stageItems = [];
+    var stageSelected = {};
+    var policyTargets = null;
+
+    function $(id) { return document.getElementById(id); }
+    function esc(v) {
+        return String(v === null || v === undefined ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    function toast(message, type) {
+        var div = document.createElement('div');
+        div.className = 'irn-toast ' + (type || 'success');
+        div.textContent = message;
+        document.body.appendChild(div);
+        setTimeout(function () { div.remove(); }, 2600);
+    }
+
+    function daysClass(days) {
+        if (days === null || days === undefined) { return ''; }
+        if (days < 0) { return 'warn'; }
+        if (days <= 7) { return 'warn'; }
+        if (days <= 30) { return 'soon'; }
+        return '';
+    }
+
+    function statusChip(status) {
+        var map = {
+            approved: ['irn-chip-approved', '待导出'],
+            exported: ['irn-chip-exported', '待补保单'],
+            done: ['irn-chip-done', '已办结']
+        };
+        var item = map[status] || ['irn-chip-approved', status || '—'];
+        return '<span class="irn-chip ' + item[0] + '">' + esc(item[1]) + '</span>';
+    }
+
+    function queryString(extra) {
+        var map = {
+            search: $('irnSearch').value.trim(),
+            school: $('irnSchool').value,
+            grade: $('irnGrade').value,
+            admin_class: $('irnClass').value,
+            window_days: $('irnWindow').value
+        };
+        if (extra) { Object.keys(extra).forEach(function (k) { map[k] = extra[k]; }); }
+        var parts = [];
+        Object.keys(map).forEach(function (key) {
+            if (map[key]) { parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(map[key])); }
+        });
+        return parts.join('&');
+    }
+
+    function renderPool() {
+        $('irnTotal').textContent = items.length;
+        var body = $('irnBody');
+        if (!items.length) {
+            body.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4">当前没有需要续保的学生</td></tr>';
+            return;
+        }
+        var html = '';
+        items.forEach(function (s) {
+            var checked = selected[s.id] ? ' checked' : '';
+            var daysText = (s.days_left === null || s.days_left === undefined) ? '—' : (s.days_left + ' 天');
+            html += '<tr>'
+                + '<td><input type="checkbox" class="irn-row-check" data-sid="' + s.id + '"' + checked + '></td>'
+                + '<td class="fw-semibold">' + esc(s.name) + '</td>'
+                + '<td>' + esc(s.student_no) + '</td>'
+                + '<td class="font-monospace text-muted" style="font-size:0.72rem">' + esc(s.id_card) + '</td>'
+                + '<td>' + esc(s.school) + '</td>'
+                + '<td>' + esc(s.admin_class) + '</td>'
+                + '<td>' + esc(s.grade) + '</td>'
+                + '<td><span class="irn-batch">第' + (s.previous_batch_no || '?') + '年</span></td>'
+                + '<td>' + esc(s.policy_no) + '</td>'
+                + '<td>' + esc(s.expiry_date) + '</td>'
+                + '<td class="irn-days ' + daysClass(s.days_left) + '">' + daysText + '</td>'
+                + '</tr>';
+        });
+        body.innerHTML = html;
+    }
+
+    function renderStage() {
+        $('irnTotal').textContent = stageItems.length;
+        var body = $('irnStageBody');
+        if (!stageItems.length) {
+            body.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">暂无已进入参保的续保记录</td></tr>';
+            return;
+        }
+        var html = '';
+        stageItems.forEach(function (s) {
+            var checked = stageSelected[s.record_id] ? ' checked' : '';
+            var action = '<span class="text-muted">—</span>';
+            if (s.source_status === 'approved') {
+                action = '<button type="button" class="btn btn-sm btn-primary" data-act="export" data-rid="' + s.record_id + '">导出</button>';
+            } else if (s.source_status === 'exported') {
+                action = '<button type="button" class="btn btn-sm btn-outline-primary" data-act="policy" data-rid="' + s.record_id + '">补录保单</button>';
+            }
+            html += '<tr>'
+                + '<td><input type="checkbox" class="irn-stage-check" data-rid="' + s.record_id + '"' + checked + '></td>'
+                + '<td class="fw-semibold">' + esc(s.name) + '</td>'
+                + '<td>' + esc(s.student_no) + '</td>'
+                + '<td>' + esc(s.admin_class) + '</td>'
+                + '<td>' + esc(s.grade) + '</td>'
+                + '<td><span class="irn-batch">第' + (s.batch_no || '?') + '年</span></td>'
+                + '<td>' + statusChip(s.source_status) + '</td>'
+                + '<td>' + esc(s.policy_no) + '</td>'
+                + '<td>' + esc(s.expiry_date) + '</td>'
+                + '<td class="text-nowrap">' + action + '</td>'
+                + '</tr>';
+        });
+        body.innerHTML = html;
+    }
+
+    function switchView(next) {
+        view = next;
+        document.querySelectorAll('#irnTabs .nav-link').forEach(function (tab) {
+            tab.classList.toggle('active', tab.getAttribute('data-view') === view);
+        });
+        $('irnPoolWrap').classList.toggle('d-none', view !== 'pool');
+        $('irnStageWrap').classList.toggle('d-none', view !== 'stage');
+        $('irnStartBtn').classList.toggle('d-none', view !== 'pool');
+        $('irnExportBtn').classList.toggle('d-none', view !== 'stage');
+        $('irnPolicyBtn').classList.toggle('d-none', view !== 'stage');
+        load();
+    }
+
+    function load() {
+        if (view === 'stage') {
+            fetch('/api/insurance/renewal/stage?' + queryString())
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data.success) { toast(data.message || '加载失败', 'error'); return; }
+                    stageItems = data.items || [];
+                    var keep = {};
+                    stageItems.forEach(function (s) { if (stageSelected[s.record_id]) { keep[s.record_id] = true; } });
+                    stageSelected = keep;
+                    renderStage();
+                })
+                .catch(function () { toast('加载失败', 'error'); });
+            return;
+        }
+        fetch('/api/insurance/renewal/list?' + queryString())
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.success) { toast(data.message || '加载失败', 'error'); return; }
+                items = data.items || [];
+                $('irnWindowLabel').textContent = data.window_days || 30;
+                var keep = {};
+                items.forEach(function (s) { if (selected[s.id]) { keep[s.id] = true; } });
+                selected = keep;
+                renderPool();
+            })
+            .catch(function () { toast('加载失败', 'error'); });
+    }
+
+    function downloadExport(ids, count) {
+        fetch('/api/insurance/renewal/export?record_ids=' + ids.join(','))
+            .then(function (r) {
+                if (!r.ok) {
+                    return r.json().then(function (d) { throw new Error(d.message || '导出失败'); });
+                }
+                return r.blob();
+            })
+            .then(function (blob) {
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = '续保参保数据.xlsx';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                toast('已导出 ' + count + ' 条续保记录', 'success');
+                stageSelected = {};
+                load();
+            })
+            .catch(function (err) { toast(err.message || '导出失败', 'error'); });
+    }
+
+    var policyModal = null;
+    function openPolicyModal(targets) {
+        if (!targets.length) { toast('请选择「待补保单」状态的记录', 'error'); return; }
+        policyTargets = targets;
+        $('irnPolicyCount').textContent = targets.length;
+        if (!policyModal) { policyModal = new bootstrap.Modal($('irnPolicyModal')); }
+        policyModal.show();
+    }
+
+    function submitPolicy(targets, policyNo, expiry) {
+        if (!policyNo) { toast('请输入保单号', 'error'); return; }
+        if (!expiry) { toast('请选择到期日期', 'error'); return; }
+        if (!targets.length) { toast('请选择记录', 'error'); return; }
+        fetch('/api/insurance/renewal/policy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                items: targets.map(function (t) {
+                    return { record_id: t.record_id, policy_no: policyNo, expiry_date: expiry };
+                })
+            })
+        }).then(function (r) { return r.json(); }).then(function (data) {
+            if (!data.success) { toast(data.message || '补录失败', 'error'); return; }
+            toast('已补录 ' + data.count + ' 条', 'success');
+            if (policyModal) { policyModal.hide(); }
+            $('irnPolicyNo').value = '';
+            $('irnPolicyExpiry').value = '';
+            policyTargets = null;
+            stageSelected = {};
+            load();
+        }).catch(function () { toast('补录失败', 'error'); });
+    }
+
+    document.querySelectorAll('#irnTabs .nav-link').forEach(function (tab) {
+        tab.addEventListener('click', function () { switchView(tab.getAttribute('data-view')); });
+    });
+
+    $('irnSearch').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { selected = {}; stageSelected = {}; load(); }
+    });
+    ['irnSchool', 'irnGrade', 'irnClass', 'irnWindow'].forEach(function (id) {
+        $(id).addEventListener('change', function () { selected = {}; stageSelected = {}; load(); });
+    });
+    $('irnReset').addEventListener('click', function () {
+        $('irnSearch').value = '';
+        ['irnSchool', 'irnGrade', 'irnClass'].forEach(function (id) { $(id).value = ''; });
+        $('irnWindow').value = '30';
+        selected = {};
+        stageSelected = {};
+        load();
+    });
+
+    $('irnCheckAll').addEventListener('change', function () {
+        var checked = this.checked;
+        items.forEach(function (s) {
+            if (checked) { selected[s.id] = true; } else { delete selected[s.id]; }
+        });
+        renderPool();
+    });
+
+    $('irnBody').addEventListener('change', function (e) {
+        var box = e.target.closest('.irn-row-check');
+        if (!box) { return; }
+        var sid = box.getAttribute('data-sid');
+        if (box.checked) { selected[sid] = true; } else { delete selected[sid]; }
+    });
+
+    $('irnStageCheckAll').addEventListener('change', function () {
+        var checked = this.checked;
+        stageItems.forEach(function (s) {
+            if (checked) { stageSelected[s.record_id] = true; } else { delete stageSelected[s.record_id]; }
+        });
+        renderStage();
+    });
+
+    $('irnStageBody').addEventListener('change', function (e) {
+        var box = e.target.closest('.irn-stage-check');
+        if (!box) { return; }
+        var rid = box.getAttribute('data-rid');
+        if (box.checked) { stageSelected[rid] = true; } else { delete stageSelected[rid]; }
+    });
+
+    $('irnStageBody').addEventListener('click', function (e) {
+        var btn = e.target.closest('button[data-act]');
+        if (!btn) { return; }
+        var rid = Number(btn.getAttribute('data-rid'));
+        var row = stageItems.filter(function (s) { return s.record_id === rid; })[0];
+        if (btn.getAttribute('data-act') === 'export') {
+            downloadExport([rid], 1);
+        } else {
+            openPolicyModal([row]);
+        }
+    });
+
+    $('irnStartBtn').addEventListener('click', function () {
+        var ids = Object.keys(selected);
+        if (!ids.length) { toast('请先选择学生', 'error'); return; }
+        if (!confirm('确认将选中的 ' + ids.length + ' 名学生进入续保流程？'))
+            { return; }
+        fetch('/api/insurance/renewal/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ student_ids: ids.map(Number) })
+        }).then(function (r) { return r.json(); }).then(function (data) {
+            if (!data.success) { toast(data.message || '操作失败', 'error'); return; }
+            toast('已进入续保流程 ' + data.count + ' 人' + (data.skipped ? '，跳过 ' + data.skipped + ' 人' : ''), 'success');
+            selected = {};
+            load();
+        }).catch(function () { toast('操作失败', 'error'); });
+    });
+
+    $('irnExportBtn').addEventListener('click', function () {
+        var chosen = stageItems.filter(function (s) {
+            return stageSelected[s.record_id] && s.source_status === 'approved';
+        });
+        if (!chosen.length) { toast('请选择「待导出」状态的记录', 'error'); return; }
+        downloadExport(chosen.map(function (s) { return s.record_id; }), chosen.length);
+    });
+
+    $('irnPolicyBtn').addEventListener('click', function () {
+        openPolicyModal(stageItems.filter(function (s) {
+            return stageSelected[s.record_id] && s.source_status === 'exported';
+        }));
+    });
+
+    $('irnPolicySave').addEventListener('click', function () {
+        submitPolicy(policyTargets || [], $('irnPolicyNo').value.trim(), $('irnPolicyExpiry').value);
+    });
+
+    load();
+})();
+</script>
+{% endblock %}

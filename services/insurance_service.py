@@ -15,6 +15,13 @@ import datetime
 
 import models
 import config
+from models.insurance import (
+    INSURANCE_TYPE_INTERN,
+    INSURANCE_TYPE_XUEPING,
+    apply_import_record,
+    build_plan,
+    current_insurance_batch,
+)
 
 
 # 导入模板列（中文表头）与 DB 字段映射
@@ -70,40 +77,11 @@ def _cleanup_stale_progress(progress_dict):
 
 
 def compute_insurance_batch(grade, enrollment_year, current_year=None):
-    """计算学生保险批次（第几年），返回 1~3 的整数或 None（无法判定 / 超出 3 年制）。
+    """计算学生保险批次（第几年），委托 models.insurance 统一实现。
 
-    与 blueprints/insurance.py 中的同名函数保持一致：先判定学生类别，再计算，
-    保证 普通 / 转入 / 特殊 三种情况任何时刻都正确：
-      - 普通：grade == enrollment_year           -> 起始年 = grade
-      - 转入：grade <  enrollment_year           -> 起始年 = grade（按本校年级进度）
-      - 特殊：grade >  enrollment_year           -> 年级由初中毕业时间推算，可能偏高：
-            * 若 grade 超出当前学年（被算飞到未来），以 enrollment_year 为准；
-            * 否则以 grade 为准（年级合法、入学年被压低）。
-    batch = current_year − 起始年 + 1；仅 1~3 显示。
+    保持原签名与返回值（1~3 或 None），避免导入/登记逻辑各自维护一份公式。
     """
-    if current_year is None:
-        current_year = config.CURRENT_SCHOOL_YEAR
-    try:
-        g = int(grade)
-    except (TypeError, ValueError):
-        return None
-    try:
-        en = int(enrollment_year)
-    except (TypeError, ValueError):
-        en = None
-    if g is None:
-        return None
-    if en is None:
-        b = current_year - g + 1
-        return b if 1 <= b <= 3 else None
-    if g == en:
-        start = g                       # 普通
-    elif g < en:
-        start = g                       # 转入：按本校年级进度
-    else:  # g > en -> 特殊
-        start = en if g > current_year else g
-    b = current_year - start + 1
-    return b if 1 <= b <= 3 else None
+    return current_insurance_batch(grade, enrollment_year, current_year)
 
 
 def normalize_supervisor_flag(raw):
@@ -272,6 +250,8 @@ def start_insurance_init_import(rows, progress_dict):
         'normalized': 0,
         'unrecognized': 0,
         'ignored_xueping': 0,
+        'records_created': 0,
+        'records_updated': 0,
     }
 
     def worker():
@@ -297,6 +277,44 @@ def _tick(progress_dict, progress_id, i, success_count, errors):
     p['errors'] = errors[-10:]     # 轮询展示用：仅最近 10 条，保持响应轻量
     p['errors_full'] = errors      # 全量错误（CSV 导出用），存引用无拷贝开销
     p['message'] = f'正在处理第 {i}/{p["total"]} 行...'
+
+
+def _sync_insurance_records(student, id_card, current_batch, fields, progress):
+    """导入后同步 insurance_records（新状态机数据源），避免两套数据分叉。
+
+    按保险计划中当前批次对应的步骤写入：学平险步骤写学平险记录，
+    实习就业险步骤写实习记录；学平险列被整列忽略时不动记录。
+    """
+    if current_batch not in (1, 2, 3):
+        return
+    db = models.get_db()
+    flag = (fields.get('supervisor_flag') or '').strip()
+    plan = build_plan(student['enrollment_year'], student['grade'])
+    step = next((s for s in plan if s['batch_no'] == current_batch), None)
+    if not step:
+        return
+
+    if step['insurance_type'] == INSURANCE_TYPE_INTERN:
+        action = apply_import_record(
+            db, student['id'], id_card, step['batch_no'], INSURANCE_TYPE_INTERN,
+            flag=flag,
+            pay_date=fields.get('internship_insurance_pay_date', ''),
+            operator='import')
+    else:
+        if 'student_insurance_pay_date' not in fields:
+            return
+        action = apply_import_record(
+            db, student['id'], id_card, step['batch_no'], INSURANCE_TYPE_XUEPING,
+            flag=flag,
+            pay_date=fields.get('student_insurance_pay_date', ''),
+            policy_no=fields.get('student_insurance_no', ''),
+            expiry_date=fields.get('student_insurance_expiry', ''),
+            operator='import')
+
+    if action == 'created':
+        progress['records_created'] = progress.get('records_created', 0) + 1
+    elif action == 'updated':
+        progress['records_updated'] = progress.get('records_updated', 0) + 1
 
 
 def _run_import(rows, progress_dict, progress_id):
@@ -379,6 +397,10 @@ def _run_import(rows, progress_dict, progress_id):
                     fields['student_insurance_pay_date'] = config.InsuranceStatus.EXTERNAL_PAY_MARKER
 
             models.update_student_insurance(existing['id'], fields)
+            # 记录同步以 Excel 原始标记为准：留空行不生成/降级记录
+            record_fields = dict(fields, supervisor_flag='') if supervisor_raw_blank else fields
+            _sync_insurance_records(existing, id_card, current_batch, record_fields,
+                                    progress_dict[progress_id])
             success_count += 1
             if current_batch in (1, 2, 3):
                 progress_dict[progress_id]['batch_distribution'][current_batch] += 1

@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}保险记录查询 - 学生数据管理系统{% endblock %}
+{% block head %}
+<style>
+    .irec-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+                    background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px;
+                    padding: 10px; margin-bottom: 10px; }
+    .irec-toolbar .form-control, .irec-toolbar .form-select { font-size: 0.8rem; }
+    .irec-search { width: 220px; }
+    .irec-table-wrap { background: #fff; border: 1px solid #dee2e6; border-radius: 8px;
+                       overflow: auto; max-height: calc(100vh - 250px); }
+    .irec-table-wrap thead th { position: sticky; top: 0; background: #f1f3f5; z-index: 2;
+                                font-size: 0.78rem; white-space: nowrap; }
+    .irec-table-wrap td { font-size: 0.8rem; }
+    .irec-chip { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 0.72rem; }
+    .irec-chip-pending_approve { background: #fff3cd; color: #856404; }
+    .irec-chip-approved { background: #cfe2ff; color: #084298; }
+    .irec-chip-exported { background: #e2d9f3; color: #432874; }
+    .irec-chip-pending_pay { background: #ffe5d0; color: #984c0c; }
+    .irec-chip-paid { background: #cff4fc; color: #055160; }
+    .irec-chip-done { background: #d4edda; color: #155724; }
+    .irec-chip-exempt { background: #e9ecef; color: #495057; }
+    .irec-type { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; }
+    .irec-type-xueping { background: #d1e7dd; color: #0f5132; }
+    .irec-type-intern { background: #cfe2ff; color: #084298; }
+    .irec-toast { position: fixed; bottom: 20px; right: 20px; z-index: 9999; padding: 10px 18px;
+                  border-radius: 6px; color: #fff; font-size: 0.85rem; }
+    .irec-toast.success { background: #198754; }
+    .irec-toast.error { background: #dc3545; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h5 class="mb-0"><i class="bi bi-card-list me-2"></i>保险记录查询</h5>
+    <span class="text-muted small">数据源：保险记录表（含学平险 / 实习就业险全部批次）</span>
+</div>
+
+<div class="irec-toolbar">
+    <input type="text" class="form-control form-control-sm irec-search" id="irecSearch"
+           placeholder="学号 / 姓名 / 拼音 / 身份证号 / 电话">
+    <select class="form-select form-select-sm" id="irecSchool" style="width:120px">
+        <option value="">全部校别</option>
+        {% for st in school_types %}
+        <option value="{{ st.code }}">{{ st.name }}</option>
+        {% endfor %}
+    </select>
+    <select class="form-select form-select-sm" id="irecGrade" style="width:110px">
+        <option value="">全部年级</option>
+        {% for g in filter_values.grades %}
+        <option value="{{ g }}">{{ g }}级</option>
+        {% endfor %}
+    </select>
+    <select class="form-select form-select-sm" id="irecClass" style="width:120px">
+        <option value="">全部班级</option>
+        {% for c in filter_values.classes %}
+        <option value="{{ c }}">{{ c }}</option>
+        {% endfor %}
+    </select>
+    <select class="form-select form-select-sm" id="irecType" style="width:130px">
+        <option value="">全部险种</option>
+        <option value="xueping">学平险</option>
+        <option value="intern">实习就业险</option>
+    </select>
+    <select class="form-select form-select-sm" id="irecStatus" style="width:140px">
+        <option value="">全部状态</option>
+        <option value="pending_approve">待审批</option>
+        <option value="approved">已审批待导出</option>
+        <option value="exported">已办结待补保单</option>
+        <option value="pending_pay">待缴费</option>
+        <option value="paid">已缴费</option>
+        <option value="done">已办结</option>
+        <option value="exempt">不办理</option>
+    </select>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="irecReset">重置</button>
+    <span class="ms-auto text-muted small">共 <strong id="irecTotal">0</strong> 条</span>
+</div>
+
+<div class="irec-table-wrap">
+    <table class="table table-sm table-hover align-middle mb-0">
+        <thead>
+            <tr>
+                <th>姓名</th><th>学号</th><th>校别</th><th>班级</th><th>年级</th>
+                <th>入学年</th><th>批次</th><th>险种</th><th>学年</th>
+                <th>缴费日期</th><th>保费</th><th>保单号</th><th>到期时间</th>
+                <th>状态</th>
+            </tr>
+        </thead>
+        <tbody id="irecBody">
+            <tr><td colspan="14" class="text-center text-muted py-4">加载中…</td></tr>
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+    var schoolMap = {};
+    {% for st in school_types %}
+    schoolMap['{{ st.code }}'] = '{{ st.name }}';
+    {% endfor %}
+
+    function $(id) { return document.getElementById(id); }
+    function esc(v) {
+        return String(v === null || v === undefined ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    function toast(message, type) {
+        var div = document.createElement('div');
+        div.className = 'irec-toast ' + (type || 'success');
+        div.textContent = message;
+        document.body.appendChild(div);
+        setTimeout(function () { div.remove(); }, 2600);
+    }
+
+    function queryString() {
+        var map = {
+            search: $('irecSearch').value.trim(),
+            school: $('irecSchool').value,
+            grade: $('irecGrade').value,
+            admin_class: $('irecClass').value,
+            insurance_type: $('irecType').value,
+            status: $('irecStatus').value
+        };
+        var parts = [];
+        Object.keys(map).forEach(function (key) {
+            if (map[key]) { parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(map[key])); }
+        });
+        return parts.join('&');
+    }
+
+    function typeLabel(t) {
+        return t === 'intern' ? '实习就业险' : '学平险';
+    }
+
+    function render(items) {
+        var body = $('irecBody');
+        if (!items.length) {
+            body.innerHTML = '<tr><td colspan="14" class="text-center text-muted py-4">暂无记录</td></tr>';
+            return;
+        }
+        var html = '';
+        items.forEach(function (s) {
+            html += '<tr>'
+                + '<td class="fw-semibold">' + esc(s.name) + '</td>'
+                + '<td>' + esc(s.student_no) + '</td>'
+                + '<td>' + esc(schoolMap[s.school] || s.school) + '</td>'
+                + '<td>' + esc(s.admin_class) + '</td>'
+                + '<td>' + esc(s.grade) + '</td>'
+                + '<td>' + esc(s.enrollment_year) + '</td>'
+                + '<td>第' + esc(s.batch_no) + '年</td>'
+                + '<td><span class="irec-type irec-type-' + esc(s.insurance_type) + '">'
+                + typeLabel(s.insurance_type) + '</span></td>'
+                + '<td>' + esc(s.school_year) + '</td>'
+                + '<td>' + esc(s.pay_date) + '</td>'
+                + '<td>' + esc(s.premium) + '</td>'
+                + '<td>' + esc(s.policy_no) + '</td>'
+                + '<td>' + esc(s.expiry_date) + '</td>'
+                + '<td><span class="irec-chip irec-chip-' + esc(s.source_status || s.status) + '">'
+                + esc(s.status_label) + '</span></td>'
+                + '</tr>';
+        });
+        body.innerHTML = html;
+    }
+
+    function load() {
+        fetch('/api/insurance/records/list?' + queryString())
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.success) { toast(data.message || '加载失败', 'error'); return; }
+                $('irecTotal').textContent = data.total || 0;
+                render(data.items || []);
+            })
+            .catch(function () { toast('加载失败', 'error'); });
+    }
+
+    $('irecSearch').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { load(); }
+    });
+    ['irecSchool', 'irecGrade', 'irecClass', 'irecType', 'irecStatus'].forEach(function (id) {
+        $(id).addEventListener('change', load);
+    });
+    $('irecReset').addEventListener('click', function () {
+        $('irecSearch').value = '';
+        ['irecSchool', 'irecGrade', 'irecClass', 'irecType', 'irecStatus'].forEach(function (id) {
+            $(id).value = '';
+        });
+        load();
+    });
+
+    load();
+})();
+</script>
+{% endblock %}

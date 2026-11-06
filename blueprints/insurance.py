@@ -1,6 +1,8 @@
-from flask import Blueprint, request, jsonify, render_template, send_file, Response
-from datetime import datetime, timedelta
+from flask import (Blueprint, request, jsonify, render_template, send_file,
+                   Response, session, abort, redirect, url_for)
+from datetime import datetime, timedelta, date
 from io import BytesIO, StringIO
+from functools import wraps
 import csv
 import re
 import secrets
@@ -14,6 +16,8 @@ import models
 import auth
 import utils
 import config
+from models import insurance as insurance_domain
+from models.insurance import current_insurance_batch
 from services import insurance_service
 
 bp = Blueprint('insurance', __name__)
@@ -73,20 +77,10 @@ def api_insurance_query():
 
 
 @bp.route('/insurance/register')
-@auth.finance_required
+@auth.login_required
 def insurance_register():
-    """登记。"""
-    filters = utils.parse_filters_from_request(request)
-    search = filters.get('search', '')
-    grade = filters.get('grade', '')
-    admin_class = filters.get('admin_class', '')
-    major = filters.get('major', '')
-    filter_values = models.get_filter_values()
-    return render_template('insurance/register.html',
-                           search=search, grade=grade,
-                           admin_class=admin_class, major=major,
-                           filter_values=filter_values,
-                           current_school_year=config.CURRENT_SCHOOL_YEAR)
+    """旧版缴费登记页已下线，统一重定向到新版保费催缴页。"""
+    return redirect(url_for('insurance.insurance_collection'))
 
 
 @bp.route('/api/insurance/students')
@@ -205,6 +199,10 @@ def api_insurance_register_tree():
     students = [s for s in students
                 if not (_student_batch(s) == 1 and _is_blank(s.get('supervisor_flag')))]
 
+    # 批次统一由后端计算并下发，模板只读取，避免前端维护第二份公式
+    for s in students:
+        s['batch'] = _student_batch(s)
+
     tree = {}
     for s in students:
         year = str(s.get('enrollment_year') or '未知年份')
@@ -221,64 +219,24 @@ def api_insurance_register_tree():
 @bp.route('/api/insurance/register-single', methods=['POST'])
 @auth.finance_required
 def api_insurance_register_single():
-    """保险登记single相关接口。"""
-    data = request.get_json()
-    if not data:
-        return jsonify({'error': '无效数据'}), 400
-
-    student_id = data.get('student_id')
-    field = data.get('field')
-    value = data.get('value', '')
-
-    if not student_id or not field:
-        return jsonify({'error': '缺少参数'}), 400
-
-    allowed = set(config.INSURANCE_BATCH_FIELDS)
-    if field not in allowed:
-        return jsonify({'error': '无效字段'}), 400
-
-    try:
-        models.update_student_insurance(student_id, {field: value})
-        return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    """保险登记single相关接口（旧版，已下线）。"""
+    return jsonify({'success': False,
+                    'message': '旧版保险登记接口已下线，请使用新版保费催缴接口'}), 410
 
 
 @bp.route('/api/insurance/register-batch', methods=['POST'])
 @auth.finance_required
 def api_insurance_register_batch():
-    """保险登记批量相关接口。"""
-    data = request.get_json()
-    if not data:
-        return jsonify({'error': '无效数据'}), 400
-
-    student_ids = data.get('student_ids', [])
-    fields = data.get('fields', {})
-
-    if not student_ids:
-        return jsonify({'error': '请选择学生'}), 400
-
-    allowed = set(config.INSURANCE_BATCH_FIELDS)
-    update_data = {}
-    for key, val in fields.items():
-        if key in allowed:
-            update_data[key] = val
-
-    if not update_data:
-        return jsonify({'error': '无有效更新字段'}), 400
-
-    try:
-        models.batch_update_student_insurance(student_ids, update_data)
-        return jsonify({'success': True, 'count': len(student_ids)})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    """保险登记批量相关接口（旧版，已下线）。"""
+    return jsonify({'success': False,
+                    'message': '旧版保险登记接口已下线，请使用新版保费催缴接口'}), 410
 
 
 @bp.route('/insurance/approve')
-@auth.finance_chief_required
+@auth.login_required
 def insurance_approve():
-    """审批。"""
-    return render_template('insurance/approve.html', current_school_year=config.CURRENT_SCHOOL_YEAR)
+    """旧版审批页已下线，统一重定向到新版新生首保页。"""
+    return redirect(url_for('insurance.insurance_first'))
 
 
 def _is_blank(v):
@@ -287,39 +245,1034 @@ def _is_blank(v):
 
 
 def compute_insurance_batch(grade, enrollment_year, current_year=None):
-    """计算学生保险批次（第几年），返回 1~3 的整数或 None（无法判定 / 超出 3 年制）。
+    """计算学生保险批次（第几年），委托 models.insurance 统一实现。
 
-    先判定学生类别，再计算，保证 普通 / 转入 / 特殊 三种情况任何时刻都正确：
-      - 普通：grade == enrollment_year           -> 起始年 = grade
-      - 转入：grade <  enrollment_year           -> 起始年 = grade（按本校年级进度）
-      - 特殊：grade >  enrollment_year           -> 年级由初中毕业时间推算，可能偏高：
-            * 若 grade 超出当前学年（被算飞到未来），以 enrollment_year 为准；
-            * 否则以 grade 为准（年级合法、入学年被压低）。
-    batch = current_year − 起始年 + 1；仅 1~3 显示。
+    保持原签名与返回值（1~3 或 None），供审批/待办/导入等旧逻辑继续调用。
+    统一规则：偏移量 = 入学年 − 年级；0 普通、≥1 转学生、≤−1 推迟注册。
     """
-    if current_year is None:
-        current_year = config.CURRENT_SCHOOL_YEAR
+    return current_insurance_batch(grade, enrollment_year, current_year)
+
+
+# ============================================================
+# P2：五个池的只读查询接口（不接页面，先验证口径）
+# ============================================================
+_INSURANCE_POOL_ROLES = ('admin', 'finance_chief', 'finance_staff', 'insurance_officer')
+
+
+def _page_roles(*roles):
+    """页面级多角色校验：未登录跳登录页，角色不符返回 403。"""
+    def decorator(view):
+        @wraps(view)
+        def wrapper(*args, **kwargs):
+            if not session.get('user_id'):
+                return redirect(url_for('login'))
+            if session.get('role') not in roles:
+                abort(403)
+            return view(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def _require_insurance_json():
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '请先登录'}), 401
+    if session.get('role') not in _INSURANCE_POOL_ROLES:
+        return jsonify({'success': False, 'message': '需要保险相关权限'}), 403
+    return None
+
+
+def _require_admin_json():
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '请先登录'}), 401
+    if session.get('role') != 'admin':
+        return jsonify({'success': False, 'message': '需要管理员权限'}), 403
+    return None
+
+
+def _require_roles_json(*roles):
+    """JSON 接口多角色校验：未登录 401，角色不符 403。
+
+    用于区分财务登记、主管审批、保险员办结等职责，避免"保险池角色全通"。
+    """
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '请先登录'}), 401
+    if session.get('role') not in roles:
+        return jsonify({'success': False, 'message': '需要相应角色权限'}), 403
+    return None
+
+
+def _json_roles(*roles):
+    """JSON 接口的角色校验装饰器（未登录 401 / 角色不符 403）。"""
+    def decorator(view):
+        @wraps(view)
+        def wrapper(*args, **kwargs):
+            err = _require_roles_json(*roles)
+            if err:
+                return err
+            return view(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def _pool_filters():
+    return {
+        'search': (request.args.get('search') or '').strip(),
+        'school': (request.args.get('school') or '').strip(),
+        'grade': (request.args.get('grade') or '').strip(),
+        'admin_class': (request.args.get('admin_class') or '').strip(),
+        'major': (request.args.get('major') or '').strip(),
+    }
+
+
+def _pool_today():
+    """可选 today=YYYY-MM-DD，便于验证 30 天窗口；缺省取服务器当天。"""
+    raw = (request.args.get('today') or '').strip()
+    if not raw:
+        return date.today()
+    return datetime.strptime(raw, '%Y-%m-%d').date()
+
+
+def _pool_response(pool, items):
+    return jsonify({'success': True, 'pool': pool, 'total': len(items), 'items': items})
+
+
+@bp.route('/api/insurance/pools/summary')
+def api_insurance_pools_summary():
+    err = _require_insurance_json()
+    if err:
+        return err
     try:
-        g = int(grade)
-    except (TypeError, ValueError):
-        return None
+        today = _pool_today()
+    except ValueError:
+        return jsonify({'success': False, 'message': 'today 需为 YYYY-MM-DD'}), 400
+    summary = insurance_domain.pool_summary(models.get_db(), today=today)
+    return jsonify({'success': True, 'summary': summary})
+
+
+@bp.route('/api/insurance/pools/first')
+def api_insurance_pool_first():
+    err = _require_insurance_json()
+    if err:
+        return err
+    items = insurance_domain.query_first_pool(models.get_db(), **_pool_filters())
+    return _pool_response('first', items)
+
+
+@bp.route('/api/insurance/pools/renewal')
+def api_insurance_pool_renewal():
+    err = _require_insurance_json()
+    if err:
+        return err
     try:
-        en = int(enrollment_year)
-    except (TypeError, ValueError):
-        en = None
-    if g is None:
+        today = _pool_today()
+        window_days = int(request.args.get('window_days') or 30)
+    except ValueError:
+        return jsonify({'success': False, 'message': 'today/window_days 参数无效'}), 400
+    items = insurance_domain.query_renewal_pool(
+        models.get_db(), today=today, window_days=window_days, **_pool_filters()
+    )
+    return _pool_response('renewal', items)
+
+
+@bp.route('/api/insurance/pools/collection')
+def api_insurance_pool_collection():
+    err = _require_insurance_json()
+    if err:
+        return err
+    items = insurance_domain.query_collection_pool(models.get_db(), **_pool_filters())
+    return _pool_response('collection', items)
+
+
+@bp.route('/api/insurance/pools/push')
+def api_insurance_pool_push():
+    err = _require_insurance_json()
+    if err:
+        return err
+    items = insurance_domain.query_push_pool(models.get_db(), **_pool_filters())
+    return _pool_response('push', items)
+
+
+@bp.route('/api/insurance/pools/intern')
+def api_insurance_pool_intern():
+    err = _require_insurance_json()
+    if err:
+        return err
+    try:
+        today = _pool_today()
+    except ValueError:
+        return jsonify({'success': False, 'message': 'today 需为 YYYY-MM-DD'}), 400
+    items = insurance_domain.query_intern_pool(models.get_db(), today=today, **_pool_filters())
+    return _pool_response('intern', items)
+
+
+# ============================================================
+# P5：独立推送页 + 实习就业险办结页
+# ============================================================
+def _build_export_workbook(conn, records, title, header_color):
+    """生成参保/办结导出 Excel（姓名/身份证号/校别/班级/学生电话）。"""
+    student_ids = [r['student_id'] for r in records]
+    placeholders = ','.join('?' * len(student_ids))
+    rows = conn.execute(
+        f'''SELECT id, name, id_card, school, admin_class, student_phone
+            FROM students WHERE id IN ({placeholders})''',
+        student_ids
+    ).fetchall()
+    info = {row['id']: dict(row) for row in rows}
+    school_names = {st['code']: st['name'] for st in models.get_school_types()}
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = title
+    ws.append(['姓名', '身份证号', '校别', '班级', '学生电话'])
+    fill = PatternFill('solid', fgColor=header_color)
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = fill
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+
+    for rec in records:
+        student = info.get(rec['student_id']) or {}
+        ws.append([
+            student.get('name', '') or '',
+            student.get('id_card', '') or '',
+            school_names.get(student.get('school'), student.get('school') or ''),
+            student.get('admin_class', '') or '',
+            student.get('student_phone', '') or '',
+        ])
+
+    for column, width in zip('ABCDE', (14, 22, 16, 16, 18)):
+        ws.column_dimensions[column].width = width
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
+
+
+@bp.route('/insurance/push')
+@_page_roles('admin', 'finance_chief', 'insurance_officer')
+def insurance_push():
+    """独立推送页：把学平险全部办结的学生推入实习就业险。"""
+    return render_template('insurance/push.html',
+                           filter_values=models.get_filter_values(),
+                           current_school_year=config.CURRENT_SCHOOL_YEAR)
+
+
+@bp.route('/api/insurance/push/list')
+def api_insurance_push_list():
+    err = _require_roles_json('admin', 'finance_chief', 'insurance_officer')
+    if err:
+        return err
+    conn = models.get_db()
+    items = insurance_domain.query_push_pool(conn, **_pool_filters())
+    return jsonify({'success': True, 'total': len(items), 'items': items})
+
+
+@bp.route('/api/insurance/push/start', methods=['POST'])
+def api_insurance_push_start():
+    """推送：为选中学生创建实习就业险待缴费记录。"""
+    err = _require_roles_json('admin', 'finance_chief', 'insurance_officer')
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    student_ids = data.get('student_ids') or []
+    if not student_ids:
+        return jsonify({'success': False, 'message': '请选择学生'}), 400
+
+    conn = models.get_db()
+    operator = session.get('username', '')
+    try:
+        result = insurance_domain.push_to_intern(
+            conn, student_ids, operator=operator)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({'success': True, 'count': result['created'],
+                    'skipped': result['skipped']})
+
+
+@bp.route('/api/insurance/push/renewal', methods=['POST'])
+def api_insurance_push_renewal():
+    """推送至续保：为推迟注册学生追加下一批学平险记录。"""
+    err = _require_roles_json('admin', 'finance_chief', 'insurance_officer')
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    student_ids = data.get('student_ids') or []
+    if not student_ids:
+        return jsonify({'success': False, 'message': '请选择学生'}), 400
+
+    conn = models.get_db()
+    operator = session.get('username', '')
+    try:
+        result = insurance_domain.push_to_renewal(
+            conn, student_ids, operator=operator)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({'success': True, 'count': result['created'],
+                    'skipped': result['skipped'], 'errors': result['errors']})
+
+
+@bp.route('/insurance/intern')
+@_page_roles('admin', 'finance_chief', 'insurance_officer')
+def insurance_intern():
+    """实习就业险办结页。"""
+    return render_template('insurance/intern.html',
+                           filter_values=models.get_filter_values(),
+                           current_school_year=config.CURRENT_SCHOOL_YEAR)
+
+
+@bp.route('/api/insurance/intern/list')
+def api_insurance_intern_list():
+    """实习办结列表：pending=待审批/已缴费/已审批，done=已办结。"""
+    err = _require_roles_json('admin', 'finance_chief', 'insurance_officer')
+    if err:
+        return err
+
+    s = insurance_domain.InsuranceStatus
+    tab = (request.args.get('status') or 'pending').strip()
+    conn = models.get_db()
+    if tab == 'done':
+        statuses = (s.DONE,)
+    elif tab == 'exempt':
+        statuses = (s.EXEMPT,)
+    elif tab == 'all':
+        statuses = None
+    else:
+        statuses = (s.PENDING_APPROVE, s.PAID, s.APPROVED)
+    items = insurance_domain.query_intern_stage(
+        conn, statuses=statuses, **_pool_filters())
+    return jsonify({'success': True, 'total': len(items), 'items': items,
+                    'summary': insurance_domain.intern_stage_counts(conn)})
+
+
+@bp.route('/api/insurance/intern/approve', methods=['POST'])
+def api_insurance_intern_approve():
+    """实习险审批通过：pending_approve / paid → approved。"""
+    err = _require_roles_json('admin', 'finance_chief')
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    record_ids = data.get('record_ids') or []
+    if not record_ids:
+        return jsonify({'success': False, 'message': '请选择学生'}), 400
+
+    conn = models.get_db()
+    operator = session.get('username', '')
+    done = skipped = 0
+    try:
+        for rid in record_ids:
+            try:
+                insurance_domain.approve(conn, rid, operator=operator)
+                done += 1
+            except insurance_domain.InsuranceTransitionError:
+                skipped += 1
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({'success': True, 'count': done, 'skipped': skipped})
+
+
+@bp.route('/api/insurance/intern/export')
+def api_insurance_intern_export():
+    """导出并办结实习就业险：approved → done，写入导出批次。"""
+    err = _require_roles_json('admin', 'insurance_officer')
+    if err:
+        return err
+
+    raw = (request.args.get('record_ids') or '').strip()
+    record_ids = [int(p) for p in raw.split(',') if p.strip().isdigit()]
+    if not record_ids:
+        return jsonify({'success': False, 'message': '请选择学生'}), 400
+
+    conn = models.get_db()
+    records = []
+    for rid in record_ids:
+        rec = insurance_domain.get_record(conn, rid)
+        if (not rec
+                or rec['insurance_type'] != insurance_domain.INSURANCE_TYPE_INTERN
+                or rec['status'] != insurance_domain.InsuranceStatus.APPROVED):
+            return jsonify({'success': False,
+                            'message': '仅能导出已审批的实习就业险记录'}), 400
+        records.append(rec)
+
+    output = _build_export_workbook(conn, records, '实习就业险办结', '0B7285')
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+    filename = f'实习就业险办结_{timestamp}.xlsx'
+    operator = session.get('username', '')
+    try:
+        insurance_domain.export_records(
+            conn, record_ids, action='intern', operator=operator,
+            file_name=filename)
+        conn.commit()
+    except insurance_domain.InsuranceTransitionError as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True, download_name=filename)
+
+
+# ============================================================
+# P4：续保页 + 保费催缴页
+# ============================================================
+@bp.route('/insurance/first')
+@_page_roles('admin', 'finance_chief', 'insurance_officer')
+def insurance_first():
+    """新生首保页：计划批次为「首保」的学生办理、导出与补录保单。"""
+    return render_template('insurance/first.html',
+                           school_types=models.get_school_types(),
+                           filter_values=models.get_filter_values(),
+                           current_school_year=config.CURRENT_SCHOOL_YEAR)
+
+
+def _first_tab_statuses():
+    """首保页页签 → 记录状态集合；'' 代表尚未建档。"""
+    s = insurance_domain.InsuranceStatus
+    tabs = {
+        '': ('', s.PENDING_APPROVE),
+        'pending': ('', s.PENDING_APPROVE),
+        'approved': (s.APPROVED,),
+        'exported': (s.EXPORTED,),
+        'done': (s.DONE,),
+        'exempt': (s.EXEMPT,),
+    }
+    return tabs.get((request.args.get('status') or '').strip(), tabs[''])
+
+
+def _first_step(conn, student_id):
+    """返回学生首保计划步（batch_no/insurance_type），非首保学生返回 None。"""
+    cur = conn.execute(
+        'SELECT id, grade, enrollment_year FROM students '
+        'WHERE id = ? AND COALESCE(is_deleted, 0) = 0', (student_id,))
+    student = cur.fetchone()
+    if not student:
         return None
-    if en is None:
-        b = current_year - g + 1
-        return b if 1 <= b <= 3 else None
-    if g == en:
-        start = g                       # 普通
-    elif g < en:
-        start = g                       # 转入：按本校年级进度
-    else:  # g > en -> 特殊
-        start = en if g > current_year else g
-    b = current_year - start + 1
-    return b if 1 <= b <= 3 else None
+    plan = insurance_domain.build_plan(
+        student['enrollment_year'], student['grade'])
+    if not plan or plan[0]['stage'] != insurance_domain.STAGE_FIRST:
+        return None
+    if insurance_domain.batch_now(
+            student['enrollment_year'], student['grade']) > plan[0]['batch_no']:
+        return None
+    return plan[0]
+
+
+@bp.route('/api/insurance/first/list')
+def api_insurance_first_list():
+    """首保页列表：按页签状态过滤，返回各页签计数。"""
+    err = _require_roles_json('admin', 'finance_chief', 'insurance_officer')
+    if err:
+        return err
+
+    filters = _pool_filters()
+    conn = models.get_db()
+    items = insurance_domain.query_first_stage(
+        conn, statuses=_first_tab_statuses(), **filters)
+    summary = insurance_domain.first_stage_counts(conn, **filters)
+    return jsonify({'success': True, 'total': len(items), 'items': items,
+                    'summary': summary})
+
+
+@bp.route('/api/insurance/first/approve', methods=['POST'])
+def api_insurance_first_approve():
+    """办理首保：确保记录存在后审批通过（未建档 → pending_approve → approved）。"""
+    err = _require_roles_json('admin', 'finance_chief')
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    student_ids = data.get('student_ids') or []
+    if not student_ids:
+        return jsonify({'success': False, 'message': '请选择学生'}), 400
+
+    conn = models.get_db()
+    operator = session.get('username', '')
+    done = skipped = 0
+    try:
+        for sid in student_ids:
+            step = _first_step(conn, sid)
+            if not step:
+                skipped += 1
+                continue
+            try:
+                rec = insurance_domain.ensure_record(
+                    conn, sid, step['batch_no'], step['insurance_type'],
+                    operator=operator)
+                insurance_domain.approve(conn, rec['id'], operator=operator)
+                done += 1
+            except insurance_domain.InsuranceTransitionError:
+                skipped += 1
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({'success': True, 'count': done, 'skipped': skipped})
+
+
+@bp.route('/api/insurance/first/exempt', methods=['POST'])
+def api_insurance_first_exempt():
+    """本年度不办理：确保记录存在后标记 exempt。"""
+    err = _require_roles_json('admin', 'finance_chief')
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    student_ids = data.get('student_ids') or []
+    if not student_ids:
+        return jsonify({'success': False, 'message': '请选择学生'}), 400
+
+    conn = models.get_db()
+    operator = session.get('username', '')
+    done = skipped = 0
+    try:
+        for sid in student_ids:
+            step = _first_step(conn, sid)
+            if not step:
+                skipped += 1
+                continue
+            try:
+                rec = insurance_domain.ensure_record(
+                    conn, sid, step['batch_no'], step['insurance_type'],
+                    operator=operator)
+                insurance_domain.reject(conn, rec['id'], operator=operator)
+                done += 1
+            except insurance_domain.InsuranceTransitionError:
+                skipped += 1
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({'success': True, 'count': done, 'skipped': skipped})
+
+
+@bp.route('/api/insurance/first/export')
+def api_insurance_first_export():
+    """导出首保参保数据：approved → exported，并写入导出批次。"""
+    err = _require_roles_json('admin', 'insurance_officer')
+    if err:
+        return err
+
+    raw = (request.args.get('record_ids') or '').strip()
+    record_ids = [int(p) for p in raw.split(',') if p.strip().isdigit()]
+    if not record_ids:
+        return jsonify({'success': False, 'message': '请选择学生'}), 400
+
+    conn = models.get_db()
+    records = []
+    for rid in record_ids:
+        rec = insurance_domain.get_record(conn, rid)
+        if (not rec
+                or rec['insurance_type'] != insurance_domain.INSURANCE_TYPE_XUEPING
+                or rec['status'] != insurance_domain.InsuranceStatus.APPROVED):
+            return jsonify({'success': False,
+                            'message': '仅能导出已办理的首保记录'}), 400
+        records.append(rec)
+
+    output = _build_export_workbook(conn, records, '新生首保参保数据', '6F42C1')
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+    filename = f'新生首保参保数据_{timestamp}.xlsx'
+    operator = session.get('username', '')
+    try:
+        insurance_domain.export_records(
+            conn, record_ids, action='first', operator=operator,
+            file_name=filename)
+        conn.commit()
+    except insurance_domain.InsuranceTransitionError as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True, download_name=filename)
+
+
+@bp.route('/api/insurance/first/policy', methods=['POST'])
+def api_insurance_first_policy():
+    """补录保单：exported → done，写入保单号与到期日期。"""
+    err = _require_roles_json('admin', 'insurance_officer')
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    record_ids = data.get('record_ids') or []
+    policy_no = (data.get('policy_no') or '').strip()
+    expiry_date = data.get('expiry_date') or ''
+    if not record_ids:
+        return jsonify({'success': False, 'message': '请选择学生'}), 400
+    if not policy_no:
+        return jsonify({'success': False, 'message': '请输入保单号'}), 400
+    if not expiry_date:
+        return jsonify({'success': False, 'message': '请选择到期日期'}), 400
+
+    conn = models.get_db()
+    operator = session.get('username', '')
+    done = skipped = 0
+    try:
+        for rid in record_ids:
+            try:
+                insurance_domain.fill_policy(
+                    conn, rid, policy_no, expiry_date, operator=operator)
+                done += 1
+            except insurance_domain.InsuranceTransitionError:
+                skipped += 1
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({'success': True, 'count': done, 'skipped': skipped})
+
+
+@bp.route('/insurance/renewal')
+@_page_roles('admin', 'finance_chief', 'insurance_officer')
+def insurance_renewal():
+    """第二年续保页：到期前 30 天（及同月批次）学生列表。"""
+    return render_template('insurance/renewal.html',
+                           filter_values=models.get_filter_values(),
+                           current_school_year=config.CURRENT_SCHOOL_YEAR)
+
+
+@bp.route('/api/insurance/renewal/list')
+def api_insurance_renewal_list():
+    err = _require_roles_json('admin', 'finance_chief', 'insurance_officer')
+    if err:
+        return err
+
+    try:
+        window_days = int(request.args.get('window_days', 30))
+    except (TypeError, ValueError):
+        window_days = 30
+    window_days = max(1, min(window_days, 365))
+
+    today = _pool_today()
+    conn = models.get_db()
+    items = insurance_domain.query_renewal_pool(
+        conn, today=today, window_days=window_days, **_pool_filters())
+    return jsonify({'success': True, 'total': len(items), 'items': items,
+                    'today': today.isoformat(), 'window_days': window_days})
+
+
+@bp.route('/api/insurance/renewal/start', methods=['POST'])
+def api_insurance_renewal_start():
+    """进入参保流程：为选中学生创建下一批学平险待缴费记录。"""
+    err = _require_roles_json('admin', 'finance_chief', 'insurance_officer')
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    student_ids = data.get('student_ids') or []
+    if not student_ids:
+        return jsonify({'success': False, 'message': '请选择学生'}), 400
+
+    conn = models.get_db()
+    operator = session.get('username', '')
+    done = skipped = 0
+    errors = []
+    try:
+        for sid in student_ids:
+            try:
+                insurance_domain.start_renewal(conn, sid, operator=operator)
+                done += 1
+            except insurance_domain.InsuranceTransitionError as e:
+                skipped += 1
+                errors.append({'student_id': sid, 'message': str(e)})
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({'success': True, 'count': done, 'skipped': skipped,
+                    'errors': errors[:20]})
+
+
+@bp.route('/api/insurance/renewal/stage')
+def api_insurance_renewal_stage():
+    """续保环节：尚未走完流程的续保记录（待导出 / 待补录保单）。"""
+    err = _require_roles_json('admin', 'finance_chief', 'insurance_officer')
+    if err:
+        return err
+
+    s = insurance_domain.InsuranceStatus
+    tabs = {
+        'approved': (s.APPROVED,),
+        'exported': (s.EXPORTED,),
+    }
+    tab = (request.args.get('status') or '').strip()
+    statuses = tabs.get(tab, (s.APPROVED, s.EXPORTED))
+
+    conn = models.get_db()
+    items = insurance_domain.query_renewal_stage(
+        conn, statuses=statuses, **_pool_filters())
+    summary = {key: len(insurance_domain.query_renewal_stage(conn, statuses=value))
+               for key, value in tabs.items()}
+    return jsonify({'success': True, 'total': len(items), 'items': items,
+                    'summary': summary})
+
+
+@bp.route('/api/insurance/renewal/export')
+def api_insurance_renewal_export():
+    """导出续保参保名单：approved → exported，等待保险公司返回保单。"""
+    err = _require_roles_json('admin', 'finance_chief', 'insurance_officer')
+    if err:
+        return err
+
+    raw = (request.args.get('record_ids') or '').strip()
+    record_ids = [int(p) for p in raw.split(',') if p.strip().isdigit()]
+    if not record_ids:
+        return jsonify({'success': False, 'message': '请选择记录'}), 400
+
+    conn = models.get_db()
+    records = []
+    for rid in record_ids:
+        rec = insurance_domain.get_record(conn, rid)
+        if (not rec
+                or rec['insurance_type'] != insurance_domain.INSURANCE_TYPE_XUEPING
+                or rec['status'] != insurance_domain.InsuranceStatus.APPROVED):
+            return jsonify({'success': False,
+                            'message': '仅能导出待导出的续保记录'}), 400
+        records.append(rec)
+
+    output = _build_export_workbook(conn, records, '学平险续保', '0D6EFD')
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+    filename = f'续保参保数据_{timestamp}.xlsx'
+    operator = session.get('username', '')
+    try:
+        insurance_domain.export_records(
+            conn, record_ids, action='renewal', operator=operator,
+            file_name=filename)
+        conn.commit()
+    except insurance_domain.InsuranceTransitionError as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True, download_name=filename)
+
+
+@bp.route('/api/insurance/renewal/policy', methods=['POST'])
+def api_insurance_renewal_policy():
+    """补录续保保单：exported → done，支持统一套用或逐人填写。"""
+    err = _require_roles_json('admin', 'finance_chief', 'insurance_officer')
+    if err:
+        return err
+
+    data = request.get_json(silent=True) or {}
+    shared_no = (data.get('policy_no') or '').strip()
+    shared_expiry = (data.get('expiry_date') or '').strip()
+
+    pairs = []
+    for item in data.get('items') or []:
+        pairs.append((item.get('record_id'),
+                      (item.get('policy_no') or shared_no),
+                      (item.get('expiry_date') or shared_expiry)))
+    if not pairs:
+        for rid in data.get('record_ids') or []:
+            pairs.append((rid, shared_no, shared_expiry))
+    if not pairs:
+        return jsonify({'success': False, 'message': '请选择记录'}), 400
+
+    conn = models.get_db()
+    operator = session.get('username', '')
+    done = 0
+    try:
+        for rid, policy_no, expiry in pairs:
+            insurance_domain.fill_policy(
+                conn, rid, policy_no, expiry, operator=operator)
+            done += 1
+        conn.commit()
+    except insurance_domain.InsuranceTransitionError as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({'success': True, 'count': done})
+
+
+@bp.route('/insurance/collection')
+@_page_roles('admin', 'finance_chief', 'finance_staff')
+def insurance_collection():
+    """保费催缴页：录入学平险/实习险缴费日期。"""
+    return render_template('insurance/collection.html',
+                           filter_values=models.get_filter_values(),
+                           current_school_year=config.CURRENT_SCHOOL_YEAR)
+
+
+def _collection_counts(conn):
+    return {
+        'pending': len(insurance_domain.query_collection_stage(conn, paid=False)),
+        'paid': len(insurance_domain.query_collection_stage(conn, paid=True)),
+    }
+
+
+@bp.route('/api/insurance/collection/list')
+def api_insurance_collection_list():
+    """催缴列表：pending=待缴费，paid=已缴费（只读）。
+
+    催缴对象：学平险续保记录 + 已确认办理的实习就业险记录；
+    首保的缴费在首保审批环节确定，不进入催缴。
+    """
+    err = _require_roles_json('admin', 'finance_chief', 'finance_staff')
+    if err:
+        return err
+
+    tab = (request.args.get('status') or 'pending').strip()
+    insurance_type = (request.args.get('insurance_type') or '').strip()
+    types = None
+    if insurance_type in (insurance_domain.INSURANCE_TYPE_XUEPING,
+                          insurance_domain.INSURANCE_TYPE_INTERN):
+        types = (insurance_type,)
+    conn = models.get_db()
+    items = insurance_domain.query_collection_stage(
+        conn, paid=(tab == 'paid'), insurance_types=types, **_pool_filters())
+    return jsonify({'success': True, 'total': len(items), 'items': items,
+                    'summary': _collection_counts(conn)})
+
+
+@bp.route('/api/insurance/collection/export')
+def api_insurance_collection_export():
+    """导出待缴费名单（只读，不改变记录状态）。"""
+    err = _require_roles_json('admin', 'finance_chief', 'finance_staff')
+    if err:
+        return err
+
+    insurance_type = (request.args.get('insurance_type') or '').strip()
+    types = None
+    if insurance_type in (insurance_domain.INSURANCE_TYPE_XUEPING,
+                          insurance_domain.INSURANCE_TYPE_INTERN):
+        types = (insurance_type,)
+
+    conn = models.get_db()
+    items = insurance_domain.query_collection_stage(
+        conn, paid=False, insurance_types=types, **_pool_filters())
+    if not items:
+        return jsonify({'success': False, 'message': '没有待缴费记录可导出'}), 400
+
+    school_names = {st['code']: st['name'] for st in models.get_school_types()}
+    type_labels = {
+        insurance_domain.INSURANCE_TYPE_XUEPING: '学平险',
+        insurance_domain.INSURANCE_TYPE_INTERN: '实习就业险',
+    }
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = '待缴费名单'
+    ws.append(['姓名', '学号', '身份证号', '校别', '班级', '年级', '险种', '批次', '状态'])
+    fill = PatternFill('solid', fgColor='0D6EFD')
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = fill
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+
+    for item in items:
+        ws.append([
+            item.get('name') or '',
+            item.get('student_no') or '',
+            item.get('id_card') or '',
+            school_names.get(item.get('school'), item.get('school') or ''),
+            item.get('admin_class') or '',
+            item.get('grade') or '',
+            type_labels.get(item.get('insurance_type'), item.get('insurance_type') or ''),
+            f"第{item.get('batch_no')}年" if item.get('batch_no') else '',
+            '待缴费',
+        ])
+
+    for column, width in zip('ABCDEFGHI', (12, 16, 22, 14, 14, 10, 12, 10, 10)):
+        ws.column_dimensions[column].width = width
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+    filename = f'待缴费名单_{timestamp}.xlsx'
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True, download_name=filename)
+
+
+@bp.route('/api/insurance/collection/pay', methods=['POST'])
+def api_insurance_collection_pay():
+    """登记缴费日期（不改变保险状态）：支持统一日期或逐条日期。"""
+    err = _require_roles_json('admin', 'finance_chief', 'finance_staff')
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    shared_date = (data.get('pay_date') or '').strip()
+    shared_premium = data.get('premium')
+
+    pairs = []
+    for item in data.get('items') or []:
+        pairs.append((item.get('record_id'),
+                      item.get('pay_date') or shared_date,
+                      item.get('premium', shared_premium)))
+    if not pairs:
+        for rid in data.get('record_ids') or []:
+            pairs.append((rid, shared_date, shared_premium))
+    if not pairs:
+        return jsonify({'success': False, 'message': '请选择记录'}), 400
+
+    conn = models.get_db()
+    operator = session.get('username', '')
+    done = skipped = 0
+    try:
+        for rid, pay_date, premium in pairs:
+            try:
+                insurance_domain.record_payment(
+                    conn, rid, pay_date, operator=operator,
+                    premium=premium if premium not in (None, '') else None)
+                done += 1
+            except insurance_domain.InsuranceTransitionError:
+                skipped += 1
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({'success': True, 'count': done, 'skipped': skipped})
+
+
+# ============================================================
+# P6：记录查询 / 撤销中心
+# ============================================================
+@bp.route('/insurance/records')
+@_page_roles(*_INSURANCE_POOL_ROLES)
+def insurance_records():
+    """保险记录查询（新查询页，数据源 insurance_records）。"""
+    return render_template('insurance/records.html',
+                           filter_values=models.get_filter_values(),
+                           current_school_year=config.CURRENT_SCHOOL_YEAR)
+
+
+@bp.route('/api/insurance/records/list')
+def api_insurance_records_list():
+    err = _require_insurance_json()
+    if err:
+        return err
+    insurance_type = (request.args.get('insurance_type') or '').strip()
+    status = (request.args.get('status') or '').strip()
+    conn = models.get_db()
+    items = insurance_domain.query_insurance_records(
+        conn, insurance_type=insurance_type or None,
+        status=status or None, **_pool_filters())
+    return jsonify({'success': True, 'total': len(items), 'items': items})
+
+
+@bp.route('/insurance/revert')
+@auth.admin_required
+def insurance_revert():
+    """撤销中心：导出批次与操作日志。"""
+    return render_template('insurance/revert.html')
+
+
+@bp.route('/api/insurance/revert/batches')
+def api_insurance_revert_batches():
+    err = _require_admin_json()
+    if err:
+        return err
+    try:
+        limit = int(request.args.get('limit', 100))
+    except (TypeError, ValueError):
+        limit = 100
+    items = insurance_domain.list_export_batches(models.get_db(),
+                                                 limit=max(1, min(limit, 500)))
+    return jsonify({'success': True, 'total': len(items), 'items': items})
+
+
+@bp.route('/api/insurance/revert/batch', methods=['POST'])
+def api_insurance_revert_batch():
+    err = _require_admin_json()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    batch_id = (data.get('export_batch_id') or '').strip()
+    if not batch_id:
+        return jsonify({'success': False, 'message': '缺少导出批次'}), 400
+
+    conn = models.get_db()
+    operator = session.get('username', '')
+    try:
+        count = insurance_domain.revert_export(conn, batch_id, operator=operator)
+        conn.commit()
+    except insurance_domain.InsuranceTransitionError as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({'success': True, 'count': count})
+
+
+@bp.route('/api/insurance/revert/students')
+def api_insurance_revert_students():
+    """按学生撤销：搜索学生及其最近一条保险记录。"""
+    err = _require_admin_json()
+    if err:
+        return err
+    search = (request.args.get('search') or '').strip()
+    items = insurance_domain.search_student_last_records(models.get_db(), search)
+    return jsonify({'success': True, 'total': len(items), 'items': items})
+
+
+@bp.route('/api/insurance/revert/student', methods=['POST'])
+def api_insurance_revert_student():
+    """按学生撤销：删除最近一条保险记录，回到办理前状态（日志保留）。"""
+    err = _require_admin_json()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    try:
+        student_id = int(data.get('student_id'))
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': '缺少学生ID'}), 400
+
+    conn = models.get_db()
+    try:
+        rec = insurance_domain.revert_student(
+            conn, student_id, operator=session.get('username', ''))
+        conn.commit()
+    except insurance_domain.InsuranceTransitionError as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({
+        'success': True,
+        'record': {
+            'batch_no': rec['batch_no'],
+            'insurance_type': rec['insurance_type'],
+            'status': rec['status'],
+        },
+    })
+
+
+@bp.route('/api/insurance/revert/logs')
+def api_insurance_revert_logs():
+    err = _require_admin_json()
+    if err:
+        return err
+    try:
+        limit = int(request.args.get('limit', 200))
+    except (TypeError, ValueError):
+        limit = 200
+    action = (request.args.get('action') or '').strip()
+    search = (request.args.get('search') or '').strip()
+    items = insurance_domain.list_operation_logs(
+        models.get_db(), limit=limit, action=action, search=search)
+    return jsonify({'success': True, 'total': len(items), 'items': items})
 
 
 def _pay_date_year(pd):
@@ -445,6 +1398,7 @@ def api_insurance_approve_tree():
     # 后端计算“按计划办理学平险”按钮锁定状态与提示，随学生数据下发（前端仅读取）
     for s in students:
         _annotate_xueping_lock(s)
+        s['batch'] = _student_batch(s)
 
     tree = {}
     for s in students:
@@ -459,7 +1413,9 @@ def api_insurance_approve_tree():
 @bp.route('/api/insurance/approve-single', methods=['POST'])
 @auth.finance_chief_required
 def api_insurance_approve_single():
-    """保险审批single相关接口。"""
+    """保险审批single相关接口（旧版，已下线）。"""
+    return jsonify({'success': False,
+                    'message': '旧版保险审批接口已下线，请使用新版审批接口'}), 410
     data = request.get_json()
     if not data:
         return jsonify({'error': '无效数据'}), 400
@@ -546,7 +1502,9 @@ def api_insurance_approve_summary():
 @bp.route('/api/insurance/approve', methods=['POST'])
 @auth.finance_chief_required
 def api_insurance_approve():
-    """保险审批相关接口。"""
+    """保险审批相关接口（旧版，已下线）。"""
+    return jsonify({'success': False,
+                    'message': '旧版保险审批接口已下线，请使用新版审批接口'}), 410
     data = request.get_json()
     if not data:
         return jsonify({'error': '无效数据'}), 400
@@ -593,10 +1551,10 @@ def api_insurance_approve():
 
 
 @bp.route('/insurance/todo')
-@auth.insurance_officer_required
+@auth.login_required
 def insurance_todo():
-    """待办。"""
-    return render_template('insurance/todo.html', current_school_year=config.CURRENT_SCHOOL_YEAR)
+    """旧版待办页已下线，统一重定向到新版新生首保页。"""
+    return redirect(url_for('insurance.insurance_first'))
 
 
 @bp.route('/api/insurance/todo/export')
@@ -695,13 +1653,15 @@ def api_insurance_todo_tree():
 @bp.route('/api/insurance/complete', methods=['POST'])
 @auth.insurance_officer_required
 def api_insurance_complete():
-    """保险完成相关接口。
+    """保险完成相关接口（旧版，已下线）。
 
     支持两种模式：
     - 统一模式：传 student_ids + 可选的 student_insurance_no / student_insurance_expiry（全批套用）。
     - 逐人模式：传 items=[{student_id, student_insurance_no, student_insurance_expiry}]（实习/学平常每人一单）。
     实习就业险学生（supervisor_flag=按计划办理实习就业险）无论哪种模式都不写保单号/到期。
     """
+    return jsonify({'success': False,
+                    'message': '旧版保险办结接口已下线，请使用新版办结接口'}), 410
     data = request.get_json()
     if not data:
         return jsonify({'error': '无效数据'}), 400
@@ -764,7 +1724,7 @@ def api_insurance_complete():
 
 
 @bp.route('/api/insurance/init-preview', methods=['POST'])
-@auth.insurance_officer_required
+@_json_roles('admin')
 def insurance_init_preview():
     """初始化导入预览：后端用 openpyxl 解析上传的 Excel，返回预览行。"""
     f = request.files.get('file')
@@ -784,7 +1744,7 @@ def insurance_init_preview():
 
 
 @bp.route('/insurance/init', methods=['GET', 'POST'])
-@auth.insurance_officer_required
+@_page_roles('admin')
 def insurance_init():
     """初始化。GET 渲染页面；POST 接收 Excel 文件（或兼容旧 JSON rows）并启动后台导入。"""
     if request.method == 'POST':
@@ -805,7 +1765,7 @@ def insurance_init():
 
 
 @bp.route('/api/insurance/init-progress/<progress_id>')
-@auth.insurance_officer_required
+@_json_roles('admin')
 def insurance_init_progress_check(progress_id):
     """初始化进度检查。 参数: progress_id"""
     if progress_id not in insurance_init_progress:
@@ -814,7 +1774,7 @@ def insurance_init_progress_check(progress_id):
 
 
 @bp.route('/api/insurance/init/errors/<progress_id>/csv')
-@auth.insurance_officer_required
+@_json_roles('admin')
 def insurance_init_errors_csv(progress_id):
     """导出初始化导入失败清单 CSV（全量错误，不受轮询"最近 10 条"展示截断影响）。
 
@@ -851,7 +1811,7 @@ def insurance_init_errors_csv(progress_id):
 
 
 @bp.route('/insurance/init/template')
-@auth.insurance_officer_required
+@_page_roles('admin')
 def insurance_init_template():
     """初始化模板。"""
     from io import BytesIO

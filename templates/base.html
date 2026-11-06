@@ -102,18 +102,27 @@
                             <li><a class="dropdown-item" href="{{ url_for('insurance.insurance_init') }}">
                                 <i class="bi bi-cloud-upload"></i> 保险初始化导入
                             </a></li>
-                            <li><a class="dropdown-item" href="{{ url_for('insurance.insurance_register') }}">
-                                <i class="bi bi-shield-check"></i> 保险缴费登记
+                            <li><a class="dropdown-item" href="{{ url_for('insurance.insurance_first') }}">
+                                <i class="bi bi-shield-plus"></i> 新生首保
                             </a></li>
-                            <li><a class="dropdown-item" href="{{ url_for('insurance.insurance_approve') }}">
-                                <i class="bi bi-check2-all"></i> 保险审批
+                            <li><a class="dropdown-item" href="{{ url_for('insurance.insurance_renewal') }}">
+                                <i class="bi bi-arrow-repeat"></i> 第二年续保
                             </a></li>
-                            <li><a class="dropdown-item" href="{{ url_for('insurance.insurance_todo') }}">
-                                <i class="bi bi-list-check"></i> 保险待办
+                            <li><a class="dropdown-item" href="{{ url_for('insurance.insurance_collection') }}">
+                                <i class="bi bi-cash-coin"></i> 保费催缴
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('insurance.insurance_push') }}">
+                                <i class="bi bi-send"></i> 实习推送
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('insurance.insurance_intern') }}">
+                                <i class="bi bi-mortarboard"></i> 实习办结
                             </a></li>
                             <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="{{ url_for('insurance.admin_insurance_query') }}">
-                                <i class="bi bi-search"></i> 保单查询
+                            <li><a class="dropdown-item" href="{{ url_for('insurance.insurance_records') }}">
+                                <i class="bi bi-card-list"></i> 保险记录查询
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('insurance.insurance_revert') }}">
+                                <i class="bi bi-arrow-counterclockwise"></i> 撤销中心
                             </a></li>
                         </ul>
                     </li>
@@ -130,29 +139,59 @@
                     {% else %}
                     {% if session.role in ('finance_chief', 'finance_staff') %}
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('insurance.insurance_register') }}">
-                            <i class="bi bi-shield-check"></i> 保险缴费登记
+                        <a class="nav-link" href="{{ url_for('insurance.insurance_collection') }}">
+                            <i class="bi bi-cash-coin"></i> 保费催缴
                         </a>
                     </li>
                     {% endif %}
                     {% if session.role == 'finance_chief' %}
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('insurance.insurance_approve') }}">
-                            <i class="bi bi-check2-all"></i> 保险审批
+                        <a class="nav-link" href="{{ url_for('insurance.insurance_first') }}">
+                            <i class="bi bi-shield-plus"></i> 新生首保
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('insurance.insurance_renewal') }}">
+                            <i class="bi bi-arrow-repeat"></i> 第二年续保
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('insurance.insurance_push') }}">
+                            <i class="bi bi-send"></i> 实习推送
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('insurance.insurance_intern') }}">
+                            <i class="bi bi-mortarboard"></i> 实习办结
                         </a>
                     </li>
                     {% endif %}
                     {% if session.role == 'insurance_officer' %}
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('insurance.insurance_todo') }}">
-                            <i class="bi bi-list-check"></i> 保险待办
+                        <a class="nav-link" href="{{ url_for('insurance.insurance_first') }}">
+                            <i class="bi bi-shield-plus"></i> 新生首保
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('insurance.insurance_renewal') }}">
+                            <i class="bi bi-arrow-repeat"></i> 第二年续保
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('insurance.insurance_push') }}">
+                            <i class="bi bi-send"></i> 实习推送
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('insurance.insurance_intern') }}">
+                            <i class="bi bi-mortarboard"></i> 实习办结
                         </a>
                     </li>
                     {% endif %}
                     {% if session.role in ('finance_chief', 'finance_staff', 'insurance_officer') %}
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('insurance.admin_insurance_query') }}">
-                            <i class="bi bi-search"></i> 保单查询
+                        <a class="nav-link" href="{{ url_for('insurance.insurance_records') }}">
+                            <i class="bi bi-card-list"></i> 保险记录查询
                         </a>
                     </li>
                     {% endif %}

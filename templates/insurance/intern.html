@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+{% block title %}实习就业险办结 - 学生数据管理系统{% endblock %}
+{% block head %}
+<style>
+    .iin-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+    .iin-tab { border: 1px solid #dee2e6; background: #fff; color: #495057; border-radius: 999px;
+               padding: 4px 14px; font-size: 0.82rem; cursor: pointer; }
+    .iin-tab:hover { border-color: #0b7285; color: #0b7285; }
+    .iin-tab.active { background: #0b7285; border-color: #0b7285; color: #fff; }
+    .iin-tab .iin-tab-count { display: inline-block; margin-left: 4px; font-size: 0.72rem; opacity: .8; }
+    .iin-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+                   background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+    .iin-toolbar .form-control, .iin-toolbar .form-select { font-size: 0.8rem; }
+    .iin-search { width: 220px; }
+    .iin-table-wrap { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; overflow: auto;
+                      max-height: calc(100vh - 260px); }
+    .iin-table-wrap thead th { position: sticky; top: 0; background: #f1f3f5; z-index: 2; font-size: 0.78rem; white-space: nowrap; }
+    .iin-table-wrap td { font-size: 0.8rem; }
+    .iin-chip { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 0.72rem; }
+    .iin-chip-pending_approve { background: #fff3cd; color: #856404; }
+    .iin-chip-paid { background: #cff4fc; color: #055160; }
+    .iin-chip-approved { background: #cfe2ff; color: #084298; }
+    .iin-chip-done { background: #d4edda; color: #155724; }
+    .iin-toast { position: fixed; bottom: 20px; right: 20px; z-index: 9999; padding: 10px 18px;
+                 border-radius: 6px; color: #fff; font-size: 0.85rem; }
+    .iin-toast.success { background: #198754; }
+    .iin-toast.error { background: #dc3545; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h5 class="mb-0"><i class="bi bi-mortarboard me-2"></i>实习就业险办结</h5>
+    <span class="text-muted small">审批通过 → 导出办结（实习险无保单号）</span>
+</div>
+
+<div class="iin-tabs">
+    <button type="button" class="iin-tab active" data-tab="pending">
+        待办结<span class="iin-tab-count" id="iinPendingCount">0</span>
+    </button>
+    <button type="button" class="iin-tab" data-tab="done">
+        已办结<span class="iin-tab-count" id="iinDoneCount">0</span>
+    </button>
+</div>
+
+<div class="iin-toolbar">
+    <input type="text" class="form-control form-control-sm iin-search" id="iinSearch" placeholder="学号 / 姓名 / 拼音 / 身份证号">
+    <select class="form-select form-select-sm" id="iinSchool" style="width:120px">
+        <option value="">全部校别</option>
+        {% for st in school_types %}
+        <option value="{{ st.code }}">{{ st.name }}</option>
+        {% endfor %}
+    </select>
+    <select class="form-select form-select-sm" id="iinGrade" style="width:110px">
+        <option value="">全部年级</option>
+        {% for g in filter_values.grades %}
+        <option value="{{ g }}">{{ g }}级</option>
+        {% endfor %}
+    </select>
+    <select class="form-select form-select-sm" id="iinClass" style="width:120px">
+        <option value="">全部班级</option>
+        {% for c in filter_values.classes %}
+        <option value="{{ c }}">{{ c }}</option>
+        {% endfor %}
+    </select>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="iinReset">重置</button>
+
+    <div class="ms-auto d-flex gap-2 align-items-center" id="iinActionBar">
+        <button type="button" class="btn btn-sm btn-outline-success{% if session.role not in ('admin', 'finance_chief') %} d-none{% endif %}" id="iinApproveBtn">
+            <i class="bi bi-check2-circle me-1"></i>审批通过
+        </button>
+        <button type="button" class="btn btn-sm btn-primary{% if session.role not in ('admin', 'insurance_officer') %} d-none{% endif %}" id="iinExportBtn">
+            <i class="bi bi-download me-1"></i>导出办结
+        </button>
+    </div>
+</div>
+
+<div class="iin-table-wrap">
+    <table class="table table-sm table-hover align-middle mb-0">
+        <thead id="iinHead"></thead>
+        <tbody id="iinBody">
+            <tr><td colspan="10" class="text-center text-muted py-4">加载中…</td></tr>
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+    var items = [];
+    var selected = {};
+    var currentTab = 'pending';
+
+    function $(id) { return document.getElementById(id); }
+    function esc(v) {
+        return String(v === null || v === undefined ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    function toast(message, type) {
+        var div = document.createElement('div');
+        div.className = 'iin-toast ' + (type || 'success');
+        div.textContent = message;
+        document.body.appendChild(div);
+        setTimeout(function () { div.remove(); }, 2600);
+    }
+
+    function queryString() {
+        var map = {
+            search: $('iinSearch').value.trim(),
+            school: $('iinSchool').value,
+            grade: $('iinGrade').value,
+            admin_class: $('iinClass').value,
+            status: currentTab
+        };
+        var parts = [];
+        Object.keys(map).forEach(function (key) {
+            if (map[key]) { parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(map[key])); }
+        });
+        return parts.join('&');
+    }
+
+    function render() {
+        var head = $('iinHead');
+        var body = $('iinBody');
+        if (currentTab === 'pending') {
+            head.innerHTML = '<tr>'
+                + '<th style="width:36px"><input type="checkbox" id="iinCheckAll"></th>'
+                + '<th>姓名</th><th>学号</th><th>校别</th><th>班级</th><th>年级</th>'
+                + '<th>批次</th><th>缴费日期</th><th>状态</th></tr>';
+        } else {
+            head.innerHTML = '<tr>'
+                + '<th style="width:36px"></th>'
+                + '<th>姓名</th><th>学号</th><th>校别</th><th>班级</th><th>年级</th>'
+                + '<th>批次</th><th>缴费日期</th><th>状态</th></tr>';
+        }
+
+        if (!items.length) {
+            body.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">暂无记录</td></tr>';
+            bindCheckAll();
+            return;
+        }
+
+        var html = '';
+        items.forEach(function (s) {
+            var check = currentTab === 'pending'
+                ? '<td><input type="checkbox" class="iin-row-check" data-rid="' + s.record_id + '"'
+                  + (selected[s.record_id] ? ' checked' : '') + '></td>'
+                : '<td></td>';
+            html += '<tr>' + check
+                + '<td class="fw-semibold">' + esc(s.name) + '</td>'
+                + '<td>' + esc(s.student_no) + '</td>'
+                + '<td>' + esc(s.school) + '</td>'
+                + '<td>' + esc(s.admin_class) + '</td>'
+                + '<td>' + esc(s.grade) + '</td>'
+                + '<td>第' + (s.batch_no || '?') + '年</td>'
+                + '<td>' + esc(s.pay_date) + '</td>'
+                + '<td><span class="iin-chip iin-chip-' + esc(s.source_status) + '">'
+                + esc(s.status_label) + '</span></td>'
+                + '</tr>';
+        });
+        body.innerHTML = html;
+        bindCheckAll();
+    }
+
+    function bindCheckAll() {
+        var all = $('iinCheckAll');
+        if (!all) { return; }
+        all.addEventListener('change', function () {
+            var checked = this.checked;
+            items.forEach(function (s) {
+                if (checked) { selected[s.record_id] = true; } else { delete selected[s.record_id]; }
+            });
+            render();
+        });
+    }
+
+    function load() {
+        fetch('/api/insurance/intern/list?' + queryString())
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.success) { toast(data.message || '加载失败', 'error'); return; }
+                items = data.items || [];
+                var summary = data.summary || {};
+                $('iinPendingCount').textContent =
+                    (summary.pending_approve || 0) + (summary.paid || 0) + (summary.approved || 0);
+                $('iinDoneCount').textContent = summary.done || 0;
+                var keep = {};
+                items.forEach(function (s) { if (selected[s.record_id]) { keep[s.record_id] = true; } });
+                selected = keep;
+                render();
+            })
+            .catch(function () { toast('加载失败', 'error'); });
+    }
+
+    function postJSON(url, payload) {
+        return fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(function (r) { return r.json(); });
+    }
+
+    document.querySelectorAll('.iin-tab').forEach(function (tab) {
+        tab.addEventListener('click', function () {
+            document.querySelectorAll('.iin-tab').forEach(function (t) { t.classList.remove('active'); });
+            tab.classList.add('active');
+            currentTab = tab.getAttribute('data-tab');
+            selected = {};
+            $('iinActionBar').classList.toggle('d-none', currentTab !== 'pending');
+            load();
+        });
+    });
+
+    $('iinSearch').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { selected = {}; load(); }
+    });
+    ['iinSchool', 'iinGrade', 'iinClass'].forEach(function (id) {
+        $(id).addEventListener('change', function () { selected = {}; load(); });
+    });
+    $('iinReset').addEventListener('click', function () {
+        $('iinSearch').value = '';
+        ['iinSchool', 'iinGrade', 'iinClass'].forEach(function (id) { $(id).value = ''; });
+        selected = {};
+        load();
+    });
+
+    $('iinBody').addEventListener('change', function (e) {
+        var box = e.target.closest('.iin-row-check');
+        if (!box) { return; }
+        var rid = box.getAttribute('data-rid');
+        if (box.checked) { selected[rid] = true; } else { delete selected[rid]; }
+    });
+
+    $('iinApproveBtn').addEventListener('click', function () {
+        var ids = Object.keys(selected);
+        if (!ids.length) { toast('请先选择学生', 'error'); return; }
+        if (!confirm('确认审批通过选中的 ' + ids.length + ' 条实习险记录？')) { return; }
+        postJSON('/api/insurance/intern/approve', { record_ids: ids.map(Number) })
+            .then(function (data) {
+                if (!data.success) { toast(data.message || '审批失败', 'error'); return; }
+                toast('已审批 ' + data.count + ' 条' + (data.skipped ? '，跳过 ' + data.skipped + ' 条' : ''), 'success');
+                selected = {};
+                load();
+            });
+    });
+
+    $('iinExportBtn').addEventListener('click', function () {
+        var chosen = selectedItems().filter(function (s) {
+            return s.source_status === 'approved' && s.record_id;
+        });
+        if (!chosen.length) { toast('请选择「已审批待导出」的实习险记录', 'error'); return; }
+        var ids = chosen.map(function (s) { return s.record_id; }).join(',');
+        fetch('/api/insurance/intern/export?record_ids=' + ids)
+            .then(function (r) {
+                if (!r.ok) {
+                    return r.json().then(function (d) { throw new Error(d.message || '导出失败'); });
+                }
+                return r.blob();
+            })
+            .then(function (blob) {
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = '实习就业险办结.xlsx';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                toast('已导出并办结 ' + chosen.length + ' 人', 'success');
+                selected = {};
+                load();
+            })
+            .catch(function (err) { toast(err.message || '导出失败', 'error'); });
+    });
+
+    function selectedItems() {
+        var result = [];
+        items.forEach(function (s) { if (selected[s.record_id]) { result.push(s); } });
+        return result;
+    }
+
+    load();
+})();
+</script>
+{% endblock %}

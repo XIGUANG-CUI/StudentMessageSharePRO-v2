@@ -564,6 +564,11 @@ def init_db():
     for code in ('1', '2'):
         cursor.execute('INSERT OR IGNORE INTO archive_settings (school) VALUES (?)', (int(code),))
 
+    # ========== 保险模块 v3：新表 + 历史数据回填（幂等）==========
+    # 只增表、只回填，不改动 students 字段与现有页面；重复启动不会重复写入。
+    from models.insurance import SCHEMA_VERSION, migrate_insurance_v3
+    migrate_insurance_v3(conn)
+
     # ========== 迁移版本管理（P0-3）==========
     # 记录当前 schema 版本，便于后续迁移追踪与可观测性。
     # 兼容策略：首次运行时通过检测 students 表已有列推断当前版本并写入 schema_version 表，
@@ -586,6 +591,17 @@ def init_db():
             else:
                 inferred_version = 0
             cursor.execute('INSERT INTO schema_version (id, version) VALUES (1, ?)', (inferred_version,))
+    except sqlite3.OperationalError:
+        pass
+
+    # 保险 v3 迁移后统一把版本推进到 SCHEMA_VERSION（首次建表时 schema_version 尚不存在，
+    # 上面的 UPDATE 会被忽略，故在此补一次）
+    try:
+        cursor.execute(
+            'UPDATE schema_version SET version = ?, applied_at = CURRENT_TIMESTAMP '
+            'WHERE id = 1 AND version < ?',
+            (SCHEMA_VERSION, SCHEMA_VERSION)
+        )
     except sqlite3.OperationalError:
         pass
 

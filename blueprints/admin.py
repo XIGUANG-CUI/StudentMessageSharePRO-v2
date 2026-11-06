@@ -27,6 +27,10 @@ from auth import _require_admin_json, _get_current_enrollment_year
 logger = logging.getLogger(__name__)
 bp = Blueprint('admin', __name__)
 
+# 允许分配给用户的角色白名单，防止表单被篡改写入未知角色
+VALID_ROLES = {'user', 'attendance', 'finance_staff', 'finance_chief',
+               'insurance_officer', 'admin'}
+
 # 全局导入进度存储（随块迁移自 app.py）
 import_progress = {}
 
@@ -1191,6 +1195,9 @@ def admin_users():
             grade_visible = request.form.get('grade_visible', '*')
             fields_visible = request.form.get('fields_visible', '[]')
             
+            if role not in VALID_ROLES:
+                flash('无效的角色类型', 'danger')
+                return redirect(url_for('.admin_users'))
             if not school_visible:
                 flash('请至少选择一个可见学校类型', 'danger')
                 return redirect(url_for('.admin_users'))
@@ -1222,6 +1229,9 @@ def admin_users():
             grade_visible = request.form.get('grade_visible', '*')
             fields_visible = request.form.get('fields_visible', '[]')
             
+            if role not in VALID_ROLES:
+                flash('无效的角色类型', 'danger')
+                return redirect(url_for('.admin_users'))
             if not school_visible:
                 flash('请至少选择一个可见学校类型', 'danger')
                 return redirect(url_for('.admin_users'))

@@ -109,9 +109,9 @@ StudentMessageSharePRO/
 | `admin` | 全部权限：增删改查、导入导出、用户管理、统计、出勤点名、保险管理、毕业管理 | 控制台 `/admin` | 全量数据，无脱敏 |
 | `user` | 只读查询 + 统计面板，字段/学校/年级按 `*_visible` 限制 | 查询页 `/user/query` | 字段过滤+脱敏 |
 | `attendance` | 仅手机端出勤点名，按 `grade_visible` 限制可见年级 | 年级选择 `/mobile/grades` | 仅出勤相关字段 |
-| `finance_chief` ⭐ | 财务主管：保险缴费登记 + 保险审批 + 多维查询 | 保险缴费登记 `/insurance/register` | 全量数据视图 |
-| `finance_staff` ⭐ | 财务人员：保险缴费登记 + 多维查询 | 保险缴费登记 `/insurance/register` | 全量数据视图 |
-| `insurance_officer` ⭐ | 保险员：保险待办 + 多维查询 | 保险待办 `/insurance/todo` | 全量数据视图 |
+| `finance_chief` ⭐ | 财务主管：保费催缴 + 新生首保/续保/实习险审批 + 续保/推送/办结 + 多维查询 | 保费催缴 `/insurance/collection` | 全量数据视图 |
+| `finance_staff` ⭐ | 财务人员：保费催缴（登记缴费） + 多维查询 | 保费催缴 `/insurance/collection` | 全量数据视图 |
+| `insurance_officer` ⭐ | 保险员：新生首保/续保/推送/办结 + 多维查询 | 新生首保 `/insurance/first` | 全量数据视图 |
 
 > **权限生效位置**：`auth.py:6-74`（6个装饰器函数），保险角色通过 `auth.py:158` 的 `_is_insurance_role()` 绕过 `check_school_permission()` / `check_grade_permission()` 的学校/年级限制。
 
@@ -128,10 +128,16 @@ StudentMessageSharePRO/
 | 销假处理 / 回收站 `/admin/leave-cancel`、`/api/admin/trash*` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | 用户管理 / 字典管理 / 备份 `/admin/users`、`/admin/dicts`、`/api/backup*` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | 模板导出引擎 `/admin/export-engine`、`/api/export/*` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| 保险初始化导入 `/insurance/init`、`/api/insurance/init-*` | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
-| 保险缴费登记 `/insurance/register`、`/api/insurance/register*` | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ |
-| 保险审批 `/insurance/approve`、`/api/insurance/approve*` | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
-| 保险待办/办结/导出 `/insurance/todo`、`/api/insurance/todo*`、`/api/insurance/complete` | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
+| 保险初始化导入 `/insurance/init`、`/api/insurance/init-*` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| 保费催缴 `/insurance/collection`、`/api/insurance/collection*` | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ |
+| 新生首保页面/列表 `/insurance/first`、`/api/insurance/first/list` | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ |
+| 新生首保 审批/不办理 `/api/insurance/first/approve|exempt` | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| 新生首保 导出/补录保单 `/api/insurance/first/export|policy` | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
+| 第二年续保 `/insurance/renewal`、`/api/insurance/renewal*` | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ |
+| 实习推送 `/insurance/push`、`/api/insurance/push*` | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ |
+| 实习险 审批 `/api/insurance/intern/approve` | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| 实习险 导出办结 `/api/insurance/intern/export` | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
+| 保险记录查询 `/insurance/records`、`/api/insurance/records/list` | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ |
 | 保单查询 `/admin/insurance-query`、`/api/insurance/query` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 移动端出勤点名 `/mobile/classes/*/attendance` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | 移动端年级/班级浏览 `/mobile/grades`、`/mobile/grades/<g>/classes` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -141,7 +147,9 @@ StudentMessageSharePRO/
 | 公开待处理销假 `/public/pending-leave`、`/api/public/pending-leave`（免登录 + 口令 k + IP 限流） | 所有人（无需登录） | — | — | — | — | — |
 | 公开班级花名册 `/public/roster`、`/api/public/roster`（免登录 + 口令 k + IP 限流）⭐新增 | 所有人（无需登录） | — | — | — | — | — |
 
-> 说明：保单查询、多维查询、统计面板、毕业生查询底层均为 `login_required`，对全部登录角色开放；保险三角色在导航栏默认隐藏「多维查询/统计面板」入口（`base.html:140-161`），但直接访问 URL 仍可用。保险三角色中，`finance_staff`/`finance_chief` 仅能进登记页，`finance_chief` 追加审批页，`insurance_officer` 进待办页（互不越权）。
+> 说明：保单查询、多维查询、统计面板、毕业生查询底层均为 `login_required`，对全部登录角色开放；保险三角色在导航栏默认隐藏「多维查询/统计面板」入口（`base.html:140-161`），但直接访问 URL 仍可用。保险角色权限现已按职责区分（`blueprints/insurance.py` 中 `_require_roles_json()` / `_page_roles()`）：财务人员仅催缴，财务主管负责催缴 + 审批 + 续保/推送/办结，保险员负责首保/续保/推送/办结与初始化以外的操作。
+>
+> 旧版保险页面 `/insurance/register`、`/insurance/approve`、`/insurance/todo` 已 302 重定向到新页面；旧版写接口 `/api/insurance/register-single|register-batch`、`/api/insurance/approve-single`、`/api/insurance/approve`、`/api/insurance/complete` 返回 410，已停止写入 `students` 旧字段。
 
 ### 数据级权限（跨所有角色生效）
 

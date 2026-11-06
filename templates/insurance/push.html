@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block title %}实习推送 - 学生数据管理系统{% endblock %}
+{% block head %}
+<style>
+    .ips-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+                   background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+    .ips-toolbar .form-control, .ips-toolbar .form-select { font-size: 0.8rem; }
+    .ips-search { width: 220px; }
+    .ips-table-wrap { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; overflow: auto;
+                      max-height: calc(100vh - 260px); }
+    .ips-table-wrap thead th { position: sticky; top: 0; background: #f1f3f5; z-index: 2; font-size: 0.78rem; white-space: nowrap; }
+    .ips-table-wrap td { font-size: 0.8rem; }
+    .ips-badge { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 0.72rem;
+                 background: #e7f5ff; color: #0b7285; }
+    .ips-badge-warn { background: #fff3bf; color: #997404; }
+    .ips-toast { position: fixed; bottom: 20px; right: 20px; z-index: 9999; padding: 10px 18px;
+                 border-radius: 6px; color: #fff; font-size: 0.85rem; }
+    .ips-toast.success { background: #198754; }
+    .ips-toast.error { background: #dc3545; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h5 class="mb-0"><i class="bi bi-send me-2"></i>实习推送</h5>
+    <span class="text-muted small">学平险全部办结的学生 → 推送至实习就业险催缴池；推迟注册学生可推送至续保</span>
+</div>
+
+<div class="ips-toolbar">
+    <input type="text" class="form-control form-control-sm ips-search" id="ipsSearch" placeholder="学号 / 姓名 / 拼音 / 身份证号">
+    <select class="form-select form-select-sm" id="ipsSchool" style="width:120px">
+        <option value="">全部校别</option>
+        {% for st in school_types %}
+        <option value="{{ st.code }}">{{ st.name }}</option>
+        {% endfor %}
+    </select>
+    <select class="form-select form-select-sm" id="ipsGrade" style="width:110px">
+        <option value="">全部年级</option>
+        {% for g in filter_values.grades %}
+        <option value="{{ g }}">{{ g }}级</option>
+        {% endfor %}
+    </select>
+    <select class="form-select form-select-sm" id="ipsClass" style="width:120px">
+        <option value="">全部班级</option>
+        {% for c in filter_values.classes %}
+        <option value="{{ c }}">{{ c }}</option>
+        {% endfor %}
+    </select>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="ipsReset">重置</button>
+
+    <div class="ms-auto d-flex gap-2 align-items-center">
+        <span class="text-muted small">共 <strong id="ipsTotal">0</strong> 人</span>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="ipsRenewalBtn">
+            <i class="bi bi-arrow-repeat me-1"></i>推送至续保
+        </button>
+        <button type="button" class="btn btn-sm btn-success" id="ipsPushBtn">
+            <i class="bi bi-send me-1"></i>推送至实习险
+        </button>
+    </div>
+</div>
+
+<div class="ips-table-wrap">
+    <table class="table table-sm table-hover align-middle mb-0">
+        <thead>
+            <tr>
+                <th style="width:36px"><input type="checkbox" id="ipsCheckAll"></th>
+                <th>姓名</th>
+                <th>学号</th>
+                <th>身份证号</th>
+                <th>校别</th>
+                <th>班级</th>
+                <th>年级</th>
+                <th>学平险已办结批次</th>
+                <th>状态</th>
+            </tr>
+        </thead>
+        <tbody id="ipsBody">
+            <tr><td colspan="9" class="text-center text-muted py-4">加载中…</td></tr>
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+    var items = [];
+    var selected = {};
+
+    function $(id) { return document.getElementById(id); }
+    function esc(v) {
+        return String(v === null || v === undefined ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    function toast(message, type) {
+        var div = document.createElement('div');
+        div.className = 'ips-toast ' + (type || 'success');
+        div.textContent = message;
+        document.body.appendChild(div);
+        setTimeout(function () { div.remove(); }, 2600);
+    }
+
+    function queryString() {
+        var map = {
+            search: $('ipsSearch').value.trim(),
+            school: $('ipsSchool').value,
+            grade: $('ipsGrade').value,
+            admin_class: $('ipsClass').value
+        };
+        var parts = [];
+        Object.keys(map).forEach(function (key) {
+            if (map[key]) { parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(map[key])); }
+        });
+        return parts.join('&');
+    }
+
+    function render() {
+        $('ipsTotal').textContent = items.length;
+        var body = $('ipsBody');
+        if (!items.length) {
+            body.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">暂无待推送学生</td></tr>';
+            return;
+        }
+        var html = '';
+        items.forEach(function (s) {
+            var checked = selected[s.id] ? ' checked' : '';
+            html += '<tr>'
+                + '<td><input type="checkbox" class="ips-row-check" data-sid="' + s.id + '"' + checked + '></td>'
+                + '<td class="fw-semibold">' + esc(s.name)
+                + (s.kind === 'deferred'
+                    ? ' <span class="ips-badge ips-badge-warn">推迟注册</span>' : '')
+                + '</td>'
+                + '<td>' + esc(s.student_no) + '</td>'
+                + '<td class="font-monospace text-muted" style="font-size:0.72rem">' + esc(s.id_card) + '</td>'
+                + '<td>' + esc(s.school) + '</td>'
+                + '<td>' + esc(s.admin_class) + '</td>'
+                + '<td>' + esc(s.grade) + '</td>'
+                + '<td>第' + (s.previous_batch_no || '?') + '年</td>'
+                + '<td><span class="ips-badge">待推送</span></td>'
+                + '</tr>';
+        });
+        body.innerHTML = html;
+    }
+
+    function load() {
+        fetch('/api/insurance/push/list?' + queryString())
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.success) { toast(data.message || '加载失败', 'error'); return; }
+                items = data.items || [];
+                var keep = {};
+                items.forEach(function (s) { if (selected[s.id]) { keep[s.id] = true; } });
+                selected = keep;
+                render();
+            })
+            .catch(function () { toast('加载失败', 'error'); });
+    }
+
+    $('ipsSearch').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { selected = {}; load(); }
+    });
+    ['ipsSchool', 'ipsGrade', 'ipsClass'].forEach(function (id) {
+        $(id).addEventListener('change', function () { selected = {}; load(); });
+    });
+    $('ipsReset').addEventListener('click', function () {
+        $('ipsSearch').value = '';
+        ['ipsSchool', 'ipsGrade', 'ipsClass'].forEach(function (id) { $(id).value = ''; });
+        selected = {};
+        load();
+    });
+
+    $('ipsCheckAll').addEventListener('change', function () {
+        var checked = this.checked;
+        items.forEach(function (s) {
+            if (checked) { selected[s.id] = true; } else { delete selected[s.id]; }
+        });
+        render();
+    });
+
+    $('ipsBody').addEventListener('change', function (e) {
+        var box = e.target.closest('.ips-row-check');
+        if (!box) { return; }
+        var sid = box.getAttribute('data-sid');
+        if (box.checked) { selected[sid] = true; } else { delete selected[sid]; }
+    });
+
+    $('ipsRenewalBtn').addEventListener('click', function () {
+        var ids = Object.keys(selected);
+        if (!ids.length) { toast('请先选择学生', 'error'); return; }
+        if (!confirm('确认将选中的 ' + ids.length + ' 名学生推送至续保（保单到期后进入待续保名单）？')) { return; }
+        fetch('/api/insurance/push/renewal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ student_ids: ids.map(Number) })
+        }).then(function (r) { return r.json(); }).then(function (data) {
+            if (!data.success) { toast(data.message || '推送失败', 'error'); return; }
+            var msg = '已推送 ' + data.count + ' 人至续保（到期后进入待续保）';
+            if (data.skipped) {
+                msg += '，跳过 ' + data.skipped + ' 人';
+                var first = (data.errors || [])[0];
+                if (first && first.message) { msg += '（' + first.message + '）'; }
+            }
+            toast(msg, data.count ? 'success' : 'error');
+            selected = {};
+            load();
+        }).catch(function () { toast('推送失败', 'error'); });
+    });
+
+    $('ipsPushBtn').addEventListener('click', function () {
+        var ids = Object.keys(selected);
+        if (!ids.length) { toast('请先选择学生', 'error'); return; }
+        if (!confirm('确认将选中的 ' + ids.length + ' 名学生推送至实习就业险？')) { return; }
+        fetch('/api/insurance/push/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ student_ids: ids.map(Number) })
+        }).then(function (r) { return r.json(); }).then(function (data) {
+            if (!data.success) { toast(data.message || '推送失败', 'error'); return; }
+            toast('已推送 ' + data.count + ' 人' + (data.skipped ? '，跳过 ' + data.skipped + ' 人' : ''), 'success');
+            selected = {};
+            load();
+        }).catch(function () { toast('推送失败', 'error'); });
+    });
+
+    load();
+})();
+</script>
+{% endblock %}

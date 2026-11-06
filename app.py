@@ -304,9 +304,9 @@ def index():
         elif role == 'attendance':
             return redirect(url_for('mobile.mobile_grades'))
         elif role in ('finance_chief', 'finance_staff'):
-            return redirect(url_for('insurance.insurance_register'))
+            return redirect(url_for('insurance.insurance_collection'))
         elif role == 'insurance_officer':
-            return redirect(url_for('insurance.insurance_todo'))
+            return redirect(url_for('insurance.insurance_first'))
         else:
             return redirect(url_for('user.user_query'))
     return redirect(url_for('login'))
@@ -385,9 +385,9 @@ def login():
             elif user['role'] == 'attendance':
                 return redirect(url_for('mobile.mobile_grades'))
             elif user['role'] in ('finance_chief', 'finance_staff'):
-                return redirect(url_for('insurance.insurance_register'))
+                return redirect(url_for('insurance.insurance_collection'))
             elif user['role'] == 'insurance_officer':
-                return redirect(url_for('insurance.insurance_todo'))
+                return redirect(url_for('insurance.insurance_first'))
             else:
                 return redirect(url_for('user.user_query'))
         else:

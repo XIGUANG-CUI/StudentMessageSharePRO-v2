@@ -51,10 +51,10 @@ class TestBlueprintRegistration:
         assert expected.issubset(endpoints)
 
     def test_route_count(self, app):
-        """路由总数 197（含区划匹配 20 + 档案派遣 22）。"""
+        """路由总数含保险五池/首保接口新增，上限同步放宽。"""
         from app import app as flask_app
         count = len(list(flask_app.url_map.iter_rules()))
-        assert 180 <= count <= 210
+        assert 180 <= count <= 245
 
 
 class TestModelsPackageImport:

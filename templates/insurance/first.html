@@ -1,0 +1,472 @@
+{% extends "base.html" %}
+{% block title %}新生首保 - 学生数据管理系统{% endblock %}
+{% block head %}
+<style>
+    .if-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .if-tab { border: 1px solid #dee2e6; background: #fff; color: #495057; border-radius: 999px;
+              padding: 4px 14px; font-size: 0.82rem; cursor: pointer; }
+    .if-tab:hover { border-color: #6f42c1; color: #6f42c1; }
+    .if-tab.active { background: #6f42c1; border-color: #6f42c1; color: #fff; }
+    .if-tab .if-tab-count { display: inline-block; margin-left: 4px; font-size: 0.72rem; opacity: .8; }
+    .if-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+                  background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+    .if-toolbar .form-control, .if-toolbar .form-select { font-size: 0.8rem; }
+    .if-search { width: 220px; }
+    .if-table-wrap { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; overflow: auto;
+                     max-height: calc(100vh - 300px); }
+    .if-table-wrap thead th { position: sticky; top: 0; background: #f1f3f5; z-index: 2; font-size: 0.78rem; white-space: nowrap; }
+    .if-table-wrap td { font-size: 0.8rem; }
+    .if-chip { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 0.72rem; white-space: nowrap; }
+    .if-chip-unbuilt { background: #e9ecef; color: #495057; }
+    .if-chip-pending { background: #fff3cd; color: #856404; }
+    .if-chip-approved { background: #cff4fc; color: #055160; }
+    .if-chip-exported { background: #cfe2ff; color: #084298; }
+    .if-chip-done { background: #d4edda; color: #155724; }
+    .if-chip-exempt { background: #e2e3e5; color: #41464b; }
+    .if-batch { display: inline-block; padding: 1px 8px; border-radius: 8px; background: #f0ebff; color: #59359a; font-size: 0.72rem; }
+    .if-toast { position: fixed; bottom: 20px; right: 20px; z-index: 9999; padding: 10px 18px;
+                border-radius: 6px; color: #fff; font-size: 0.85rem; }
+    .if-toast.success { background: #198754; }
+    .if-toast.error { background: #dc3545; }
+    .modal-if .modal-header { background: #6f42c1; color: #fff; border-radius: 5px 5px 0 0; }
+    .modal-if .modal-header .btn-close { filter: invert(1); }
+</style>
+{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h5 class="mb-0"><i class="bi bi-shield-plus me-2"></i>新生首保</h5>
+    <span class="text-muted small">办理 → 导出参保数据 → 补录保单号与到期日期</span>
+</div>
+
+<div class="if-tabs" id="ifTabs">
+    <button type="button" class="if-tab active" data-status="pending">待办理<span class="if-tab-count" data-count="pending">0</span></button>
+    <button type="button" class="if-tab" data-status="approved">待导出<span class="if-tab-count" data-count="approved">0</span></button>
+    <button type="button" class="if-tab" data-status="exported">待补保单<span class="if-tab-count" data-count="exported">0</span></button>
+    <button type="button" class="if-tab" data-status="done">已完成<span class="if-tab-count" data-count="done">0</span></button>
+    <button type="button" class="if-tab" data-status="exempt">不办理<span class="if-tab-count" data-count="exempt">0</span></button>
+</div>
+
+<div class="if-toolbar">
+    <input type="text" class="form-control form-control-sm if-search" id="ifSearch" placeholder="学号 / 姓名 / 拼音 / 身份证号">
+    <select class="form-select form-select-sm" id="ifSchool" style="width:120px">
+        <option value="">全部校别</option>
+        {% for st in school_types %}
+        <option value="{{ st.code }}">{{ st.name }}</option>
+        {% endfor %}
+    </select>
+    <select class="form-select form-select-sm" id="ifGrade" style="width:110px">
+        <option value="">全部年级</option>
+        {% for g in filter_values.grades %}
+        <option value="{{ g }}">{{ g }}级</option>
+        {% endfor %}
+    </select>
+    <select class="form-select form-select-sm" id="ifClass" style="width:120px">
+        <option value="">全部班级</option>
+        {% for c in filter_values.classes %}
+        <option value="{{ c }}">{{ c }}</option>
+        {% endfor %}
+    </select>
+    <select class="form-select form-select-sm" id="ifMajor" style="width:140px">
+        <option value="">全部专业</option>
+        {% for mj in filter_values.majors %}
+        <option value="{{ mj }}">{{ mj }}</option>
+        {% endfor %}
+    </select>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="ifReset">重置</button>
+
+    <div class="ms-auto d-flex flex-wrap gap-2">
+        <button type="button" class="btn btn-sm btn-success{% if session.role not in ('admin', 'finance_chief') %} d-none{% endif %}" id="ifApproveBtn">
+            <i class="bi bi-check2-circle me-1"></i>办理（审批通过）
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-danger{% if session.role not in ('admin', 'finance_chief') %} d-none{% endif %}" id="ifExemptBtn">
+            <i class="bi bi-slash-circle me-1"></i>本年度不办理
+        </button>
+        <button type="button" class="btn btn-sm btn-primary{% if session.role not in ('admin', 'insurance_officer') %} d-none{% endif %}" id="ifExportBtn">
+            <i class="bi bi-download me-1"></i>导出参保数据
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-primary{% if session.role not in ('admin', 'insurance_officer') %} d-none{% endif %}" id="ifPolicyBtn">
+            <i class="bi bi-pencil-square me-1"></i>补录保单
+        </button>
+    </div>
+</div>
+
+<div class="if-table-wrap">
+    <table class="table table-sm table-hover align-middle mb-0">
+        <thead>
+            <tr>
+                <th style="width:36px"><input type="checkbox" id="ifCheckAll"></th>
+                <th>姓名</th>
+                <th>学号</th>
+                <th>身份证号</th>
+                <th>校别</th>
+                <th>班级</th>
+                <th>年级</th>
+                <th>批次</th>
+                <th>状态</th>
+                <th>保单号</th>
+                <th>到期日期</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody id="ifBody">
+            <tr><td colspan="12" class="text-center text-muted py-4">加载中…</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="modal fade modal-if" id="ifPolicyModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-pencil-square me-1"></i>补录保单</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-3">
+                    将为选中的 <strong id="ifPolicyCount">0</strong> 名学生写入相同的保单号与到期日期。
+                </p>
+                <div class="mb-3">
+                    <label class="form-label small">学平险保单号 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control form-control-sm" id="ifPolicyNo" placeholder="请输入保单号">
+                </div>
+                <div class="mb-1">
+                    <label class="form-label small">保险到期日期 <span class="text-danger">*</span></label>
+                    <input type="date" class="form-control form-control-sm" id="ifPolicyExpiry">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-sm btn-primary" id="ifPolicySave">确认补录</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+    var items = [];
+    var selected = {};
+    var currentStatus = 'pending';
+    var policyTargets = null;   // 弹窗目标：null=使用勾选行，数组=单行操作
+
+    function $(id) { return document.getElementById(id); }
+
+    function esc(v) {
+        return String(v === null || v === undefined ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function toast(message, type) {
+        var div = document.createElement('div');
+        div.className = 'if-toast ' + (type || 'success');
+        div.textContent = message;
+        document.body.appendChild(div);
+        setTimeout(function () { div.remove(); }, 2600);
+    }
+
+    var CHIP = {
+        '': 'if-chip-unbuilt',
+        'pending_approve': 'if-chip-pending',
+        'approved': 'if-chip-approved',
+        'exported': 'if-chip-exported',
+        'done': 'if-chip-done',
+        'exempt': 'if-chip-exempt'
+    };
+
+    function filters() {
+        return {
+            search: $('ifSearch').value.trim(),
+            school: $('ifSchool').value,
+            grade: $('ifGrade').value,
+            admin_class: $('ifClass').value,
+            major: $('ifMajor').value
+        };
+    }
+
+    // 行内操作：按记录状态决定显示哪些按钮，已完成/不办理不显示任何操作
+    function rowAction(s) {
+        var st = s.source_status || '';
+        if (st === '' || st === 'pending_approve') {
+            return '<button type="button" class="btn btn-sm btn-success me-1" data-act="approve" data-sid="' + s.id + '">办理</button>'
+                + '<button type="button" class="btn btn-sm btn-outline-danger" data-act="exempt" data-sid="' + s.id + '">不办理</button>';
+        }
+        if (st === 'approved' && s.record_id) {
+            return '<button type="button" class="btn btn-sm btn-primary" data-act="export" data-rid="' + s.record_id + '">导出</button>';
+        }
+        if (st === 'exported' && s.record_id) {
+            return '<button type="button" class="btn btn-sm btn-outline-primary" data-act="policy" data-sid="' + s.id + '">补录保单</button>';
+        }
+        return '<span class="text-muted">—</span>';
+    }
+
+    // 批量工具条仅展示当前视图可用的操作
+    function updateActionBar() {
+        var hasPending = items.some(function (s) {
+            var st = s.source_status || '';
+            return st === '' || st === 'pending_approve';
+        });
+        var hasApproved = items.some(function (s) {
+            return s.source_status === 'approved' && s.record_id;
+        });
+        var hasExported = items.some(function (s) {
+            return s.source_status === 'exported' && s.record_id;
+        });
+        $('ifApproveBtn').style.display = hasPending ? '' : 'none';
+        $('ifExemptBtn').style.display = hasPending ? '' : 'none';
+        $('ifExportBtn').style.display = hasApproved ? '' : 'none';
+        $('ifPolicyBtn').style.display = hasExported ? '' : 'none';
+    }
+
+    function queryString() {
+        var f = filters();
+        var parts = [];
+        Object.keys(f).forEach(function (key) {
+            if (f[key]) { parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(f[key])); }
+        });
+        if (currentStatus) { parts.push('status=' + encodeURIComponent(currentStatus)); }
+        return parts.join('&');
+    }
+
+    function updateSummary(summary) {
+        summary = summary || {};
+        var values = {
+            pending: (summary.unbuilt || 0) + (summary.pending_approve || 0),
+            approved: summary.approved || 0,
+            exported: summary.exported || 0,
+            done: summary.done || 0,
+            exempt: summary.exempt || 0
+        };
+        document.querySelectorAll('.if-tab-count').forEach(function (el) {
+            el.textContent = values[el.getAttribute('data-count')] || 0;
+        });
+    }
+
+    function render() {
+        var body = $('ifBody');
+        if (!items.length) {
+            body.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">暂无学生</td></tr>';
+            return;
+        }
+        var html = '';
+        items.forEach(function (s) {
+            var checked = selected[s.id] ? ' checked' : '';
+            html += '<tr data-sid="' + s.id + '">'
+                + '<td><input type="checkbox" class="if-row-check" data-sid="' + s.id + '"' + checked + '></td>'
+                + '<td class="fw-semibold">' + esc(s.name) + '</td>'
+                + '<td>' + esc(s.student_no) + '</td>'
+                + '<td class="font-monospace text-muted" style="font-size:0.72rem">' + esc(s.id_card) + '</td>'
+                + '<td>' + esc(s.school) + '</td>'
+                + '<td>' + esc(s.admin_class) + '</td>'
+                + '<td>' + esc(s.grade) + '</td>'
+                + '<td><span class="if-batch">第' + (s.batch_no || '?') + '年</span></td>'
+                + '<td><span class="if-chip ' + (CHIP[s.source_status] || 'if-chip-unbuilt') + '">'
+                + esc(s.status_label) + '</span></td>'
+                + '<td>' + esc(s.policy_no) + '</td>'
+                + '<td>' + esc(s.expiry_date) + '</td>'
+                + '<td class="text-nowrap">' + rowAction(s) + '</td>'
+                + '</tr>';
+        });
+        body.innerHTML = html;
+    }
+
+    function load() {
+        fetch('/api/insurance/first/list?' + queryString())
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.success) { toast(data.message || '加载失败', 'error'); return; }
+                items = data.items || [];
+                updateSummary(data.summary);
+                var visible = {};
+                items.forEach(function (s) { if (selected[s.id]) { visible[s.id] = true; } });
+                selected = visible;
+                render();
+                updateActionBar();
+            })
+            .catch(function () { toast('加载失败', 'error'); });
+    }
+
+    function selectedItems() {
+        var result = [];
+        items.forEach(function (s) { if (selected[s.id]) { result.push(s); } });
+        return result;
+    }
+
+    function postJSON(url, payload) {
+        return fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(function (r) { return r.json(); });
+    }
+
+    document.getElementById('ifTabs').addEventListener('click', function (e) {
+        var btn = e.target.closest('.if-tab');
+        if (!btn) { return; }
+        document.querySelectorAll('.if-tab').forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        currentStatus = btn.getAttribute('data-status');
+        selected = {};
+        load();
+    });
+
+    $('ifSearch').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { selected = {}; load(); }
+    });
+    ['ifSchool', 'ifGrade', 'ifClass', 'ifMajor'].forEach(function (id) {
+        $(id).addEventListener('change', function () { selected = {}; load(); });
+    });
+    $('ifReset').addEventListener('click', function () {
+        $('ifSearch').value = '';
+        ['ifSchool', 'ifGrade', 'ifClass', 'ifMajor'].forEach(function (id) { $(id).value = ''; });
+        selected = {};
+        load();
+    });
+
+    $('ifCheckAll').addEventListener('change', function () {
+        var checked = this.checked;
+        items.forEach(function (s) {
+            if (checked) { selected[s.id] = true; } else { delete selected[s.id]; }
+        });
+        render();
+    });
+
+    $('ifBody').addEventListener('change', function (e) {
+        var box = e.target.closest('.if-row-check');
+        if (!box) { return; }
+        var sid = box.getAttribute('data-sid');
+        if (box.checked) { selected[sid] = true; } else { delete selected[sid]; }
+    });
+
+    function approveStudents(ids) {
+        postJSON('/api/insurance/first/approve', { student_ids: ids })
+            .then(function (data) {
+                if (!data.success) { toast(data.message || '办理失败', 'error'); return; }
+                toast('已办理 ' + data.count + ' 名' + (data.skipped ? '，跳过 ' + data.skipped + ' 名' : ''), 'success');
+                selected = {};
+                load();
+            });
+    }
+
+    function exemptStudents(ids) {
+        postJSON('/api/insurance/first/exempt', { student_ids: ids })
+            .then(function (data) {
+                if (!data.success) { toast(data.message || '操作失败', 'error'); return; }
+                toast('已标记 ' + data.count + ' 名不办理' + (data.skipped ? '，跳过 ' + data.skipped + ' 名' : ''), 'success');
+                selected = {};
+                load();
+            });
+    }
+
+    function downloadExport(recordIds, count) {
+        fetch('/api/insurance/first/export?record_ids=' + recordIds.join(','))
+            .then(function (r) {
+                if (!r.ok) {
+                    return r.json().then(function (d) { throw new Error(d.message || '导出失败'); });
+                }
+                return r.blob();
+            })
+            .then(function (blob) {
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = '新生首保参保数据.xlsx';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                toast('已导出 ' + count + ' 名学生', 'success');
+                selected = {};
+                load();
+            })
+            .catch(function (err) { toast(err.message || '导出失败', 'error'); });
+    }
+
+    var policyModal = null;
+    function openPolicyModal(targets) {
+        if (!targets.length) { toast('请选择「待补保单」状态的学生', 'error'); return; }
+        policyTargets = targets;
+        $('ifPolicyCount').textContent = targets.length;
+        if (!policyModal) { policyModal = new bootstrap.Modal($('ifPolicyModal')); }
+        policyModal.show();
+    }
+
+    // 行内操作：只有当前状态允许的动作才会渲染按钮
+    $('ifBody').addEventListener('click', function (e) {
+        var btn = e.target.closest('button[data-act]');
+        if (!btn) { return; }
+        var act = btn.getAttribute('data-act');
+        var sid = parseInt(btn.getAttribute('data-sid'), 10);
+        var rid = parseInt(btn.getAttribute('data-rid'), 10);
+        var row = items.filter(function (s) { return s.id === sid; })[0];
+        if (act === 'approve') {
+            if (confirm('确认为「' + row.name + '」办理首保？')) { approveStudents([sid]); }
+        } else if (act === 'exempt') {
+            if (confirm('确认本年度不为「' + row.name + '」办理保险？该操作将使其退出后续流程。')) {
+                exemptStudents([sid]);
+            }
+        } else if (act === 'export') {
+            downloadExport([rid], 1);
+        } else if (act === 'policy') {
+            openPolicyModal([row]);
+        }
+    });
+
+    $('ifApproveBtn').addEventListener('click', function () {
+        var chosen = selectedItems();
+        if (!chosen.length) { toast('请先选择学生', 'error'); return; }
+        if (!confirm('确认对选中的 ' + chosen.length + ' 名学生办理首保？')) { return; }
+        approveStudents(chosen.map(function (s) { return s.id; }));
+    });
+
+    $('ifExemptBtn').addEventListener('click', function () {
+        var chosen = selectedItems();
+        if (!chosen.length) { toast('请先选择学生', 'error'); return; }
+        if (!confirm('确认本年度不为这 ' + chosen.length + ' 名学生办理保险？该操作将使其退出后续流程。')) { return; }
+        exemptStudents(chosen.map(function (s) { return s.id; }));
+    });
+
+    $('ifExportBtn').addEventListener('click', function () {
+        var chosen = selectedItems().filter(function (s) {
+            return s.status === 'approved' && s.record_id;
+        });
+        if (!chosen.length) { toast('请选择「待导出」状态的学生', 'error'); return; }
+        downloadExport(chosen.map(function (s) { return s.record_id; }), chosen.length);
+    });
+
+    $('ifPolicyBtn').addEventListener('click', function () {
+        openPolicyModal(selectedItems().filter(function (s) {
+            return s.status === 'exported' && s.record_id;
+        }));
+    });
+
+    $('ifPolicySave').addEventListener('click', function () {
+        var policyNo = $('ifPolicyNo').value.trim();
+        var expiry = $('ifPolicyExpiry').value;
+        if (!policyNo) { toast('请输入保单号', 'error'); return; }
+        if (!expiry) { toast('请选择到期日期', 'error'); return; }
+        var chosen = policyTargets || selectedItems().filter(function (s) {
+            return s.status === 'exported' && s.record_id;
+        });
+        if (!chosen.length) { toast('请选择「待补保单」状态的学生', 'error'); return; }
+        postJSON('/api/insurance/first/policy', {
+            record_ids: chosen.map(function (s) { return s.record_id; }),
+            policy_no: policyNo,
+            expiry_date: expiry
+        }).then(function (data) {
+            if (!data.success) { toast(data.message || '补录失败', 'error'); return; }
+            toast('已补录 ' + data.count + ' 名学生', 'success');
+            if (policyModal) { policyModal.hide(); }
+            $('ifPolicyNo').value = '';
+            $('ifPolicyExpiry').value = '';
+            policyTargets = null;
+            selected = {};
+            load();
+        });
+    });
+
+    load();
+})();
+</script>
+{% endblock %}

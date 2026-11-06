@@ -1,0 +1,343 @@
+{% extends "base.html" %}
+{% block title %}撤销中心 - 学生数据管理系统{% endblock %}
+{% block head %}
+<style>
+    .irv-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+    .irv-tab { border: 1px solid #dee2e6; background: #fff; color: #495057; border-radius: 999px;
+               padding: 4px 14px; font-size: 0.82rem; cursor: pointer; }
+    .irv-tab:hover { border-color: #b02a37; color: #b02a37; }
+    .irv-tab.active { background: #b02a37; border-color: #b02a37; color: #fff; }
+    .irv-tab .irv-tab-count { display: inline-block; margin-left: 4px; font-size: 0.72rem; opacity: .8; }
+    .irv-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+                   background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px;
+                   padding: 10px; margin-bottom: 10px; }
+    .irv-toolbar .form-control, .irv-toolbar .form-select { font-size: 0.8rem; }
+    .irv-search { width: 220px; }
+    .irv-table-wrap { background: #fff; border: 1px solid #dee2e6; border-radius: 8px;
+                      overflow: auto; max-height: calc(100vh - 250px); }
+    .irv-table-wrap thead th { position: sticky; top: 0; background: #f1f3f5; z-index: 2;
+                               font-size: 0.78rem; white-space: nowrap; }
+    .irv-table-wrap td { font-size: 0.8rem; }
+    .irv-chip { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 0.72rem; }
+    .irv-chip-active { background: #d4edda; color: #155724; }
+    .irv-chip-reversed { background: #e9ecef; color: #495057; }
+    .irv-toast { position: fixed; bottom: 20px; right: 20px; z-index: 9999; padding: 10px 18px;
+                 border-radius: 6px; color: #fff; font-size: 0.85rem; }
+    .irv-toast.success { background: #198754; }
+    .irv-toast.error { background: #dc3545; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h5 class="mb-0"><i class="bi bi-arrow-counterclockwise me-2"></i>撤销中心</h5>
+    <span class="text-muted small">按学生撤销会删除其最近一次参保记录（回到办理前状态），仅保留操作日志</span>
+</div>
+
+<div class="irv-tabs">
+    <button type="button" class="irv-tab active" data-tab="students">
+        按学生撤销<span class="irv-tab-count" id="irvStudentCount">0</span>
+    </button>
+    <button type="button" class="irv-tab" data-tab="batches">
+        导出批次<span class="irv-tab-count" id="irvBatchCount">0</span>
+    </button>
+    <button type="button" class="irv-tab" data-tab="logs">
+        操作日志<span class="irv-tab-count" id="irvLogCount">0</span>
+    </button>
+</div>
+
+<div class="irv-toolbar" id="irvStudentToolbar">
+    <input type="text" class="form-control form-control-sm irv-search" id="irvStudentSearch"
+           placeholder="学号 / 姓名 / 拼音 / 身份证号">
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="irvStudentSearchBtn">查询</button>
+    <span class="text-muted small">撤销后记录被删除，学生回到待续保 / 首保 / 待推送池</span>
+</div>
+
+<div class="irv-toolbar" id="irvLogToolbar" style="display:none">
+    <input type="text" class="form-control form-control-sm irv-search" id="irvLogSearch"
+           placeholder="学号 / 姓名 / 身份证号">
+    <select class="form-select form-select-sm" id="irvLogAction" style="width:150px">
+        <option value="">全部动作</option>
+        <option value="create">建档</option>
+        <option value="approve">审批通过</option>
+        <option value="reject">不办理</option>
+        <option value="pay">缴费</option>
+        <option value="policy">补录保单</option>
+        <option value="export">导出</option>
+        <option value="revert">撤销</option>
+        <option value="push">推送</option>
+        <option value="renew">续保</option>
+    </select>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="irvLogReset">重置</button>
+</div>
+
+<div class="irv-table-wrap">
+    <table class="table table-sm table-hover align-middle mb-0">
+        <thead id="irvHead"></thead>
+        <tbody id="irvBody">
+            <tr><td colspan="10" class="text-center text-muted py-4">加载中…</td></tr>
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+    var batches = [];
+    var logs = [];
+    var students = [];
+    var currentTab = 'students';
+
+    var ACTION_LABELS = {
+        create: '建档', approve: '审批通过', reject: '不办理', pay: '缴费',
+        policy: '补录保单', export: '导出', revert: '撤销', push: '推送', renew: '续保',
+        import: '初始化导入'
+    };
+    var STATUS_LABELS = {
+        pending_approve: '待审批', approved: '已审批待导出', exported: '已导出待补保单',
+        pending_renewal: '待续保',
+        pending_pay: '待缴费', paid: '已缴费', done: '已办结', exempt: '不办理',
+        deleted: '已撤销（记录删除）'
+    };
+    var TYPE_LABELS = { xueping: '学平险', intern: '实习就业险' };
+
+    function $(id) { return document.getElementById(id); }
+    function esc(v) {
+        return String(v === null || v === undefined ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    function toast(message, type) {
+        var div = document.createElement('div');
+        div.className = 'irv-toast ' + (type || 'success');
+        div.textContent = message;
+        document.body.appendChild(div);
+        setTimeout(function () { div.remove(); }, 2600);
+    }
+
+    function renderStudents() {
+        $('irvHead').innerHTML = '<tr>'
+            + '<th>姓名</th><th>学号</th><th>班级</th><th>年级</th>'
+            + '<th>最近记录</th><th>状态</th><th>保单号</th><th>到期日期</th>'
+            + '<th>缴费日期</th><th style="width:90px">操作</th></tr>';
+        if (!students.length) {
+            $('irvBody').innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">'
+                + '输入学号 / 姓名查询学生</td></tr>';
+            return;
+        }
+        var html = '';
+        students.forEach(function (s) {
+            var record = (TYPE_LABELS[s.insurance_type] || s.insurance_type)
+                + ' · 第' + (s.batch_no || '?') + '年';
+            html += '<tr>'
+                + '<td class="fw-semibold">' + esc(s.name) + '</td>'
+                + '<td>' + esc(s.student_no) + '</td>'
+                + '<td>' + esc(s.admin_class) + '</td>'
+                + '<td>' + esc(s.grade) + '</td>'
+                + '<td>' + esc(record) + '</td>'
+                + '<td>' + esc(STATUS_LABELS[s.status] || s.status) + '</td>'
+                + '<td>' + esc(s.policy_no) + '</td>'
+                + '<td>' + esc(s.expiry_date) + '</td>'
+                + '<td>' + esc(s.pay_date) + '</td>'
+                + '<td><button type="button" class="btn btn-sm btn-outline-danger irv-revert-student" '
+                + 'data-sid="' + esc(s.student_id) + '" data-name="' + esc(s.name) + '" '
+                + 'data-record="' + esc(record) + '" data-status="'
+                + esc(STATUS_LABELS[s.status] || s.status) + '">撤销</button></td>'
+                + '</tr>';
+        });
+        $('irvBody').innerHTML = html;
+    }
+
+    function renderBatches() {
+        $('irvHead').innerHTML = '<tr>'
+            + '<th>导出时间</th><th>操作</th><th>险种</th><th>批次</th><th>学年</th>'
+            + '<th>人数</th><th>操作人</th><th>文件名</th><th>状态</th><th>操作</th></tr>';
+        if (!batches.length) {
+            $('irvBody').innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">暂无导出批次</td></tr>';
+            return;
+        }
+        var html = '';
+        batches.forEach(function (b) {
+            var reversed = b.reversed;
+            var actionBtn = reversed
+                ? '<span class="text-muted small">已撤销</span>'
+                : '<button type="button" class="btn btn-sm btn-outline-danger irv-revert" '
+                  + 'data-id="' + esc(b.id) + '" data-count="' + esc(b.student_count) + '">撤销</button>';
+            html += '<tr>'
+                + '<td>' + esc(b.created_at) + '</td>'
+                + '<td>' + esc(b.action_label) + '</td>'
+                + '<td>' + esc(b.insurance_type_label) + '</td>'
+                + '<td>第' + esc(b.batch_no) + '年</td>'
+                + '<td>' + esc(b.school_year) + '</td>'
+                + '<td>' + esc(b.student_count) + '</td>'
+                + '<td>' + esc(b.created_by) + '</td>'
+                + '<td>' + esc(b.file_name) + '</td>'
+                + '<td><span class="irv-chip ' + (reversed ? 'irv-chip-reversed' : 'irv-chip-active') + '">'
+                + (reversed ? '已撤销' : '有效') + '</span></td>'
+                + '<td>' + actionBtn + '</td>'
+                + '</tr>';
+        });
+        $('irvBody').innerHTML = html;
+    }
+
+    function renderLogs() {
+        $('irvHead').innerHTML = '<tr>'
+            + '<th>时间</th><th>学生</th><th>学号</th><th>动作</th>'
+            + '<th>原状态</th><th>新状态</th><th>操作人</th></tr>';
+        if (!logs.length) {
+            $('irvBody').innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">暂无操作日志</td></tr>';
+            return;
+        }
+        var html = '';
+        logs.forEach(function (l) {
+            html += '<tr>'
+                + '<td>' + esc(l.created_at) + '</td>'
+                + '<td class="fw-semibold">' + esc(l.student_name) + '</td>'
+                + '<td>' + esc(l.student_no) + '</td>'
+                + '<td>' + esc(ACTION_LABELS[l.action] || l.action) + '</td>'
+                + '<td>' + esc(STATUS_LABELS[l.from_status] || l.from_status || '—') + '</td>'
+                + '<td>' + esc(STATUS_LABELS[l.to_status] || l.to_status || '—') + '</td>'
+                + '<td>' + esc(l.operator) + '</td>'
+                + '</tr>';
+        });
+        $('irvBody').innerHTML = html;
+    }
+
+    function render() {
+        if (currentTab === 'students') { renderStudents(); }
+        else if (currentTab === 'batches') { renderBatches(); }
+        else { renderLogs(); }
+    }
+
+    function loadStudents() {
+        var keyword = $('irvStudentSearch').value.trim();
+        if (!keyword) {
+            students = [];
+            $('irvStudentCount').textContent = 0;
+            renderStudents();
+            return;
+        }
+        fetch('/api/insurance/revert/students?search=' + encodeURIComponent(keyword))
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.success) { toast(data.message || '加载失败', 'error'); return; }
+                students = data.items || [];
+                $('irvStudentCount').textContent = students.length;
+                if (currentTab === 'students') { render(); }
+            })
+            .catch(function () { toast('加载失败', 'error'); });
+    }
+
+    function loadBatches() {
+        fetch('/api/insurance/revert/batches?limit=100')
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.success) { toast(data.message || '加载失败', 'error'); return; }
+                batches = data.items || [];
+                $('irvBatchCount').textContent = batches.length;
+                if (currentTab === 'batches') { render(); }
+            })
+            .catch(function () { toast('加载失败', 'error'); });
+    }
+
+    function logQuery() {
+        var map = {
+            search: $('irvLogSearch').value.trim(),
+            action: $('irvLogAction').value
+        };
+        var parts = [];
+        Object.keys(map).forEach(function (key) {
+            if (map[key]) { parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(map[key])); }
+        });
+        return parts.join('&');
+    }
+
+    function loadLogs() {
+        fetch('/api/insurance/revert/logs?' + logQuery())
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.success) { toast(data.message || '加载失败', 'error'); return; }
+                logs = data.items || [];
+                $('irvLogCount').textContent = logs.length;
+                if (currentTab === 'logs') { render(); }
+            })
+            .catch(function () { toast('加载失败', 'error'); });
+    }
+
+    document.querySelectorAll('.irv-tab').forEach(function (tab) {
+        tab.addEventListener('click', function () {
+            document.querySelectorAll('.irv-tab').forEach(function (t) { t.classList.remove('active'); });
+            tab.classList.add('active');
+            currentTab = tab.getAttribute('data-tab');
+            $('irvStudentToolbar').style.display = currentTab === 'students' ? '' : 'none';
+            $('irvLogToolbar').style.display = currentTab === 'logs' ? '' : 'none';
+            render();
+            if (currentTab === 'logs') { loadLogs(); }
+            if (currentTab === 'students') { loadStudents(); }
+        });
+    });
+
+    $('irvBody').addEventListener('click', function (e) {
+        var stuBtn = e.target.closest('.irv-revert-student');
+        if (stuBtn) {
+            var sid = stuBtn.getAttribute('data-sid');
+            var name = stuBtn.getAttribute('data-name');
+            var record = stuBtn.getAttribute('data-record');
+            var status = stuBtn.getAttribute('data-status');
+            var message = '确认撤销 ' + name + ' 的「' + record + '（' + status + '）」？\n\n'
+                + '该记录及其保单号、到期日期、缴费日期将被删除，学生回到办理前的待办池；\n'
+                + '操作日志会保留。';
+            if (!confirm(message)) { return; }
+            fetch('/api/insurance/revert/student', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ student_id: sid })
+            }).then(function (r) { return r.json(); })
+              .then(function (data) {
+                  if (!data.success) { toast(data.message || '撤销失败', 'error'); return; }
+                  toast('已撤销 ' + name + ' 的最近一次参保记录', 'success');
+                  loadStudents();
+                  loadBatches();
+                  loadLogs();
+              })
+              .catch(function () { toast('撤销失败', 'error'); });
+            return;
+        }
+        var btn = e.target.closest('.irv-revert');
+        if (!btn) { return; }
+        var id = btn.getAttribute('data-id');
+        var count = btn.getAttribute('data-count');
+        if (!confirm('确认撤销该导出批次？涉及 ' + count + ' 条记录将回退为「已审批待导出」。')) { return; }
+        fetch('/api/insurance/revert/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ export_batch_id: id })
+        }).then(function (r) { return r.json(); })
+          .then(function (data) {
+              if (!data.success) { toast(data.message || '撤销失败', 'error'); return; }
+              toast('已撤销 ' + data.count + ' 条记录', 'success');
+              loadBatches();
+              loadLogs();
+          })
+          .catch(function () { toast('撤销失败', 'error'); });
+    });
+
+    $('irvLogSearch').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { loadLogs(); }
+    });
+    $('irvLogAction').addEventListener('change', loadLogs);
+    $('irvLogReset').addEventListener('click', function () {
+        $('irvLogSearch').value = '';
+        $('irvLogAction').value = '';
+        loadLogs();
+    });
+
+    $('irvStudentSearchBtn').addEventListener('click', loadStudents);
+    $('irvStudentSearch').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { loadStudents(); }
+    });
+
+    renderStudents();
+    loadBatches();
+})();
+</script>
+{% endblock %}
