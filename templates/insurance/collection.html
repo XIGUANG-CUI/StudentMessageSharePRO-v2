@@ -98,6 +98,10 @@
     var selected = {};
     var currentTab = 'pending';
 
+    var schoolMap = {};
+    {% for st in school_types %}schoolMap[{{ st.code|tojson }}] = {{ st.name|tojson }};{% endfor %}
+    function schoolName(code) { return schoolMap[code] || code || ''; }
+
     function $(id) { return document.getElementById(id); }
     function esc(v) {
         return String(v === null || v === undefined ? '' : v)
@@ -138,15 +142,15 @@
     function render() {
         var head = $('iclHead');
         var body = $('iclBody');
-        var colspan = currentTab === 'pending' ? 11 : 10;
+        var colspan = currentTab === 'pending' ? 12 : 11;
         if (currentTab === 'pending') {
             head.innerHTML = '<tr>'
                 + '<th style="width:36px"><input type="checkbox" id="iclCheckAll"></th>'
-                + '<th>姓名</th><th>学号</th><th>校别</th><th>班级</th><th>年级</th>'
+                + '<th>姓名</th><th>学号</th><th>校别</th><th>班级</th><th>年级</th><th>在校状态</th>'
                 + '<th>险种</th><th>批次</th><th>状态</th><th>缴费日期</th><th style="width:80px">操作</th></tr>';
         } else {
             head.innerHTML = '<tr>'
-                + '<th>姓名</th><th>学号</th><th>校别</th><th>班级</th><th>年级</th>'
+                + '<th>姓名</th><th>学号</th><th>校别</th><th>班级</th><th>年级</th><th>在校状态</th>'
                 + '<th>险种</th><th>批次</th><th>缴费日期</th><th>保单号</th><th>到期日期</th></tr>';
         }
 
@@ -162,9 +166,10 @@
             var check = '<td><input type="checkbox" class="icl-row-check" data-rid="' + s.record_id + '"' + checked + '></td>';
             var base = '<td class="fw-semibold">' + esc(s.name) + '</td>'
                 + '<td>' + esc(s.student_no) + '</td>'
-                + '<td>' + esc(s.school) + '</td>'
+                + '<td>' + esc(schoolName(s.school)) + '</td>'
                 + '<td>' + esc(s.admin_class) + '</td>'
-                + '<td>' + esc(s.grade) + '</td>';
+                + '<td>' + esc(s.grade) + '</td>'
+                + '<td>' + esc(s.attendance_status) + '</td>';
 
             if (currentTab === 'pending') {
                 html += '<tr>' + check + base

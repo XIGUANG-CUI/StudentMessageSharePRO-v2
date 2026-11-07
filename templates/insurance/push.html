@@ -13,6 +13,11 @@
     .ips-badge { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 0.72rem;
                  background: #e7f5ff; color: #0b7285; }
     .ips-badge-warn { background: #fff3bf; color: #997404; }
+    .ips-group td { font-size: 0.76rem; padding: 4px 8px; cursor: pointer; user-select: none; }
+    .ips-group-grade td { background: #f1f3f5; }
+    .ips-group-grade td:hover { background: #e9edf1; }
+    .ips-group-class td { background: #f8f9fa; }
+    .ips-group-class td:hover { background: #eef1f4; }
     .ips-toast { position: fixed; bottom: 20px; right: 20px; z-index: 9999; padding: 10px 18px;
                  border-radius: 6px; color: #fff; font-size: 0.85rem; }
     .ips-toast.success { background: #198754; }
@@ -69,12 +74,13 @@
                 <th>校别</th>
                 <th>班级</th>
                 <th>年级</th>
+                <th>在校状态</th>
                 <th>学平险已办结批次</th>
                 <th>状态</th>
             </tr>
         </thead>
         <tbody id="ipsBody">
-            <tr><td colspan="9" class="text-center text-muted py-4">加载中…</td></tr>
+            <tr><td colspan="10" class="text-center text-muted py-4">加载中…</td></tr>
         </tbody>
     </table>
 </div>
@@ -84,6 +90,11 @@
 (function () {
     var items = [];
     var selected = {};
+    var collapsed = {};
+
+    var schoolMap = {};
+    {% for st in school_types %}schoolMap[{{ st.code|tojson }}] = {{ st.name|tojson }};{% endfor %}
+    function schoolName(code) { return schoolMap[code] || code || ''; }
 
     function $(id) { return document.getElementById(id); }
     function esc(v) {
@@ -113,30 +124,71 @@
         return parts.join('&');
     }
 
+    function poolRow(s) {
+        var checked = selected[s.id] ? ' checked' : '';
+        return '<tr>'
+            + '<td><input type="checkbox" class="ips-row-check" data-sid="' + s.id + '"' + checked + '></td>'
+            + '<td class="fw-semibold">' + esc(s.name)
+            + (s.kind === 'deferred'
+                ? ' <span class="ips-badge ips-badge-warn">推迟注册</span>' : '')
+            + '</td>'
+            + '<td>' + esc(s.student_no) + '</td>'
+            + '<td class="font-monospace text-muted" style="font-size:0.72rem">' + esc(s.id_card) + '</td>'
+            + '<td>' + esc(schoolName(s.school)) + '</td>'
+            + '<td>' + esc(s.admin_class) + '</td>'
+            + '<td>' + esc(s.grade) + '</td>'
+            + '<td>' + esc(s.attendance_status) + '</td>'
+            + '<td>第' + (s.previous_batch_no || '?') + '年</td>'
+            + '<td><span class="ips-badge">待推送</span></td>'
+            + '</tr>';
+    }
+
     function render() {
         $('ipsTotal').textContent = items.length;
         var body = $('ipsBody');
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">暂无待推送学生</td></tr>';
+            body.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">暂无待推送学生</td></tr>';
             return;
         }
-        var html = '';
+        // 年级 → 班级 两级分组，可折叠
+        var grades = {};
+        var gradeOrder = [];
         items.forEach(function (s) {
-            var checked = selected[s.id] ? ' checked' : '';
-            html += '<tr>'
-                + '<td><input type="checkbox" class="ips-row-check" data-sid="' + s.id + '"' + checked + '></td>'
-                + '<td class="fw-semibold">' + esc(s.name)
-                + (s.kind === 'deferred'
-                    ? ' <span class="ips-badge ips-badge-warn">推迟注册</span>' : '')
-                + '</td>'
-                + '<td>' + esc(s.student_no) + '</td>'
-                + '<td class="font-monospace text-muted" style="font-size:0.72rem">' + esc(s.id_card) + '</td>'
-                + '<td>' + esc(s.school) + '</td>'
-                + '<td>' + esc(s.admin_class) + '</td>'
-                + '<td>' + esc(s.grade) + '</td>'
-                + '<td>第' + (s.previous_batch_no || '?') + '年</td>'
-                + '<td><span class="ips-badge">待推送</span></td>'
-                + '</tr>';
+            var g = s.grade || '未填写';
+            var c = s.admin_class || '未填写';
+            if (!grades[g]) {
+                grades[g] = { classes: {}, classOrder: [], count: 0 };
+                gradeOrder.push(g);
+            }
+            var G = grades[g];
+            if (!G.classes[c]) { G.classes[c] = []; G.classOrder.push(c); }
+            G.classes[c].push(s);
+            G.count += 1;
+        });
+        var html = '';
+        gradeOrder.forEach(function (g) {
+            var G = grades[g];
+            // 年级 / 班级分组默认折叠，点击展开
+            var gKey = 'g:' + g;
+            var gOpen = collapsed[gKey];
+            html += '<tr class="ips-group ips-group-grade" data-fold="' + esc(gKey) + '">'
+                + '<td colspan="10">'
+                + '<i class="bi ' + (gOpen ? 'bi-caret-down-fill' : 'bi-caret-right-fill') + ' me-1"></i>'
+                + '<strong>' + esc(g === '未填写' ? g : g + '级') + '</strong>'
+                + ' <span class="opacity-75">' + G.count + ' 人</span></td></tr>';
+            if (!gOpen) { return; }
+            G.classOrder.forEach(function (c) {
+                var rows = G.classes[c];
+                var cKey = gKey + '|c:' + c;
+                var cOpen = collapsed[cKey];
+                html += '<tr class="ips-group ips-group-class" data-fold="' + esc(cKey) + '">'
+                    + '<td colspan="10" style="padding-left:24px">'
+                    + '<i class="bi ' + (cOpen ? 'bi-caret-down-fill' : 'bi-caret-right-fill') + ' me-1"></i>'
+                    + esc(c)
+                    + ' <span class="opacity-75">' + rows.length + ' 人</span></td></tr>';
+                if (!cOpen) { return; }
+                rows.forEach(function (s) { html += poolRow(s); });
+            });
         });
         body.innerHTML = html;
     }
@@ -181,6 +233,14 @@
         if (!box) { return; }
         var sid = box.getAttribute('data-sid');
         if (box.checked) { selected[sid] = true; } else { delete selected[sid]; }
+    });
+
+    $('ipsBody').addEventListener('click', function (e) {
+        var head = e.target.closest('tr[data-fold]');
+        if (!head) { return; }
+        var key = head.getAttribute('data-fold');
+        collapsed[key] = !collapsed[key];
+        render();
     });
 
     $('ipsRenewalBtn').addEventListener('click', function () {

@@ -18,6 +18,19 @@
     .irn-chip-approved { background: #e7f1ff; color: #0d6efd; }
     .irn-chip-exported { background: #fff3cd; color: #997404; }
     .irn-chip-done { background: #e8f5e9; color: #198754; }
+    .irn-stat { display: inline-flex; gap: 5px; align-items: center; padding: 3px 10px;
+                border-radius: 8px; font-size: 0.78rem; border: 1px solid transparent; }
+    .irn-stat-overdue { background: #fdecec; color: #b02a37; border-color: #f1c2c7; }
+    .irn-stat-due { background: #fff4e5; color: #b25e00; border-color: #ffe0b3; }
+    .irn-stat-missing { background: #fff8e1; color: #8a6d00; border-color: #ffe9a8; }
+    .irn-group td { background: #f1f3f5; font-size: 0.76rem; padding: 5px 8px;
+                    cursor: pointer; user-select: none; }
+    .irn-group-overdue td { background: #fdecec; color: #b02a37; }
+    .irn-group-missing td { background: #fff8e1; color: #8a6d00; }
+    .irn-row-overdue td { background: #fff8f8; }
+    .irn-fold-head td { background: #f8f9fa; font-size: 0.76rem; padding: 4px 8px;
+                        cursor: pointer; user-select: none; }
+    .irn-fold-head td:hover { background: #eef1f4; }
     .irn-toast { position: fixed; bottom: 20px; right: 20px; z-index: 9999; padding: 10px 18px;
                  border-radius: 6px; color: #fff; font-size: 0.85rem; }
     .irn-toast.success { background: #198754; }
@@ -26,8 +39,8 @@
 {% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-2">
-    <h5 class="mb-0"><i class="bi bi-arrow-repeat me-2"></i>第二年续保</h5>
-    <span class="text-muted small">保单到期前 <strong id="irnWindowLabel">30</strong> 天（含同月批次）自动进入续保池</span>
+    <h5 class="mb-0"><i class="bi bi-arrow-repeat me-2"></i>学平险续保</h5>
+    <span class="text-muted small">保单到期前 <strong id="irnWindowLabel">30</strong> 天（含同月批次）进入续保池；已过期未续保与到期日缺失的学生同样列出</span>
 </div>
 
 <ul class="nav nav-pills mb-2" id="irnTabs">
@@ -38,6 +51,12 @@
         <button class="nav-link" data-view="stage" type="button">已进入参保（导出 / 补录保单）</button>
     </li>
 </ul>
+
+<div class="d-flex flex-wrap gap-2 mb-2" id="irnStats">
+    <span class="irn-stat irn-stat-overdue"><i class="bi bi-exclamation-triangle"></i>已过期 <strong id="irnStatOverdue">0</strong></span>
+    <span class="irn-stat irn-stat-due"><i class="bi bi-clock-history"></i>待到期 <strong id="irnStatDue">0</strong></span>
+    <span class="irn-stat irn-stat-missing"><i class="bi bi-question-circle"></i>到期日待补 <strong id="irnStatMissing">0</strong></span>
+</div>
 
 <div class="irn-toolbar">
     <input type="text" class="form-control form-control-sm irn-search" id="irnSearch" placeholder="学号 / 姓名 / 拼音 / 身份证号">
@@ -72,6 +91,9 @@
         <button type="button" class="btn btn-sm btn-success" id="irnStartBtn">
             <i class="bi bi-arrow-right-circle me-1"></i>进入参保流程
         </button>
+        <button type="button" class="btn btn-sm btn-outline-danger{% if session.role not in ('admin', 'finance_chief') %} d-none{% endif %}" id="irnExemptBtn">
+            <i class="bi bi-slash-circle me-1"></i>放弃本期
+        </button>
         <button type="button" class="btn btn-sm btn-primary d-none" id="irnExportBtn">
             <i class="bi bi-file-earmark-excel me-1"></i>导出已选（待导出）
         </button>
@@ -92,14 +114,17 @@
                 <th>校别</th>
                 <th>班级</th>
                 <th>年级</th>
+                <th>在校状态</th>
                 <th>原批次</th>
-                <th>保单号</th>
-                <th>到期日期</th>
+                <th>目标批次</th>
+                <th>目标学年</th>
+                <th>当前保单号</th>
+                <th>当前到期日期</th>
                 <th>剩余天数</th>
             </tr>
         </thead>
         <tbody id="irnBody">
-            <tr><td colspan="11" class="text-center text-muted py-4">加载中…</td></tr>
+            <tr><td colspan="14" class="text-center text-muted py-4">加载中…</td></tr>
         </tbody>
     </table>
 </div>
@@ -113,6 +138,7 @@
                 <th>学号</th>
                 <th>班级</th>
                 <th>年级</th>
+                <th>在校状态</th>
                 <th>本批次</th>
                 <th>状态</th>
                 <th>保单号</th>
@@ -121,7 +147,7 @@
             </tr>
         </thead>
         <tbody id="irnStageBody">
-            <tr><td colspan="10" class="text-center text-muted py-4">加载中…</td></tr>
+            <tr><td colspan="11" class="text-center text-muted py-4">加载中…</td></tr>
         </tbody>
     </table>
 </div>
@@ -156,11 +182,17 @@
 <script>
 (function () {
     var view = 'pool';
+    var canExempt = {{ 'true' if session.role in ('admin', 'finance_chief') else 'false' }};
     var items = [];
     var selected = {};
+    var poolCollapsed = {};
     var stageItems = [];
     var stageSelected = {};
     var policyTargets = null;
+
+    var schoolMap = {};
+    {% for st in school_types %}schoolMap[{{ st.code|tojson }}] = {{ st.name|tojson }};{% endfor %}
+    function schoolName(code) { return schoolMap[code] || code || ''; }
 
     function $(id) { return document.getElementById(id); }
     function esc(v) {
@@ -210,30 +242,82 @@
         return parts.join('&');
     }
 
+    var POOL_GROUPS = [
+        {key: 'overdue', label: '已过期', cls: 'irn-group-overdue', rowCls: 'irn-row-overdue'},
+        {key: 'due', label: '待到期', cls: '', rowCls: ''},
+        {key: 'missing_expiry', label: '到期日待补', cls: 'irn-group-missing', rowCls: ''}
+    ];
+
+    function poolRow(s, rowCls) {
+        var checked = selected[s.id] ? ' checked' : '';
+        var daysText = (s.days_left === null || s.days_left === undefined) ? '—' : (s.days_left + ' 天');
+        return '<tr class="' + (rowCls || '') + '">'
+            + '<td><input type="checkbox" class="irn-row-check" data-sid="' + s.id + '"' + checked + '></td>'
+            + '<td class="fw-semibold">' + esc(s.name) + '</td>'
+            + '<td>' + esc(s.student_no) + '</td>'
+            + '<td class="font-monospace text-muted" style="font-size:0.72rem">' + esc(s.id_card) + '</td>'
+            + '<td>' + esc(schoolName(s.school)) + '</td>'
+            + '<td>' + esc(s.admin_class) + '</td>'
+            + '<td>' + esc(s.grade) + '</td>'
+            + '<td>' + esc(s.attendance_status) + '</td>'
+            + '<td><span class="irn-batch">第' + (s.previous_batch_no || '?') + '年</span></td>'
+            + '<td><span class="irn-batch">第' + (s.batch_no || '?') + '年</span></td>'
+            + '<td>' + esc(s.target_school_year) + '</td>'
+            + '<td>' + esc(s.policy_no) + '</td>'
+            + '<td>' + esc(s.expiry_date) + '</td>'
+            + '<td class="irn-days ' + daysClass(s.days_left) + '">' + daysText + '</td>'
+            + '</tr>';
+    }
+
+    function updatePoolStats() {
+        var counts = {overdue: 0, due: 0, missing_expiry: 0};
+        items.forEach(function (s) {
+            if (counts[s.urgency] !== undefined) { counts[s.urgency] += 1; }
+        });
+        $('irnStatOverdue').textContent = counts.overdue;
+        $('irnStatDue').textContent = counts.due;
+        $('irnStatMissing').textContent = counts.missing_expiry;
+    }
+
     function renderPool() {
         $('irnTotal').textContent = items.length;
+        updatePoolStats();
         var body = $('irnBody');
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4">当前没有需要续保的学生</td></tr>';
+            body.innerHTML = '<tr><td colspan="14" class="text-center text-muted py-4">当前没有需要续保的学生</td></tr>';
             return;
         }
         var html = '';
-        items.forEach(function (s) {
-            var checked = selected[s.id] ? ' checked' : '';
-            var daysText = (s.days_left === null || s.days_left === undefined) ? '—' : (s.days_left + ' 天');
-            html += '<tr>'
-                + '<td><input type="checkbox" class="irn-row-check" data-sid="' + s.id + '"' + checked + '></td>'
-                + '<td class="fw-semibold">' + esc(s.name) + '</td>'
-                + '<td>' + esc(s.student_no) + '</td>'
-                + '<td class="font-monospace text-muted" style="font-size:0.72rem">' + esc(s.id_card) + '</td>'
-                + '<td>' + esc(s.school) + '</td>'
-                + '<td>' + esc(s.admin_class) + '</td>'
-                + '<td>' + esc(s.grade) + '</td>'
-                + '<td><span class="irn-batch">第' + (s.previous_batch_no || '?') + '年</span></td>'
-                + '<td>' + esc(s.policy_no) + '</td>'
-                + '<td>' + esc(s.expiry_date) + '</td>'
-                + '<td class="irn-days ' + daysClass(s.days_left) + '">' + daysText + '</td>'
-                + '</tr>';
+        POOL_GROUPS.forEach(function (group) {
+            var rows = items.filter(function (s) { return (s.urgency || 'due') === group.key; });
+            if (!rows.length) { return; }
+            // 大分组（已过期/待到期/到期日待补）默认折叠，点击展开
+            var gKey = 'g:' + group.key;
+            var gOpen = poolCollapsed[gKey];
+            html += '<tr class="irn-group ' + group.cls + '" data-fold="' + esc(gKey) + '"><td colspan="14">'
+                + '<i class="bi ' + (gOpen ? 'bi-caret-down-fill' : 'bi-caret-right-fill') + ' me-1"></i>'
+                + '<strong>' + group.label + '</strong> '
+                + '<span class="opacity-75">' + rows.length + ' 人</span></td></tr>';
+            if (!gOpen) { return; }
+            // 组内按当前到期日期折叠（未填写排最后），同样默认折叠
+            var byDate = {};
+            rows.forEach(function (s) {
+                var d = s.expiry_date || '未填写';
+                (byDate[d] = byDate[d] || []).push(s);
+            });
+            Object.keys(byDate).sort().forEach(function (d) {
+                var list = byDate[d];
+                var key = group.key + '|' + d;
+                var dOpen = poolCollapsed[key];
+                html += '<tr class="irn-fold-head" data-fold="' + esc(key) + '">'
+                    + '<td colspan="14" style="padding-left:24px">'
+                    + '<i class="bi ' + (dOpen ? 'bi-caret-down-fill' : 'bi-caret-right-fill') + ' me-1"></i>'
+                    + '到期日 ' + esc(d)
+                    + ' <span class="opacity-75">' + list.length + ' 人</span></td></tr>';
+                if (dOpen) {
+                    list.forEach(function (s) { html += poolRow(s, group.rowCls); });
+                }
+            });
         });
         body.innerHTML = html;
     }
@@ -242,7 +326,7 @@
         $('irnTotal').textContent = stageItems.length;
         var body = $('irnStageBody');
         if (!stageItems.length) {
-            body.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">暂无已进入参保的续保记录</td></tr>';
+            body.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4">暂无已进入参保的续保记录</td></tr>';
             return;
         }
         var html = '';
@@ -260,6 +344,7 @@
                 + '<td>' + esc(s.student_no) + '</td>'
                 + '<td>' + esc(s.admin_class) + '</td>'
                 + '<td>' + esc(s.grade) + '</td>'
+                + '<td>' + esc(s.attendance_status) + '</td>'
                 + '<td><span class="irn-batch">第' + (s.batch_no || '?') + '年</span></td>'
                 + '<td>' + statusChip(s.source_status) + '</td>'
                 + '<td>' + esc(s.policy_no) + '</td>'
@@ -277,7 +362,10 @@
         });
         $('irnPoolWrap').classList.toggle('d-none', view !== 'pool');
         $('irnStageWrap').classList.toggle('d-none', view !== 'stage');
+        $('irnStats').classList.toggle('d-none', view !== 'pool');
+        $('irnWindow').classList.toggle('d-none', view !== 'pool');
         $('irnStartBtn').classList.toggle('d-none', view !== 'pool');
+        $('irnExemptBtn').classList.toggle('d-none', view !== 'pool' || !canExempt);
         $('irnExportBtn').classList.toggle('d-none', view !== 'stage');
         $('irnPolicyBtn').classList.toggle('d-none', view !== 'stage');
         load();
@@ -403,6 +491,14 @@
         if (box.checked) { selected[sid] = true; } else { delete selected[sid]; }
     });
 
+    $('irnBody').addEventListener('click', function (e) {
+        var head = e.target.closest('tr[data-fold]');
+        if (!head) { return; }
+        var key = head.getAttribute('data-fold');
+        poolCollapsed[key] = !poolCollapsed[key];
+        renderPool();
+    });
+
     $('irnStageCheckAll').addEventListener('change', function () {
         var checked = this.checked;
         stageItems.forEach(function (s) {
@@ -442,6 +538,31 @@
         }).then(function (r) { return r.json(); }).then(function (data) {
             if (!data.success) { toast(data.message || '操作失败', 'error'); return; }
             toast('已进入续保流程 ' + data.count + ' 人' + (data.skipped ? '，跳过 ' + data.skipped + ' 人' : ''), 'success');
+            selected = {};
+            load();
+        }).catch(function () { toast('操作失败', 'error'); });
+    });
+
+    $('irnExemptBtn').addEventListener('click', function () {
+        if (!canExempt) { return; }
+        var ids = Object.keys(selected);
+        if (!ids.length) { toast('请先选择学生', 'error'); return; }
+        if (!confirm('确认放弃选中的 ' + ids.length + ' 名学生「本期」学平险？\n\n' +
+                '仅本期不投保，学生后续批次仍会自动投保，不会退出保险流程。'))
+            { return; }
+        fetch('/api/insurance/renewal/exempt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ student_ids: ids.map(Number) })
+        }).then(function (r) { return r.json(); }).then(function (data) {
+            if (!data.success) { toast(data.message || '操作失败', 'error'); return; }
+            var msg = '已放弃本期 ' + data.count + ' 人';
+            if (data.skipped) {
+                msg += '，跳过 ' + data.skipped + ' 人';
+                var first = (data.errors || [])[0];
+                if (first) { msg += '（' + first.message + '）'; }
+            }
+            toast(msg, data.skipped ? 'error' : 'success');
             selected = {};
             load();
         }).catch(function () { toast('操作失败', 'error'); });

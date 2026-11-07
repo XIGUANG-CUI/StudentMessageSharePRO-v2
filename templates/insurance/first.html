@@ -101,6 +101,7 @@
                 <th>校别</th>
                 <th>班级</th>
                 <th>年级</th>
+                <th>在校状态</th>
                 <th>批次</th>
                 <th>状态</th>
                 <th>保单号</th>
@@ -109,7 +110,7 @@
             </tr>
         </thead>
         <tbody id="ifBody">
-            <tr><td colspan="12" class="text-center text-muted py-4">加载中…</td></tr>
+            <tr><td colspan="13" class="text-center text-muted py-4">加载中…</td></tr>
         </tbody>
     </table>
 </div>
@@ -149,6 +150,10 @@
     var selected = {};
     var currentStatus = 'pending';
     var policyTargets = null;   // 弹窗目标：null=使用勾选行，数组=单行操作
+
+    var schoolMap = {};
+    {% for st in school_types %}schoolMap[{{ st.code|tojson }}] = {{ st.name|tojson }};{% endfor %}
+    function schoolName(code) { return schoolMap[code] || code || ''; }
 
     function $(id) { return document.getElementById(id); }
 
@@ -246,7 +251,7 @@
     function render() {
         var body = $('ifBody');
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">暂无学生</td></tr>';
+            body.innerHTML = '<tr><td colspan="13" class="text-center text-muted py-4">暂无学生</td></tr>';
             return;
         }
         var html = '';
@@ -257,9 +262,10 @@
                 + '<td class="fw-semibold">' + esc(s.name) + '</td>'
                 + '<td>' + esc(s.student_no) + '</td>'
                 + '<td class="font-monospace text-muted" style="font-size:0.72rem">' + esc(s.id_card) + '</td>'
-                + '<td>' + esc(s.school) + '</td>'
+                + '<td>' + esc(schoolName(s.school)) + '</td>'
                 + '<td>' + esc(s.admin_class) + '</td>'
                 + '<td>' + esc(s.grade) + '</td>'
+                + '<td>' + esc(s.attendance_status) + '</td>'
                 + '<td><span class="if-batch">第' + (s.batch_no || '?') + '年</span></td>'
                 + '<td><span class="if-chip ' + (CHIP[s.source_status] || 'if-chip-unbuilt') + '">'
                 + esc(s.status_label) + '</span></td>'

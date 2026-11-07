@@ -79,14 +79,14 @@
     <table class="table table-sm table-hover align-middle mb-0">
         <thead>
             <tr>
-                <th>姓名</th><th>学号</th><th>校别</th><th>班级</th><th>年级</th>
+                <th>姓名</th><th>学号</th><th>校别</th><th>班级</th><th>年级</th><th>在校状态</th>
                 <th>入学年</th><th>批次</th><th>险种</th><th>学年</th>
                 <th>缴费日期</th><th>保费</th><th>保单号</th><th>到期时间</th>
                 <th>状态</th>
             </tr>
         </thead>
         <tbody id="irecBody">
-            <tr><td colspan="14" class="text-center text-muted py-4">加载中…</td></tr>
+            <tr><td colspan="15" class="text-center text-muted py-4">加载中…</td></tr>
         </tbody>
     </table>
 </div>
@@ -136,7 +136,7 @@
     function render(items) {
         var body = $('irecBody');
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="14" class="text-center text-muted py-4">暂无记录</td></tr>';
+            body.innerHTML = '<tr><td colspan="15" class="text-center text-muted py-4">暂无记录</td></tr>';
             return;
         }
         var html = '';
@@ -147,6 +147,7 @@
                 + '<td>' + esc(schoolMap[s.school] || s.school) + '</td>'
                 + '<td>' + esc(s.admin_class) + '</td>'
                 + '<td>' + esc(s.grade) + '</td>'
+                + '<td>' + esc(s.attendance_status) + '</td>'
                 + '<td>' + esc(s.enrollment_year) + '</td>'
                 + '<td>第' + esc(s.batch_no) + '年</td>'
                 + '<td><span class="irec-type irec-type-' + esc(s.insurance_type) + '">'

@@ -35,10 +35,15 @@ class InsuranceStatus:
     PENDING_PAY = 'pending_pay'           # 待缴费
     PAID = 'paid'                         # 已缴费待办结
     DONE = 'done'                         # 已办结
-    EXEMPT = 'exempt'                     # 本年度不办理（永久退出）
+    EXEMPT = 'exempt'                     # 本期不办理（仅终结该批次）
 
     ALL = (PENDING_APPROVE, PENDING_RENEWAL, APPROVED, EXPORTED, PENDING_PAY,
            PAID, DONE, EXEMPT)
+
+
+# 学平险「终态」：已办结或放弃本期。
+# 放弃只终结该批次，学生后续批次仍按计划自动投保，因此两者都视为该批次已了结。
+XUEPING_TERMINAL_STATUSES = (InsuranceStatus.DONE, InsuranceStatus.EXEMPT)
 
 
 # 推迟注册的学生：按 offset（入学年 − 年级）配置学平险年数与实习险年份。
@@ -820,9 +825,13 @@ def approve(conn, record_id, operator=''):
 
 
 def reject(conn, record_id, operator=''):
-    """审批否决：pending_approve / paid → exempt（永久退出流程）。"""
+    """审批否决/放弃本期：pending_approve / paid / pending_renewal → exempt。
+
+    exempt 仅表示「该批次不办理（该批次终结）」，不影响后续批次继续投保。
+    """
     rec = get_record(conn, record_id)
-    _require_record(rec, (InsuranceStatus.PENDING_APPROVE, InsuranceStatus.PAID))
+    _require_record(rec, (InsuranceStatus.PENDING_APPROVE, InsuranceStatus.PAID,
+                          InsuranceStatus.PENDING_RENEWAL))
     _update_record(conn, record_id, status=InsuranceStatus.EXEMPT, completed_at=_now())
     log_operation(conn, rec, 'reject', rec['status'], InsuranceStatus.EXEMPT, operator=operator)
     sync_student_snapshot(conn, rec['student_id'])
@@ -1046,7 +1055,7 @@ def search_student_last_records(conn, search, limit=50):
     like = f'%{term}%'
     rows = conn.execute(
         '''SELECT s.id AS student_id, s.name, s.student_no, s.grade,
-                  s.enrollment_year, s.school, s.admin_class,
+                  s.enrollment_year, s.school, s.admin_class, s.attendance_status,
                   r.id AS record_id, r.batch_no, r.insurance_type, r.status,
                   r.school_year, r.policy_no, r.expiry_date, r.pay_date
            FROM students s
@@ -1152,17 +1161,17 @@ def push_to_renewal(conn, student_ids, operator='', current_year=None):
             continue
 
         plan = build_plan(student.get('enrollment_year'), student.get('grade'), current_year)
-        done_batches = {
+        terminal_batches = {
             r['batch_no'] for r in get_student_records(conn, sid, INSURANCE_TYPE_XUEPING)
-            if r['status'] == InsuranceStatus.DONE
+            if r['status'] in XUEPING_TERMINAL_STATUSES
         }
         xueping_steps = [p for p in plan if p['insurance_type'] == INSURANCE_TYPE_XUEPING]
-        if any(step['batch_no'] not in done_batches for step in xueping_steps):
+        if any(step['batch_no'] not in terminal_batches for step in xueping_steps):
             skipped += 1
             errors.append({'student_id': sid, 'message': '计划内学平险尚未全部办结'})
             continue
 
-        next_batch = max(done_batches) + 1 if done_batches else 1
+        next_batch = max(terminal_batches) + 1 if terminal_batches else 1
         exists = conn.execute(
             'SELECT 1 FROM insurance_records '
             'WHERE student_id = ? AND batch_no = ? AND insurance_type = ?',
@@ -1209,16 +1218,20 @@ STATUS_LABELS = {
 
 _POOL_STUDENT_COLUMNS = '''
     s.id, s.name, s.student_no, s.id_card, s.school, s.grade, s.enrollment_year,
-    s.admin_class, s.major, s.student_phone, s.name_pinyin
+    s.admin_class, s.major, s.student_phone, s.name_pinyin, s.attendance_status
 '''
 
 
-def _pool_students(conn, search=None, school=None, grade=None,
-                   admin_class=None, major=None):
-    """池的公共学生底表：排除软删除与已毕业学生。"""
+def _pool_student_conditions(search=None, school=None, grade=None,
+                             admin_class=None, major=None):
+    """池的公共学生筛选条件（排除软删除、已毕业与托管学生）。
+
+    托管学生不参加学平险业务，与毕业/已删除学生同等排除。
+    """
     conditions = [
         'COALESCE(s.is_deleted, 0) = 0',
         "(s.registration_status IS NULL OR s.registration_status != '毕业')",
+        "(s.attendance_status IS NULL OR s.attendance_status != '托管')",
     ]
     params = []
     if search:
@@ -1233,7 +1246,14 @@ def _pool_students(conn, search=None, school=None, grade=None,
         if value:
             conditions.append(f's.{column} = ?')
             params.append(value)
+    return conditions, params
 
+
+def _pool_students(conn, search=None, school=None, grade=None,
+                   admin_class=None, major=None):
+    """池的公共学生底表：排除软删除与已毕业学生。"""
+    conditions, params = _pool_student_conditions(
+        search, school, grade, admin_class, major)
     sql = (f'SELECT {_POOL_STUDENT_COLUMNS} FROM students s WHERE '
            + ' AND '.join(conditions)
            + ' ORDER BY s.grade, s.admin_class, s.name')
@@ -1329,14 +1349,100 @@ def query_first_pool(conn, current_year=None, **filters):
     return items
 
 
-def query_renewal_pool(conn, today=None, window_days=30,
-                       current_year=None, **filters):
-    """② 续保池：30 天内到期的保单激活其到期月份，同月批次整批列出。"""
-    today = today or date.today()
-    if current_year is None:
-        current_year = config.CURRENT_SCHOOL_YEAR
-    window_days = max(1, int(window_days or 30))
+# 续保池分组：已过期 → 待到期 → 到期日待补
+URGENCY_OVERDUE = 'overdue'
+URGENCY_DUE = 'due'
+URGENCY_MISSING_EXPIRY = 'missing_expiry'
 
+_URGENCY_ORDER = {URGENCY_OVERDUE: 0, URGENCY_DUE: 1, URGENCY_MISSING_EXPIRY: 2}
+_RENEWAL_STATUS_LABELS = {
+    URGENCY_OVERDUE: '已过期',
+    URGENCY_DUE: '待续保',
+    URGENCY_MISSING_EXPIRY: '到期日待补',
+}
+
+_STUDENT_ALIAS_KEYS = (
+    'name', 'student_no', 'student_id_card', 'school', 'student_grade',
+    'enrollment_year', 'admin_class', 'major', 'student_phone', 'name_pinyin',
+    'attendance_status',
+)
+
+
+def _renewal_candidates(conn, **filters):
+    """以保险记录为驱动拉取续保候选：学生筛选与记录一次 JOIN 取回。"""
+    conditions, params = _pool_student_conditions(**filters)
+    sql = f'''
+        SELECT r.*, s.name, s.student_no, s.id_card AS student_id_card,
+               s.school, s.grade AS student_grade, s.enrollment_year,
+               s.admin_class, s.major, s.student_phone, s.name_pinyin,
+               s.attendance_status
+        FROM insurance_records r
+        JOIN students s ON s.id = r.student_id
+        WHERE {' AND '.join(conditions)}
+          AND r.insurance_type IN (?, ?)
+    '''
+    params = params + [INSURANCE_TYPE_XUEPING, INSURANCE_TYPE_INTERN]
+    cur = conn.execute(sql, params)
+    names = [d[0] for d in cur.description]
+    students = {}
+    records = {}
+    for row in cur.fetchall():
+        data = dict(zip(names, row))
+        sid = data['student_id']
+        if sid not in students:
+            students[sid] = {
+                'id': sid,
+                'name': data['name'],
+                'student_no': data['student_no'],
+                'id_card': data['student_id_card'],
+                'school': data['school'],
+                'grade': data['student_grade'],
+                'enrollment_year': data['enrollment_year'],
+                'admin_class': data['admin_class'],
+                'major': data['major'],
+                'student_phone': data['student_phone'],
+                'name_pinyin': data['name_pinyin'],
+                'attendance_status': data['attendance_status'],
+            }
+        record = {k: v for k, v in data.items() if k not in _STUDENT_ALIAS_KEYS}
+        records.setdefault(sid, []).append(record)
+    return students, records
+
+
+def _renewal_urgency(expiry_date, today, active_months):
+    """续保分组：过期 / 待到期 / 到期日缺失；None 表示暂不进池。"""
+    expiry = (expiry_date or '').strip()
+    if not expiry:
+        return URGENCY_MISSING_EXPIRY
+    days_left = _days_left(expiry, today)
+    if days_left is None:
+        return URGENCY_MISSING_EXPIRY
+    if days_left < 0:
+        return URGENCY_OVERDUE
+    if expiry[:7] in active_months:
+        return URGENCY_DUE
+    return None
+
+
+def _renewal_item(student, step, previous, record_id, urgency, today):
+    item = _pool_item(student, step, previous, today=today)
+    item.update({
+        'record_id': record_id,
+        'status': InsuranceStatus.PENDING_RENEWAL,
+        'status_label': _RENEWAL_STATUS_LABELS[urgency],
+        'previous_batch_no': previous['batch_no'],
+        'previous_expiry': previous.get('expiry_date', ''),
+        'days_left': _days_left(previous.get('expiry_date'), today),
+        'urgency': urgency,
+        'target_school_year': _school_year(
+            start_year(student.get('enrollment_year'), student.get('grade')),
+            step['batch_no']),
+    })
+    return item
+
+
+def _renewal_active_months(conn, today, window_days):
+    """活跃到期月份：今天起 window_days 内到期的已办结学平险到期月份。"""
     rows = conn.execute(
         '''SELECT DISTINCT substr(expiry_date, 1, 7) AS ym
            FROM insurance_records
@@ -1345,62 +1451,74 @@ def query_renewal_pool(conn, today=None, window_days=30,
         (INSURANCE_TYPE_XUEPING, InsuranceStatus.DONE,
          today.isoformat(), today.isoformat(), f'+{window_days} day')
     ).fetchall()
-    active_months = {r[0] for r in rows if r[0]}
-    if not active_months:
-        return []
+    return {r[0] for r in rows if r[0]}
 
-    students = _pool_students(conn, **filters)
-    rec_map = _records_map(conn, [s['id'] for s in students])
+
+def _xueping_terminal(records):
+    """学平险终态记录（已办结 / 放弃本期），作为续保与推送的进度基线。"""
+    return [r for r in records
+            if r['insurance_type'] == INSURANCE_TYPE_XUEPING
+            and r['status'] in XUEPING_TERMINAL_STATUSES]
+
+
+def query_renewal_pool(conn, today=None, window_days=30,
+                       current_year=None, **filters):
+    """② 续保池：同月到期整批列出，并覆盖「已过期」与「到期日缺失」。
+
+    判定以该生批次最大的「终态」学平险记录（已办结 / 放弃本期）为当前保单：
+      - 已办结：按保单到期日分组（已过期 / 待到期 / 到期日缺失）；
+      - 放弃本期：无到期日，等到下一批次的学年到来才再次进入续保（归「待到期」）。
+    已存在实习就业险记录的学生视为业务终了，直接排除。
+    """
+    today = today or date.today()
+    if current_year is None:
+        current_year = config.CURRENT_SCHOOL_YEAR
+    window_days = max(1, int(window_days or 30))
+    active_months = _renewal_active_months(conn, today, window_days)
+
+    students, records_by_student = _renewal_candidates(conn, **filters)
 
     items = []
-    for s in students:
-        plan = build_plan(s.get('enrollment_year'), s.get('grade'), current_year)
-        records = rec_map.get(s['id'], [])
-        candidates = [
-            r for r in records
-            if r['insurance_type'] == INSURANCE_TYPE_XUEPING
-            and r['status'] == InsuranceStatus.DONE
-            and (r.get('expiry_date') or '')[:7] in active_months
-        ]
+    for sid, student in students.items():
+        records = records_by_student.get(sid, [])
+        # 已进入实习就业险阶段（任何状态）说明业务已终了，不再续保
+        if any(r['insurance_type'] == INSURANCE_TYPE_INTERN for r in records):
+            continue
 
-        # 已「推送至续保」的计划外批次：以最新已办结保单的到期时间决定是否出现
-        done_xueping = [
-            r for r in records
-            if r['insurance_type'] == INSURANCE_TYPE_XUEPING
-            and r['status'] == InsuranceStatus.DONE
-        ]
-        latest_done = (max(done_xueping, key=lambda r: r['batch_no'])
-                       if done_xueping else None)
+        terminal = _xueping_terminal(records)
+        if not terminal:
+            continue
+        latest = max(terminal, key=lambda r: r['batch_no'])
+        now_batch = batch_now(student.get('enrollment_year'),
+                              student.get('grade'), current_year)
+
+        # 已「推送至续保」的占位记录：到期后（放弃本期则等学年）进入待续保
         pending = next(
             (r for r in records
              if r['insurance_type'] == INSURANCE_TYPE_XUEPING
              and r['status'] == InsuranceStatus.PENDING_RENEWAL
-             and latest_done is not None
-             and r['batch_no'] == latest_done['batch_no'] + 1),
+             and r['batch_no'] > latest['batch_no']),
             None
         )
         if pending is not None:
-            if (latest_done.get('expiry_date') or '')[:7] not in active_months:
-                continue                   # 当前保单未到期，暂不进入待续保
+            if latest['status'] == InsuranceStatus.DONE:
+                urgency = _renewal_urgency(
+                    latest.get('expiry_date'), today, active_months)
+            elif pending['batch_no'] <= now_batch:
+                urgency = URGENCY_DUE
+            else:
+                urgency = None
+            if urgency is None:
+                continue
             step = {'batch_no': pending['batch_no'],
                     'insurance_type': INSURANCE_TYPE_XUEPING,
                     'stage': STAGE_RENEWAL}
-            item = _pool_item(s, step, latest_done, today=today)
-            item.update({
-                'record_id': pending['id'],
-                'status': InsuranceStatus.PENDING_RENEWAL,
-                'status_label': '待续保',
-                'previous_batch_no': latest_done['batch_no'],
-                'policy_no': latest_done.get('policy_no', ''),
-                'expiry_date': latest_done.get('expiry_date', ''),
-                'days_left': _days_left(latest_done.get('expiry_date'), today),
-            })
-            items.append(item)
+            items.append(_renewal_item(
+                student, step, latest, pending['id'], urgency, today))
             continue
 
-        if not candidates:
-            continue
-        latest = max(candidates, key=lambda r: r['batch_no'])
+        plan = build_plan(student.get('enrollment_year'),
+                          student.get('grade'), current_year)
         renew_steps = [
             p for p in plan
             if p['insurance_type'] == INSURANCE_TYPE_XUEPING
@@ -1408,22 +1526,34 @@ def query_renewal_pool(conn, today=None, window_days=30,
             and p['batch_no'] > latest['batch_no']
         ]
         if not renew_steps:
-            continue                       # 转学生或已完成全部学平险
-        next_step = renew_steps[0]
-        if _find_record(rec_map, s['id'], next_step['batch_no'], INSURANCE_TYPE_XUEPING):
-            continue                       # 已生成下一批记录，无需重复进入
+            continue                    # 转学生或已完成计划内全部学平险
+        step = renew_steps[0]
+        if any(r['insurance_type'] == INSURANCE_TYPE_XUEPING
+               and r['batch_no'] == step['batch_no'] for r in records):
+            continue                    # 已生成下一批记录，无需重复进入
 
-        item = _pool_item(s, next_step, latest, today=today)
-        item.update({
-            'record_id': latest['id'],
-            'status': 'pending_renewal',
-            'status_label': '待续保',
-            'previous_batch_no': latest['batch_no'],
-            'policy_no': latest.get('policy_no', ''),
-            'expiry_date': latest.get('expiry_date', ''),
-            'days_left': _days_left(latest.get('expiry_date'), today),
-        })
-        items.append(item)
+        if latest['status'] == InsuranceStatus.DONE:
+            urgency = _renewal_urgency(
+                latest.get('expiry_date'), today, active_months)
+        elif step['batch_no'] <= now_batch:
+            # 上一批为「放弃本期」：无到期日，学年到达该批次后才再次续保，
+            # 避免把已放弃批次的旧保单误标为「已过期」。
+            urgency = URGENCY_DUE
+        else:
+            urgency = None
+        if urgency is None:
+            continue
+
+        items.append(_renewal_item(
+            student, step, latest, latest['id'], urgency, today))
+
+    items.sort(key=lambda r: (
+        _URGENCY_ORDER.get(r.get('urgency'), 9),
+        r['days_left'] if r.get('days_left') is not None else 9999,
+        str(r.get('enrollment_year') or ''),
+        str(r.get('admin_class') or ''),
+        str(r.get('name') or ''),
+    ))
     return items
 
 
@@ -1433,7 +1563,7 @@ def query_collection_pool(conn, today=None, **filters):
 
 
 def query_push_pool(conn, current_year=None, **filters):
-    """④ 待推送池：计划内全部学平险已办结，且尚无实习险记录。"""
+    """④ 待推送池：计划内最后一个学平险批次已了结，且尚无实习险记录。"""
     if current_year is None:
         current_year = config.CURRENT_SCHOOL_YEAR
     students = _pool_students(conn, **filters)
@@ -1449,30 +1579,49 @@ def query_push_pool(conn, current_year=None, **filters):
         if not xueping_steps or not intern_step:
             continue
 
-        ready = True
-        for step in xueping_steps:
-            rec = _find_record(rec_map, s['id'], step['batch_no'], INSURANCE_TYPE_XUEPING)
-            if not rec or rec['status'] != InsuranceStatus.DONE:
-                ready = False
-                break
-        if not ready:
-            continue
-
         records = rec_map.get(s['id'], [])
         xueping_records = [
             r for r in records if r['insurance_type'] == INSURANCE_TYPE_XUEPING
         ]
-        # 存在未办结的额外学平险批次（已「推送至续保」）时先等其办结，
-        # 避免同一学生同时出现在推送页与续保流程中。
-        if any(r['status'] != InsuranceStatus.DONE for r in xueping_records):
+        last_terminal = max(
+            (r for r in xueping_records
+             if r['status'] in XUEPING_TERMINAL_STATUSES),
+            key=lambda r: r['batch_no'], default=None)
+
+        if student_kind(s.get('enrollment_year'), s.get('grade')) == STUDENT_KIND_DEFERRED:
+            # 推迟注册学生历史数据可能缺档（如没有第 1 批记录），
+            # 以「已了结的最高批次」覆盖计划最后一个学平险批次即可。
+            plan_last = max(p['batch_no'] for p in xueping_steps)
+            if last_terminal is None or last_terminal['batch_no'] < plan_last:
+                continue
+        else:
+            ready = True
+            for step in xueping_steps:
+                rec = _find_record(rec_map, s['id'], step['batch_no'],
+                                   INSURANCE_TYPE_XUEPING)
+                if not rec or rec['status'] not in XUEPING_TERMINAL_STATUSES:
+                    ready = False
+                    break
+            if not ready:
+                continue
+
+        # 存在仍在办理中的学平险批次（已「推送至续保」）时先等其了结，
+        # 避免同一学生同时出现在推送页与续保流程中。放弃本期的批次视为已了结。
+        if any(r['status'] not in XUEPING_TERMINAL_STATUSES for r in xueping_records):
             continue
 
         if any(r['insurance_type'] == INSURANCE_TYPE_INTERN for r in records):
             continue
 
-        # 已办结批次取全部学平险记录的最大批次，含「推送至续保」追加的批次。
-        last_done = (max(xueping_records, key=lambda r: r['batch_no'])
-                     if xueping_records else None)
+        # 转学/推迟注册学生：严格按「入学年 − grade」推算实习险批次，
+        # 只有学年推进到实习批次才进入推送，避免放弃本期后提前推送。
+        if (student_kind(s.get('enrollment_year'), s.get('grade'))
+                in (STUDENT_KIND_TRANSFER, STUDENT_KIND_DEFERRED)
+                and batch_now(s.get('enrollment_year'), s.get('grade'), current_year)
+                < intern_step['batch_no']):
+            continue
+
+        last_done = last_terminal
 
         item = _pool_item(s, intern_step, last_done)
         item.update({
@@ -1645,12 +1794,12 @@ def start_renewal(conn, student_id, current_year=None, operator=''):
         return get_record(conn, pending['id'])
 
     plan = build_plan(student.get('enrollment_year'), student.get('grade'), current_year)
-    done_batches = [
+    terminal_batches = [
         r['batch_no'] for r in get_student_records(conn, student_id)
         if r['insurance_type'] == INSURANCE_TYPE_XUEPING
-        and r['status'] == InsuranceStatus.DONE
+        and r['status'] in XUEPING_TERMINAL_STATUSES
     ]
-    latest_batch = max(done_batches) if done_batches else 0
+    latest_batch = max(terminal_batches) if terminal_batches else 0
     renew_steps = [
         p for p in plan
         if p['insurance_type'] == INSURANCE_TYPE_XUEPING
@@ -1687,6 +1836,97 @@ def start_renewal(conn, student_id, current_year=None, operator=''):
                   operator=operator)
     sync_student_snapshot(conn, student_id)
     return rec
+
+
+def exempt_renewal_batch(conn, student_id, current_year=None, operator='',
+                         remark='', today=None):
+    """续保页「放弃本期」：把下一个待续保批次标记为 exempt。
+
+    语义：仅终结该批次，学生后续批次仍按计划自动投保，不会永久退出流程。
+    仅允许放弃当前已进入续保窗口的批次，避免误放弃未来批次。
+    """
+    if current_year is None:
+        current_year = config.CURRENT_SCHOOL_YEAR
+    if today is None:
+        today = date.today()
+
+    cur = conn.execute(
+        'SELECT id, id_card, grade, enrollment_year FROM students '
+        'WHERE id = ? AND COALESCE(is_deleted, 0) = 0', (student_id,)
+    )
+    student = _row_to_dict(cur, cur.fetchone())
+    if not student:
+        raise InsuranceTransitionError('学生不存在')
+
+    records = get_student_records(conn, student_id)
+    if any(r['insurance_type'] == INSURANCE_TYPE_INTERN for r in records):
+        raise InsuranceTransitionError('该学生已进入实习就业险阶段，无需放弃学平险')
+
+    terminal = _xueping_terminal(records)
+    if not terminal:
+        raise InsuranceTransitionError('该学生尚无已办结的学平险批次')
+    latest = max(terminal, key=lambda r: r['batch_no'])
+
+    # 已「推送至续保」的占位批次优先（可能早于计划追加，如推迟注册学生的额外批次）
+    pending = next(
+        (r for r in records
+         if r['insurance_type'] == INSURANCE_TYPE_XUEPING
+         and r['status'] == InsuranceStatus.PENDING_RENEWAL
+         and r['batch_no'] > latest['batch_no']),
+        None
+    )
+    if pending is not None:
+        step = {'batch_no': pending['batch_no'],
+                'insurance_type': INSURANCE_TYPE_XUEPING,
+                'stage': STAGE_RENEWAL}
+        existing = pending
+    else:
+        plan = build_plan(student.get('enrollment_year'),
+                          student.get('grade'), current_year)
+        renew_steps = [
+            p for p in plan
+            if p['insurance_type'] == INSURANCE_TYPE_XUEPING
+            and p['stage'] == STAGE_RENEWAL
+            and p['batch_no'] > latest['batch_no']
+        ]
+        if not renew_steps:
+            raise InsuranceTransitionError('该学生没有可放弃的续保批次')
+        step = renew_steps[0]
+        existing = next(
+            (r for r in records
+             if r['insurance_type'] == INSURANCE_TYPE_XUEPING
+             and r['batch_no'] == step['batch_no']),
+            None
+        )
+        if existing and existing['status'] not in (
+                InsuranceStatus.PENDING_APPROVE, InsuranceStatus.PAID,
+                InsuranceStatus.PENDING_RENEWAL):
+            raise InsuranceTransitionError('该批次已在办理或已终结，无法放弃')
+
+    # 与续保池同口径：已办结需进入到期窗口；放弃本期则需学年到达该批次
+    if latest['status'] == InsuranceStatus.DONE:
+        urgency = _renewal_urgency(
+            latest.get('expiry_date'), today,
+            _renewal_active_months(conn, today, 30))
+        if urgency is None:
+            raise InsuranceTransitionError('该学生尚未进入续保窗口')
+    else:
+        now_batch = batch_now(student.get('enrollment_year'),
+                              student.get('grade'), current_year)
+        if step['batch_no'] > now_batch:
+            raise InsuranceTransitionError('该批次学年尚未到达，暂不能放弃')
+
+    if existing is None:
+        existing = ensure_record(conn, student_id, step['batch_no'],
+                                 INSURANCE_TYPE_XUEPING, operator=operator,
+                                 remark=remark or 'exempt_renewal')
+    from_status = existing['status']
+    _update_record(conn, existing['id'], status=InsuranceStatus.EXEMPT,
+                   completed_at=_now(), remark=remark or 'exempt_renewal')
+    log_operation(conn, existing, 'exempt_renewal', from_status,
+                  InsuranceStatus.EXEMPT, operator=operator)
+    sync_student_snapshot(conn, student_id)
+    return get_record(conn, existing['id'])
 
 
 def query_collection_stage(conn, paid=False, insurance_types=None,

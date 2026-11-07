@@ -36,6 +36,7 @@ CREATE TABLE students (
     major TEXT DEFAULT '',
     student_phone TEXT DEFAULT '',
     registration_status TEXT DEFAULT '',
+    attendance_status TEXT DEFAULT '',
     is_deleted INTEGER DEFAULT 0,
     student_insurance_no TEXT DEFAULT '',
     student_insurance_pay_date TEXT DEFAULT '',
@@ -251,12 +252,19 @@ class TestRenewalCollectionRoutes:
         try:
             resp = client.get('/insurance/renewal')
             assert resp.status_code == 200
-            assert '第二年续保' in resp.get_data(as_text=True)
+            html = resp.get_data(as_text=True)
+            assert '学平险续保' in html
+            assert '已过期' in html
+            assert 'id="irnExemptBtn"' in html
+            # 保险员不能「放弃本期」
+            assert 'var canExempt = false' in html
             # 保费催缴页仅财务角色可见，保险员不可访问
             assert client.get('/insurance/collection').status_code == 403
-            # 财务主管同样可进入续保页
+            # 财务主管同样可进入续保页，并可「放弃本期」
             self._login(client, 'finance_chief')
-            assert client.get('/insurance/renewal').status_code == 200
+            resp = client.get('/insurance/renewal')
+            assert resp.status_code == 200
+            assert 'var canExempt = true' in resp.get_data(as_text=True)
             self._login(client, 'finance_staff')
             resp = client.get('/insurance/collection')
             assert resp.status_code == 200
@@ -277,6 +285,10 @@ class TestRenewalCollectionRoutes:
             assert data['total'] == 1
             assert data['items'][0]['id'] == sid
             assert data['items'][0]['previous_batch_no'] == 1
+            assert data['items'][0]['urgency'] == 'due'
+            assert data['items'][0]['target_school_year'] == '2027-2028'
+            assert data['summary'] == {'overdue': 0, 'due': 1,
+                                       'missing_expiry': 0, 'total': 1}
 
             resp = self._post(client, '/api/insurance/renewal/start',
                               {'student_ids': [sid]})
@@ -293,6 +305,76 @@ class TestRenewalCollectionRoutes:
             # 已生成下一批记录后，续保池不再重复出现
             resp = client.get('/api/insurance/renewal/list?today=2026-11-01')
             assert resp.get_json()['total'] == 0
+        finally:
+            self._logout(client)
+            self._clean(db_conn)
+
+    def test_renewal_exempt_batch(self, client, db_conn):
+        """放弃本期：仅 admin/财务主管可操作，且只终结该批次。"""
+        self._clean(db_conn)
+        sid = self._student(db_conn, '放弃生')
+        self._record(db_conn, sid, S.DONE, batch_no=1,
+                     expiry_date='2025-01-01')
+
+        # 保险员无此权限
+        self._login(client)
+        resp = self._post(client, '/api/insurance/renewal/exempt',
+                          {'student_ids': [sid]})
+        assert resp.status_code == 403
+
+        self._login(client, 'finance_chief')
+        try:
+            data = self._post(client, '/api/insurance/renewal/exempt',
+                              {'student_ids': [sid]}).get_json()
+            assert data['success'] is True
+            assert data['count'] == 1
+
+            rec = db_conn.execute(
+                'SELECT * FROM insurance_records WHERE student_id = ? '
+                'AND batch_no = 2', (sid,)).fetchone()
+            assert rec['status'] == S.EXEMPT
+            assert rec['completed_at']
+            assert rec['remark'] == 'exempt_renewal'
+            log = db_conn.execute(
+                'SELECT action FROM insurance_operation_logs '
+                'WHERE record_id = ? ORDER BY id DESC LIMIT 1',
+                (rec['id'],)).fetchone()
+            assert log['action'] == 'exempt_renewal'
+
+            # 放弃后不再停留在待续保池
+            pool = client.get(
+                '/api/insurance/renewal/list?today=2025-06-01').get_json()
+            assert pool['total'] == 0
+        finally:
+            self._logout(client)
+            self._clean(db_conn)
+
+    def test_overdue_pool_and_intern_exclusion(self, client, db_conn):
+        """过期学生进入池；到期日缺失单列；已进入实习险的学生业务终了须排除。"""
+        self._clean(db_conn)
+        overdue = self._student(db_conn, '过期生')
+        self._record(db_conn, overdue, S.DONE, batch_no=1,
+                     expiry_date='2026-10-20')
+        internship = self._student(db_conn, '已实习')
+        self._record(db_conn, internship, S.DONE, batch_no=1,
+                     expiry_date='2026-10-20')
+        self._record(db_conn, internship, S.DONE, batch_no=3,
+                     insurance_type='intern')
+        missing = self._student(db_conn, '缺到期')
+        self._record(db_conn, missing, S.DONE, batch_no=1)
+        self._login(client)
+        try:
+            data = client.get(
+                '/api/insurance/renewal/list?today=2026-11-07').get_json()
+            items = {item['name']: item for item in data['items']}
+            assert set(items) == {'过期生', '缺到期'}
+            assert items['过期生']['urgency'] == 'overdue'
+            assert items['过期生']['days_left'] < 0
+            assert items['过期生']['status_label'] == '已过期'
+            assert items['缺到期']['urgency'] == 'missing_expiry'
+            assert items['缺到期']['days_left'] is None
+            assert data['summary'] == {'overdue': 1, 'due': 0,
+                                       'missing_expiry': 1, 'total': 2}
         finally:
             self._logout(client)
             self._clean(db_conn)

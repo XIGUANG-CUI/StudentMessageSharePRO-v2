@@ -477,8 +477,8 @@ def api_graduation_query():
     where = ' AND '.join(conditions)
 
     # 档案派遣权限分两档：
-    # 1) 派遣状态：管理员默认可见；普通用户需在用户管理「可见字段」中勾选「派遣状态」
-    # 2) 派遣明细（批次/机构/电话/日期等）：与档案派遣模块一致，仅管理员可见
+    # 1) 派遣状态 + 存档机构地址：管理员默认可见；普通用户需在用户管理「可见字段」中勾选「派遣状态」
+    # 2) 其余派遣明细（批次/机构/电话/日期等）：与档案派遣模块一致，仅管理员可见
     is_admin = session.get('role') == 'admin'
     can_view_dispatch = is_admin or auth.check_field_permission('派遣状态')
     can_view_dispatch_detail = is_admin
@@ -488,11 +488,11 @@ def api_graduation_query():
         dispatch_join = ('LEFT JOIN archive_dispatch d '
                          'ON d.student_id = s.id AND d.is_deleted = 0')
         dispatch_fields = ''',
-                   d.id AS dispatch_id, d.dispatch_status'''
+                   d.id AS dispatch_id, d.dispatch_status, d.agency_address'''
         if can_view_dispatch_detail:
             dispatch_fields += ''',
                    d.dispatch_no, d.batch_no, d.dispatch_date, d.returned_at,
-                   d.agency_name, d.agency_address, d.agency_phone,
+                   d.agency_name, d.agency_phone,
                    d.match_status AS dispatch_match_status,
                    d.operator AS dispatch_operator,
                    d.remark AS dispatch_remark'''
@@ -518,10 +518,10 @@ def api_graduation_query():
     students = [auth.filter_student_data(s) for s in raw_students]
     # 派遣字段不属于学生字段映射，字段权限过滤会将其剔除，这里按已授权范围补回
     if can_view_dispatch:
-        dispatch_keys = ['dispatch_id', 'dispatch_status']
+        dispatch_keys = ['dispatch_id', 'dispatch_status', 'agency_address']
         if can_view_dispatch_detail:
             dispatch_keys += ['dispatch_no', 'batch_no', 'dispatch_date', 'returned_at',
-                              'agency_name', 'agency_address', 'agency_phone',
+                              'agency_name', 'agency_phone',
                               'dispatch_match_status', 'dispatch_operator', 'dispatch_remark']
         for src, dst in zip(raw_students, students):
             for key in dispatch_keys:
@@ -553,11 +553,14 @@ def api_graduation_query():
                 columns.append({'key': key, 'label': COLUMN_LABELS_DISPLAY.get(cn, cn)})
 
     # 派遣状态列（管理员或被授权「派遣状态」字段的用户）：追加在表格末尾；
-    # 导出时管理员额外带上批次/机构/日期等明细列
+    # 存档机构地址列紧随其后；导出时管理员额外带上批次/机构/日期等明细列
     export_columns = list(columns)
     if can_view_dispatch:
         columns.append({'key': 'dispatch_status', 'label': '派遣状态'})
         export_columns.append({'key': 'dispatch_status', 'label': '派遣状态'})
+        # 存档机构地址列紧随派遣状态列：仅已派遣学生显示地址，未派遣/升学显示「—」
+        columns.append({'key': 'agency_address', 'label': '存档机构地址'})
+        export_columns.append({'key': 'agency_address', 'label': '存档机构地址'})
     if can_view_dispatch_detail:
         export_columns.extend([
             {'key': 'batch_no', 'label': '派遣批次'},

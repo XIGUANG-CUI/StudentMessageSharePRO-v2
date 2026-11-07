@@ -33,6 +33,7 @@ CREATE TABLE students (
     major TEXT DEFAULT '',
     student_phone TEXT DEFAULT '',
     registration_status TEXT DEFAULT '',
+    attendance_status TEXT DEFAULT '',
     is_deleted INTEGER DEFAULT 0,
     student_insurance_no TEXT DEFAULT '',
     student_insurance_pay_date TEXT DEFAULT '',

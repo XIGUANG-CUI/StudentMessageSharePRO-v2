@@ -116,11 +116,11 @@
 
     function renderStudents() {
         $('irvHead').innerHTML = '<tr>'
-            + '<th>姓名</th><th>学号</th><th>班级</th><th>年级</th>'
+            + '<th>姓名</th><th>学号</th><th>班级</th><th>年级</th><th>在校状态</th>'
             + '<th>最近记录</th><th>状态</th><th>保单号</th><th>到期日期</th>'
             + '<th>缴费日期</th><th style="width:90px">操作</th></tr>';
         if (!students.length) {
-            $('irvBody').innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">'
+            $('irvBody').innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4">'
                 + '输入学号 / 姓名查询学生</td></tr>';
             return;
         }
@@ -133,6 +133,7 @@
                 + '<td>' + esc(s.student_no) + '</td>'
                 + '<td>' + esc(s.admin_class) + '</td>'
                 + '<td>' + esc(s.grade) + '</td>'
+                + '<td>' + esc(s.attendance_status) + '</td>'
                 + '<td>' + esc(record) + '</td>'
                 + '<td>' + esc(STATUS_LABELS[s.status] || s.status) + '</td>'
                 + '<td>' + esc(s.policy_no) + '</td>'

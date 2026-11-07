@@ -360,6 +360,8 @@
                 return '<span style="max-width:150px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escAttr(s.remark) + '">' + esc(s.remark) + '</span>';
             case 'dispatch_status':
                 return renderDispatchCell(s);
+            case 'agency_address':
+                return renderAgencyAddressCell(s);
             default:
                 return esc(s[col.key]);
         }
@@ -375,6 +377,14 @@
                 escAttr(s.id) + '">详情</a>';
         }
         return html;
+    }
+
+    // 存档机构地址：仅已派遣学生显示，未派遣/升学显示「—」
+    function renderAgencyAddressCell(s) {
+        if (s.dispatch_status !== '已派遣') return '—';
+        var addr = s.agency_address || '';
+        if (!addr) return '—';
+        return '<span style="max-width:220px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escAttr(addr) + '">' + esc(addr) + '</span>';
     }
 
     function esc(val) {
@@ -491,6 +501,9 @@
             case 'phone': return csvSafe(s.student_phone || s.parent_phone);
             case 'remark': return csvSafe(s.remark);
             case 'dispatch_status': return csvSafe(s.dispatch_status || '未生成');
+            case 'agency_address':
+                if (s.dispatch_status !== '已派遣' || !s.agency_address) return '—';
+                return csvSafe(s.agency_address);
             default: return csvSafe(s[col.key]);
         }
     }

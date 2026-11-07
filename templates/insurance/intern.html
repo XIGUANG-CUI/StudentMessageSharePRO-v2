@@ -90,6 +90,10 @@
     var selected = {};
     var currentTab = 'pending';
 
+    var schoolMap = {};
+    {% for st in school_types %}schoolMap[{{ st.code|tojson }}] = {{ st.name|tojson }};{% endfor %}
+    function schoolName(code) { return schoolMap[code] || code || ''; }
+
     function $(id) { return document.getElementById(id); }
     function esc(v) {
         return String(v === null || v === undefined ? '' : v)
@@ -125,17 +129,17 @@
         if (currentTab === 'pending') {
             head.innerHTML = '<tr>'
                 + '<th style="width:36px"><input type="checkbox" id="iinCheckAll"></th>'
-                + '<th>姓名</th><th>学号</th><th>校别</th><th>班级</th><th>年级</th>'
+                + '<th>姓名</th><th>学号</th><th>校别</th><th>班级</th><th>年级</th><th>在校状态</th>'
                 + '<th>批次</th><th>缴费日期</th><th>状态</th></tr>';
         } else {
             head.innerHTML = '<tr>'
                 + '<th style="width:36px"></th>'
-                + '<th>姓名</th><th>学号</th><th>校别</th><th>班级</th><th>年级</th>'
+                + '<th>姓名</th><th>学号</th><th>校别</th><th>班级</th><th>年级</th><th>在校状态</th>'
                 + '<th>批次</th><th>缴费日期</th><th>状态</th></tr>';
         }
 
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">暂无记录</td></tr>';
+            body.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">暂无记录</td></tr>';
             bindCheckAll();
             return;
         }
@@ -149,9 +153,10 @@
             html += '<tr>' + check
                 + '<td class="fw-semibold">' + esc(s.name) + '</td>'
                 + '<td>' + esc(s.student_no) + '</td>'
-                + '<td>' + esc(s.school) + '</td>'
+                + '<td>' + esc(schoolName(s.school)) + '</td>'
                 + '<td>' + esc(s.admin_class) + '</td>'
                 + '<td>' + esc(s.grade) + '</td>'
+                + '<td>' + esc(s.attendance_status) + '</td>'
                 + '<td>第' + (s.batch_no || '?') + '年</td>'
                 + '<td>' + esc(s.pay_date) + '</td>'
                 + '<td><span class="iin-chip iin-chip-' + esc(s.source_status) + '">'

@@ -37,6 +37,7 @@ CREATE TABLE students (
     major TEXT DEFAULT '',
     student_phone TEXT DEFAULT '',
     registration_status TEXT DEFAULT '',
+    attendance_status TEXT DEFAULT '',
     is_deleted INTEGER DEFAULT 0,
     student_insurance_no TEXT DEFAULT '',
     student_insurance_pay_date TEXT DEFAULT '',
@@ -67,14 +68,14 @@ def conn():
 
 def _add_student(conn, name='张三', grade='2026', enrollment_year=2026,
                  school='1', admin_class='1班', major='计算机',
-                 registration_status='', is_deleted=0):
+                 registration_status='', is_deleted=0, attendance_status='在校'):
     cur = conn.execute(
         '''INSERT INTO students
            (id_card, name, grade, enrollment_year, school, admin_class, major,
-            registration_status, is_deleted)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            registration_status, is_deleted, attendance_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
         (f'ID-{name}', name, grade, enrollment_year, school, admin_class,
-         major, registration_status, is_deleted)
+         major, registration_status, is_deleted, attendance_status)
     )
     conn.commit()
     return cur.lastrowid
@@ -148,6 +149,20 @@ class TestFirstPool:
         _add_student(conn, '已毕业', registration_status='毕业')
         assert query_first_pool(conn, current_year=2026) == []
 
+    def test_managed_attendance_excluded(self, conn):
+        """在校状态为「托管」的学生不参加学平险业务，同等排除。"""
+        _add_student(conn, '托管生', attendance_status='托管')
+        assert query_first_pool(conn, current_year=2026) == []
+
+    def test_managed_excluded_from_renewal_and_push(self, conn):
+        sid = _add_student(conn, '托管生', attendance_status='托管')
+        _add_record(conn, sid, status=S.DONE, batch_no=1,
+                    expiry_date='2026-11-20')
+        _add_record(conn, sid, status=S.DONE, batch_no=2)
+        assert query_renewal_pool(conn, today=date(2026, 11, 7),
+                                  current_year=2026) == []
+        assert query_push_pool(conn, current_year=2026) == []
+
     def test_search_and_school_filter(self, conn):
         _add_student(conn, '张三', school='1')
         _add_student(conn, '李四', school='2')
@@ -196,6 +211,111 @@ class TestRenewalPool:
         _add_record(conn, sid, status=S.PENDING_APPROVE, batch_no=2)
         assert query_renewal_pool(conn, today=date(2026, 10, 20),
                                   current_year=2026) == []
+
+    def test_overdue_beyond_month_still_included(self, conn):
+        """已过期保单不再受活跃月份限制，应排在待到期之前。"""
+        today = date(2026, 11, 7)
+        overdue = _add_student(conn, '过期生')
+        _add_record(conn, overdue, status=S.DONE, batch_no=1,
+                    expiry_date='2026-09-15')
+        due = _add_student(conn, '临期生', grade='2025', enrollment_year=2025)
+        _add_record(conn, due, status=S.DONE, batch_no=1,
+                    expiry_date='2026-11-20')
+
+        items = query_renewal_pool(conn, today=today, current_year=2026)
+        assert [i['name'] for i in items] == ['过期生', '临期生']
+        overdue_item = items[0]
+        assert overdue_item['urgency'] == 'overdue'
+        assert overdue_item['status_label'] == '已过期'
+        assert overdue_item['days_left'] < 0
+        assert overdue_item['batch_no'] == 2
+        assert overdue_item['target_school_year'] == '2027-2028'
+        assert items[1]['urgency'] == 'due'
+        assert items[1]['target_school_year'] == '2026-2027'
+
+    def test_overdue_with_intern_record_excluded(self, conn):
+        """已进入实习就业险阶段（业务终了）的学生不再进入续保池。"""
+        sid = _add_student(conn, '已实习')
+        _add_record(conn, sid, status=S.DONE, batch_no=1,
+                    expiry_date='2026-09-15')
+        _add_record(conn, sid, insurance_type='intern', status=S.DONE,
+                    batch_no=3)
+        assert query_renewal_pool(conn, today=date(2026, 11, 7),
+                                  current_year=2026) == []
+
+    def test_missing_expiry_group(self, conn):
+        sid = _add_student(conn, '缺到期')
+        _add_record(conn, sid, status=S.DONE, batch_no=1, expiry_date='')
+        items = query_renewal_pool(conn, today=date(2026, 11, 7),
+                                   current_year=2026)
+        assert len(items) == 1
+        assert items[0]['urgency'] == 'missing_expiry'
+        assert items[0]['status_label'] == '到期日待补'
+        assert items[0]['days_left'] is None
+        assert items[0]['batch_no'] == 2
+
+    def test_exempt_batch_is_terminal(self, conn):
+        """放弃本期后该批次终结：普通生没有后续续保批次，不再停留在续保池。"""
+        sid = _add_student(conn, '放弃生')
+        _add_record(conn, sid, status=S.DONE, batch_no=1,
+                    expiry_date='2026-09-15')
+        _add_record(conn, sid, status=S.EXEMPT, batch_no=2)
+        assert query_renewal_pool(conn, today=date(2026, 11, 7),
+                                  current_year=2026) == []
+
+    def test_exempt_baseline_waits_for_next_school_year(self, conn):
+        """放弃批次无到期日：等下一批学年到达才再次进入续保（不再误标已过期）。"""
+        # offset = 2024 - 2026 = -2：推迟注册，学平险 4 年，实习险第 5 年
+        sid = _add_student(conn, '推迟注册', grade='2026', enrollment_year=2024)
+        _add_record(conn, sid, status=S.DONE, batch_no=1,
+                    expiry_date='2026-09-15')
+        _add_record(conn, sid, status=S.EXEMPT, batch_no=2)
+
+        assert query_renewal_pool(conn, today=date(2025, 11, 7),
+                                  current_year=2025) == []
+        items = query_renewal_pool(conn, today=date(2026, 11, 7),
+                                   current_year=2026)
+        assert len(items) == 1
+        assert items[0]['batch_no'] == 3
+        assert items[0]['urgency'] == 'due'
+        assert items[0]['days_left'] is None
+
+    def test_exempt_renewal_batch_creates_terminal_record(self, conn):
+        sid = _add_student(conn, '放弃生')
+        _add_record(conn, sid, status=S.DONE, batch_no=1,
+                    expiry_date='2026-09-15')
+        rec = ins.exempt_renewal_batch(
+            conn, sid, current_year=2026, today=date(2026, 11, 7))
+        assert rec['batch_no'] == 2
+        assert rec['status'] == S.EXEMPT
+        assert rec['completed_at']
+        # 仅本期终结：计划中的实习就业险（第 3 年）仍存在，说明并未永久退出
+        plan = ins.build_plan(2026, '2026', 2026)
+        assert [p['batch_no'] for p in plan
+                if p['insurance_type'] == 'intern'] == [3]
+        with pytest.raises(ins.InsuranceTransitionError):
+            ins.exempt_renewal_batch(
+                conn, sid, current_year=2026, today=date(2026, 11, 7))
+
+    def test_exempt_pending_placeholder_batch(self, conn):
+        """「推送至续保」追加的额外批次（超出计划）也可放弃。"""
+        sid = _add_student(conn, '推迟注册', grade='2027', enrollment_year=2026)
+        for batch in (1, 2, 3):
+            _add_record(conn, sid, status=S.DONE, batch_no=batch,
+                        expiry_date='2026-09-15' if batch == 3 else '')
+        _add_record(conn, sid, status=S.PENDING_RENEWAL, batch_no=4)
+        rec = ins.exempt_renewal_batch(
+            conn, sid, current_year=2029, today=date(2029, 11, 7))
+        assert rec['batch_no'] == 4
+        assert rec['status'] == S.EXEMPT
+
+    def test_exempt_rejects_outside_window(self, conn):
+        sid = _add_student(conn, '未到期')
+        _add_record(conn, sid, status=S.DONE, batch_no=1,
+                    expiry_date='2027-06-01')
+        with pytest.raises(ins.InsuranceTransitionError):
+            ins.exempt_renewal_batch(
+                conn, sid, current_year=2026, today=date(2026, 11, 7))
 
 
 # ============================================================
@@ -256,12 +376,54 @@ class TestPushPool:
         _add_record(conn, sid, insurance_type='intern', status=S.DONE, batch_no=3)
         assert query_push_pool(conn, current_year=2026) == []
 
-    def test_transfer_push(self, conn):
-        sid = _add_student(conn, '转学生', grade='2025', enrollment_year=2026)
-        _add_record(conn, sid, status=S.DONE, batch_no=2)
+    def test_exempt_batch_counts_as_terminal(self, conn):
+        """放弃本期不阻塞实习险推送（该批次视为已了结）。"""
+        sid = _add_student(conn, '放弃后推送')
+        _add_record(conn, sid, status=S.DONE, batch_no=1)
+        _add_record(conn, sid, status=S.EXEMPT, batch_no=2)
         items = query_push_pool(conn, current_year=2026)
         assert len(items) == 1
+        assert items[0]['previous_batch_no'] == 2
+
+    def test_deferred_waits_for_intern_year_after_exempt(self, conn):
+        """推迟注册学生放弃本期后，须等学年推进到实习险批次才进入推送。"""
+        sid = _add_student(conn, '推迟注册', grade='2027', enrollment_year=2026)
+        for batch in (1, 2, 3):
+            _add_record(conn, sid,
+                        status=S.DONE if batch == 1 else S.EXEMPT,
+                        batch_no=batch)
+        assert query_push_pool(conn, current_year=2026) == []
+        assert len(query_push_pool(conn, current_year=2029)) == 1
+
+    def test_deferred_missing_first_batch_not_blocking(self, conn):
+        """推迟注册学生历史缺档（无第 1 批记录）不应永久阻塞后续推进。"""
+        sid = _add_student(conn, '推迟缺档', grade='2025', enrollment_year=2024)
+        _add_record(conn, sid, status=S.DONE, batch_no=2)
+        _add_record(conn, sid, status=S.EXEMPT, batch_no=3)
+        assert query_push_pool(conn, current_year=2026) == []
+        assert len(query_push_pool(conn, current_year=2027)) == 1
+
+    def test_normal_missing_batch_still_blocked(self, conn):
+        """普通学生缺批次仍按严格口径处理，不放宽推送。"""
+        sid = _add_student(conn, '普通缺档', grade='2026', enrollment_year=2026)
+        _add_record(conn, sid, status=S.DONE, batch_no=2)
+        assert query_push_pool(conn, current_year=2026) == []
+
+    def test_transfer_push(self, conn):
+        """转学生也有学年门槛：入学当年办结首保后不立即推送，等实习学年。"""
+        sid = _add_student(conn, '转学生', grade='2025', enrollment_year=2026)
+        _add_record(conn, sid, status=S.DONE, batch_no=2)
+        assert query_push_pool(conn, current_year=2026) == []
+        items = query_push_pool(conn, current_year=2027)
+        assert len(items) == 1
         assert items[0]['batch_no'] == 3
+
+    def test_transfer_exempt_waits_for_intern_year(self, conn):
+        """转学生放弃首保后，同样须等实习学年才进入推送池。"""
+        sid = _add_student(conn, '转学生放弃', grade='2025', enrollment_year=2026)
+        _add_record(conn, sid, status=S.EXEMPT, batch_no=2)
+        assert query_push_pool(conn, current_year=2026) == []
+        assert len(query_push_pool(conn, current_year=2027)) == 1
 
     def test_deferred_push_to_renewal_waits_for_expiry(self, conn):
         """推送至续保后，只有当前保单到期才进入待续保并走续保流程。"""
@@ -304,7 +466,9 @@ class TestPushPool:
             (S.DONE, started['id'])
         )
         conn.commit()
-        items = query_push_pool(conn, current_year=2026)
+        # 推迟注册学生严格按「入学年 − grade」推进：学年到达实习批次（第 4 年）才进入推送
+        assert query_push_pool(conn, current_year=2026) == []
+        items = query_push_pool(conn, current_year=2029)
         assert len(items) == 1
         assert items[0]['previous_batch_no'] == 4
 

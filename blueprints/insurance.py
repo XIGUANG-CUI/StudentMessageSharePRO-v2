@@ -409,11 +409,11 @@ def api_insurance_pool_intern():
 # P5：独立推送页 + 实习就业险办结页
 # ============================================================
 def _build_export_workbook(conn, records, title, header_color):
-    """生成参保/办结导出 Excel（姓名/身份证号/校别/班级/学生电话）。"""
+    """生成参保/办结导出 Excel（姓名/身份证号/校别/班级/专业/学生电话）。"""
     student_ids = [r['student_id'] for r in records]
     placeholders = ','.join('?' * len(student_ids))
     rows = conn.execute(
-        f'''SELECT id, name, id_card, school, admin_class, student_phone
+        f'''SELECT id, name, id_card, school, admin_class, major, student_phone
             FROM students WHERE id IN ({placeholders})''',
         student_ids
     ).fetchall()
@@ -423,7 +423,7 @@ def _build_export_workbook(conn, records, title, header_color):
     wb = Workbook()
     ws = wb.active
     ws.title = title
-    ws.append(['姓名', '身份证号', '校别', '班级', '学生电话'])
+    ws.append(['姓名', '身份证号', '校别', '班级', '专业', '学生电话'])
     fill = PatternFill('solid', fgColor=header_color)
     for cell in ws[1]:
         cell.font = Font(bold=True, color='FFFFFF')
@@ -437,10 +437,11 @@ def _build_export_workbook(conn, records, title, header_color):
             student.get('id_card', '') or '',
             school_names.get(student.get('school'), student.get('school') or ''),
             student.get('admin_class', '') or '',
+            student.get('major', '') or '',
             student.get('student_phone', '') or '',
         ])
 
-    for column, width in zip('ABCDE', (14, 22, 16, 16, 18)):
+    for column, width in zip('ABCDEF', (14, 22, 16, 16, 18, 18)):
         ws.column_dimensions[column].width = width
 
     output = BytesIO()
@@ -858,8 +859,19 @@ def api_insurance_renewal_list():
     conn = models.get_db()
     items = insurance_domain.query_renewal_pool(
         conn, today=today, window_days=window_days, **_pool_filters())
+    summary = {
+        insurance_domain.URGENCY_OVERDUE: 0,
+        insurance_domain.URGENCY_DUE: 0,
+        insurance_domain.URGENCY_MISSING_EXPIRY: 0,
+        'total': len(items),
+    }
+    for item in items:
+        key = item.get('urgency')
+        if key in summary:
+            summary[key] += 1
     return jsonify({'success': True, 'total': len(items), 'items': items,
-                    'today': today.isoformat(), 'window_days': window_days})
+                    'summary': summary, 'today': today.isoformat(),
+                    'window_days': window_days})
 
 
 @bp.route('/api/insurance/renewal/start', methods=['POST'])
@@ -893,6 +905,41 @@ def api_insurance_renewal_start():
                     'errors': errors[:20]})
 
 
+@bp.route('/api/insurance/renewal/exempt', methods=['POST'])
+def api_insurance_renewal_exempt():
+    """放弃本期续保：把下一个待续保批次标记为 exempt。
+
+    仅 admin / 财务主管可操作；放弃只终结该批次，学生后续批次仍自动投保。
+    """
+    err = _require_roles_json('admin', 'finance_chief')
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    student_ids = data.get('student_ids') or []
+    if not student_ids:
+        return jsonify({'success': False, 'message': '请选择学生'}), 400
+
+    conn = models.get_db()
+    operator = session.get('username', '')
+    done = skipped = 0
+    errors = []
+    try:
+        for sid in student_ids:
+            try:
+                insurance_domain.exempt_renewal_batch(
+                    conn, sid, operator=operator)
+                done += 1
+            except insurance_domain.InsuranceTransitionError as e:
+                skipped += 1
+                errors.append({'student_id': sid, 'message': str(e)})
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({'success': True, 'count': done, 'skipped': skipped,
+                    'errors': errors[:20]})
+
+
 @bp.route('/api/insurance/renewal/stage')
 def api_insurance_renewal_stage():
     """续保环节：尚未走完流程的续保记录（待导出 / 待补录保单）。"""
@@ -911,8 +958,15 @@ def api_insurance_renewal_stage():
     conn = models.get_db()
     items = insurance_domain.query_renewal_stage(
         conn, statuses=statuses, **_pool_filters())
-    summary = {key: len(insurance_domain.query_renewal_stage(conn, statuses=value))
-               for key, value in tabs.items()}
+    # summary 与列表同口径（同样携带搜索/筛选条件），避免人数虚高
+    if tab:
+        summary = {tab: len(items)}
+    else:
+        summary = {key: 0 for key in tabs}
+        for item in items:
+            for key, values in tabs.items():
+                if item['source_status'] in values:
+                    summary[key] += 1
     return jsonify({'success': True, 'total': len(items), 'items': items,
                     'summary': summary})
 
@@ -1070,7 +1124,7 @@ def api_insurance_collection_export():
     wb = Workbook()
     ws = wb.active
     ws.title = '待缴费名单'
-    ws.append(['姓名', '学号', '身份证号', '校别', '班级', '年级', '险种', '批次', '状态'])
+    ws.append(['姓名', '学号', '身份证号', '校别', '班级', '专业', '年级', '险种', '批次', '状态'])
     fill = PatternFill('solid', fgColor='0D6EFD')
     for cell in ws[1]:
         cell.font = Font(bold=True, color='FFFFFF')
@@ -1084,13 +1138,14 @@ def api_insurance_collection_export():
             item.get('id_card') or '',
             school_names.get(item.get('school'), item.get('school') or ''),
             item.get('admin_class') or '',
+            item.get('major') or '',
             item.get('grade') or '',
             type_labels.get(item.get('insurance_type'), item.get('insurance_type') or ''),
             f"第{item.get('batch_no')}年" if item.get('batch_no') else '',
             '待缴费',
         ])
 
-    for column, width in zip('ABCDEFGHI', (12, 16, 22, 14, 14, 10, 12, 10, 10)):
+    for column, width in zip('ABCDEFGHIJ', (12, 16, 22, 14, 14, 18, 10, 12, 10, 10)):
         ws.column_dimensions[column].width = width
 
     output = BytesIO()
