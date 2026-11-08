@@ -646,6 +646,80 @@ const todayAttBorderMap = { '出勤': 'rgba(40, 167, 69, 1)', '缺勤': 'rgba(22
 
 Chart.register(ChartDataLabels);
 
+// 外部 tooltip：明细行数过多时自动分栏，避免超出 canvas / 视口被截断
+function createGroupedTooltip(getTitle, getLines) {
+    const el = document.createElement('div');
+    el.style.cssText = 'position:fixed;z-index:2000;pointer-events:none;opacity:0;'
+        + 'transition:opacity .12s;padding:8px 12px;border-radius:6px;'
+        + 'background:rgba(33,37,41,.92);color:#fff;font-size:12px;line-height:1.6;'
+        + 'box-shadow:0 4px 14px rgba(0,0,0,.25);max-width:92vw;';
+    const titleEl = document.createElement('div');
+    titleEl.style.cssText = 'font-weight:600;margin-bottom:4px;white-space:nowrap;';
+    const gridEl = document.createElement('div');
+    el.appendChild(titleEl);
+    el.appendChild(gridEl);
+    document.body.appendChild(el);
+
+    return function (context) {
+        const { chart, tooltip } = context;
+        if (tooltip.opacity === 0 || !tooltip.dataPoints || !tooltip.dataPoints.length) {
+            el.style.opacity = '0';
+            return;
+        }
+        const idx = tooltip.dataPoints[0].dataIndex;
+        const lines = getLines(idx) || [];
+        titleEl.textContent = getTitle(idx);
+
+        gridEl.textContent = '';
+        const cols = lines.length > 30 ? 3 : (lines.length > 12 ? 2 : 1);
+        const rows = Math.ceil(lines.length / cols) || 1;
+        gridEl.style.display = 'grid';
+        gridEl.style.gridAutoFlow = 'column';
+        gridEl.style.gridTemplateRows = 'repeat(' + rows + ', auto)';
+        gridEl.style.columnGap = '18px';
+        lines.forEach(function (line) {
+            const row = document.createElement('div');
+            row.textContent = line;
+            row.style.whiteSpace = 'nowrap';
+            gridEl.appendChild(row);
+        });
+
+        el.style.left = '0px';
+        el.style.top = '0px';
+        el.style.opacity = '1';
+        const rect = chart.canvas.getBoundingClientRect();
+        const w = el.offsetWidth;
+        const h = el.offsetHeight;
+        let left = rect.left + tooltip.caretX + 14;
+        let top = rect.top + tooltip.caretY + 14;
+        if (left + w > window.innerWidth - 8) left = rect.left + tooltip.caretX - w - 14;
+        if (left < 8) left = 8;
+        if (top + h > window.innerHeight - 8) top = Math.max(8, window.innerHeight - h - 8);
+        el.style.left = left + 'px';
+        el.style.top = top + 'px';
+    };
+}
+
+const gradeTooltip = createGroupedTooltip(
+    idx => (gradeData[idx] || {}).grade || '',
+    idx => {
+        const d = gradeData[idx] || {};
+        const lines = ['总计 ' + d.count + ' 人'];
+        (d.majors || []).forEach(m => lines.push((m.major || '未填写专业') + '：' + m.count + ' 人'));
+        return lines;
+    }
+);
+
+const majorTooltip = createGroupedTooltip(
+    idx => (majorData[idx] || {}).major || '',
+    idx => {
+        const d = majorData[idx] || {};
+        const lines = ['总计 ' + d.count + ' 人'];
+        (d.grades || []).forEach(g => lines.push(g.grade + '：' + g.count + ' 人'));
+        return lines;
+    }
+);
+
 new Chart(document.getElementById('gradeChart'), {
     type: 'bar',
     data: {
@@ -662,7 +736,8 @@ new Chart(document.getElementById('gradeChart'), {
         responsive: true,
         plugins: {
             legend: { display: false },
-            datalabels: { anchor: 'end', align: 'top', font: { weight: 'bold' }, formatter: v => v }
+            datalabels: { anchor: 'end', align: 'top', font: { weight: 'bold' }, formatter: v => v },
+            tooltip: { enabled: false, external: gradeTooltip }
         },
         scales: {
             y: { beginAtZero: true, grace: '15%' }
@@ -686,9 +761,11 @@ new Chart(document.getElementById('majorChart'), {
         responsive: true,
         plugins: {
             legend: { display: false },
-            datalabels: { anchor: 'end', align: 'top', font: { weight: 'bold' }, formatter: v => v }
+            datalabels: { anchor: 'end', align: 'top', font: { weight: 'bold' }, formatter: v => v },
+            tooltip: { enabled: false, external: majorTooltip }
         },
         scales: {
+            x: { ticks: { autoSkip: false, maxRotation: 90, minRotation: 45 } },
             y: { beginAtZero: true, grace: '10%' }
         }
     }

@@ -56,6 +56,19 @@ def get_stats(filters=None):
     
     cursor.execute(f'SELECT major, COUNT(*) as count FROM students WHERE {where_sql} GROUP BY major ORDER BY count DESC', params)
     major_distribution = [dict(row) for row in cursor.fetchall()]
+
+    # 年级 × 专业交叉明细：供柱状图 tooltip 展示构成（如 2024级各专业人数、各专业各年级人数）
+    cursor.execute(f'SELECT grade, major, COUNT(*) as count FROM students WHERE {where_sql} GROUP BY grade, major', params)
+    grade_major_map = {}
+    major_grade_map = {}
+    for row in cursor.fetchall():
+        grade_major_map.setdefault(row[0], []).append({'major': row[1], 'count': row[2]})
+        major_grade_map.setdefault(row[1], []).append({'grade': row[0], 'count': row[2]})
+
+    for item in grade_distribution:
+        item['majors'] = sorted(grade_major_map.get(item['grade'], []), key=lambda m: -m['count'])
+    for item in major_distribution:
+        item['grades'] = sorted(major_grade_map.get(item['major'], []), key=lambda g: str(g['grade']))
     
     cursor.execute(f'SELECT admin_class, COUNT(*) as count FROM students WHERE {where_sql} GROUP BY admin_class ORDER BY count DESC', params)
     class_distribution = [dict(row) for row in cursor.fetchall()]
