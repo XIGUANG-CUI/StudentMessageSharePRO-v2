@@ -497,6 +497,14 @@ def apply_import_record(conn, student_id, id_card, batch_no, insurance_type,
     pay_date = normalize_insurance_date(pay_date)
     expiry_date = normalize_insurance_date(expiry_date)
 
+    # 原样回导即"无变化"：未填主管标记且三类值字段与库内完全一致时直接返回，
+    # 不重算状态、不写库（避免把历史状态差异当成导入改动）
+    if partial and existing and not flag:
+        if ((pay_date or '') == (existing['pay_date'] or '')
+                and (policy_no or '') == (existing['policy_no'] or '')
+                and (expiry_date or '') == (existing['expiry_date'] or '')):
+            return None
+
     stu = conn.execute(
         'SELECT grade, enrollment_year FROM students WHERE id = ?', (student_id,)
     ).fetchone()
@@ -550,11 +558,16 @@ def apply_import_record(conn, student_id, id_card, batch_no, insurance_type,
         fields = dict(status=status, pay_date=pay_date)
         if insurance_type == INSURANCE_TYPE_XUEPING:
             fields.update(policy_no=policy_no, expiry_date=expiry_date)
-        if status == InsuranceStatus.DONE and not existing['completed_at']:
+        if status == InsuranceStatus.DONE and not existing['completed_at'] \
+                and existing['status'] != InsuranceStatus.DONE:
             fields['completed_at'] = now
-        if status == InsuranceStatus.APPROVED and not existing['approved_at']:
+        if status == InsuranceStatus.APPROVED and not existing['approved_at'] \
+                and existing['status'] != InsuranceStatus.APPROVED:
             fields['approved_at'] = now
             fields['approved_by'] = operator or ''
+        # 原样回导不产生噪音：所有字段与库内一致时按"无变化"处理，不写库不记日志
+        if all((existing[key] or '') == (value or '') for key, value in fields.items()):
+            return None
         _update_record(conn, existing['id'], **fields)
         log_operation(conn, existing, 'import', existing['status'], status,
                       payload, operator=operator)

@@ -118,6 +118,61 @@ class TestPartialApply:
         assert ins.apply_import_record(conn, sid, 'A3', 1, 'xueping', partial=True) is None
         assert _records(conn, sid) == []
 
+    def test_identical_reimport_is_noop(self):
+        """原样回导（值完全一致、无主管标记）不应重算状态或写库。"""
+        conn = sqlite3_conn()
+        sid = _add_student(conn, 'A4', '2024', 2024)
+        ins.apply_import_record(conn, sid, 'A4', 1, 'xueping', policy_no='P-1',
+                                pay_date='2024-09-01', expiry_date='2025-08-31')
+        conn.execute("UPDATE insurance_records SET status = 'pending_approve' "
+                     "WHERE student_id = ?", (sid,))
+        conn.commit()
+        assert ins.apply_import_record(
+            conn, sid, 'A4', 1, 'xueping', policy_no='P-1',
+            pay_date='2024-09-01', expiry_date='2025-08-31', partial=True) is None
+        assert _records(conn, sid)[0]['status'] == 'pending_approve'
+
+
+# ============================================================
+# 模板导出
+# ============================================================
+class TestTemplateExport:
+    def test_intern_row_keeps_xueping_columns_blank(self, client, db_conn):
+        """实习就业险批次只填「实习险缴费日期」，学平险三列必须留空（否则原样回导被拒）。"""
+        from openpyxl import load_workbook
+
+        sid = _add_student(db_conn, '440101200601010055', '2023', 2023, '实习生')
+        db_conn.execute(
+            "INSERT INTO insurance_records (student_id, id_card, school_year, batch_no, "
+            "insurance_type, status, pay_date) VALUES (?, ?, '2025-2026', 3, 'intern', 'done', "
+            "'2025-10-01')", (sid, '440101200601010055'))
+        db_conn.commit()
+
+        with client.session_transaction() as sess:
+            sess['user_id'] = 1
+            sess['username'] = 'tester'
+            sess['role'] = 'admin'
+            sess['csrf_token'] = 'x'
+        try:
+            resp = client.get('/insurance/init/template')
+            assert resp.status_code == 200
+            ws = load_workbook(io.BytesIO(resp.data))['保险初始化导入']
+            header = [c.value for c in ws[1]]
+            target = None
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                data = dict(zip(header, row))
+                if data['身份证号'] == '440101200601010055' and str(data['批次号']) == '3':
+                    target = data
+                    break
+            assert target is not None
+            assert target['险种'] == '实习就业险'
+            assert not target['学平险保单号'] and not target['学平险缴费日期'] \
+                and not target['学平险到期时间']
+            assert target['实习险缴费日期'] == '2025-10-01'
+        finally:
+            with client.session_transaction() as sess:
+                sess.clear()
+
 
 # ============================================================
 # 解析 / 预览 / 导入 / 撤销（走真实 DB 与 Flask 上下文）

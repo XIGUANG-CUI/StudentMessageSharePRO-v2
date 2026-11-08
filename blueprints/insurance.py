@@ -1946,7 +1946,7 @@ def insurance_init_template():
                 step['batch_no'],
                 '实习就业险' if is_intern else '学平险',
                 '' if is_intern else (rec.get('policy_no') or ''),
-                rec.get('pay_date') or '',
+                '' if is_intern else (rec.get('pay_date') or ''),
                 '' if is_intern else (rec.get('expiry_date') or ''),
                 (rec.get('pay_date') or '') if is_intern else '',
                 '',
