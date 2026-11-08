@@ -590,7 +590,7 @@ StudentMessageSharePRO/
 | 文件上传 | `utils.py:208` `allowed_file()` | 扩展名 `{xlsx, xls, csv}` + `config.MAX_CONTENT_LENGTH=10MB` |
 | 年龄 | `utils.py:703` `parse_filters_from_request()` | `0 ≤ min_age ≤ 120`，`0 ≤ max_age ≤ 120` |
 | 学号 | `app.py:2525` `/api/transfer-pending/process` | `^\d{6}$` |
-| 年份 | `app.py:484` | `2000 ≤ year ≤ 2100` |
+| 年份 | `blueprints/admin.py:169` `api_year_create()` | `2000 ≤ year ≤ 9999` |
 
 ### 会话安全
 - **位置**：`config.py:187-190` `Config` 类

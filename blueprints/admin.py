@@ -166,8 +166,8 @@ def api_year_create():
         return auth_error
     data = request.get_json()
     year = data.get('year')
-    if not year or year < 2000 or year > 2100:
-        return jsonify({'success': False, 'message': '请输入有效的年份（2000-2100）'}), 400
+    if not year or year < 2000 or year > 9999:
+        return jsonify({'success': False, 'message': '请输入有效的年份（2000-9999）'}), 400
 
     existing = models.get_enrollment_years()
     if year in existing:

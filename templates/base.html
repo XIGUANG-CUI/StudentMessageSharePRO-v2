@@ -344,7 +344,7 @@
                     <div class="mb-3">
                         <label for="newYearInput" class="form-label">请输入年份</label>
                         <input type="number" class="form-control form-control-lg" id="newYearInput"
-                               min="2000" max="2100" placeholder="如：2027" required>
+                               min="2000" max="9999" placeholder="如：2027" required>
                         <div class="form-text">请输入4位数字的年份（如：2027），创建后将作为可选的入学年份。</div>
                     </div>
                 </div>
@@ -414,8 +414,8 @@
 
         document.getElementById('confirmCreateYearBtn').addEventListener('click', function() {
             var year = document.getElementById('newYearInput').value;
-            if (!year || year < 2000 || year > 2100) {
-                showToast('请输入有效的年份（2000-2100）', 'warning');
+            if (!year || year < 2000 || year > 9999) {
+                showToast('请输入有效的年份（2000-9999）', 'warning');
                 return;
             }
             var btn = this;
