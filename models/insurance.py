@@ -115,6 +115,30 @@ CREATE INDEX IF NOT EXISTS idx_iol_record
     ON insurance_operation_logs(record_id);
 CREATE INDEX IF NOT EXISTS idx_iol_student
     ON insurance_operation_logs(student_id);
+
+CREATE TABLE IF NOT EXISTS insurance_import_batches (
+    id          TEXT PRIMARY KEY,
+    file_name   TEXT DEFAULT '',
+    operator    TEXT DEFAULT '',
+    total_rows  INTEGER DEFAULT 0,
+    ok_rows     INTEGER DEFAULT 0,
+    reversed_at TEXT DEFAULT '',
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS insurance_import_entries (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id    TEXT NOT NULL,
+    record_id   INTEGER DEFAULT 0,
+    student_id  INTEGER NOT NULL,
+    action      TEXT DEFAULT '',
+    before_json TEXT DEFAULT '',
+    after_json  TEXT DEFAULT '',
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_iie_batch
+    ON insurance_import_entries(batch_id);
 """
 
 
@@ -416,24 +440,60 @@ def _record_for_batch(conn, student_id, batch_no, insurance_type):
     return _row_to_dict(cur, cur.fetchone())
 
 
-def apply_import_record(conn, student_id, id_card, batch_no, insurance_type,
-                        flag='', pay_date='', policy_no='', expiry_date='',
-                        operator=''):
-    """初始化导入同步写 insurance_records（学生 + 当前批次 upsert）。
+def batch_from_school_year(school_year, enrollment_year, grade):
+    """把「2024-2025」学年解析为批次号；格式非法或早于学制起点返回 None。"""
+    m = re.match(r'^\s*(\d{4})\s*[-~—－/]\s*(\d{4})\s*$', str(school_year or ''))
+    if not m:
+        return None
+    start = start_year(enrollment_year, grade)
+    if not start:
+        return None
+    return int(m.group(1)) - start + 1
 
+
+# 导入时若未提供新证据，保留这些"进行中/已终结"状态，避免仅补一个字段把状态降级
+_IMPORT_KEEP_STATUSES = (
+    InsuranceStatus.DONE, InsuranceStatus.EXPORTED, InsuranceStatus.EXEMPT,
+    InsuranceStatus.PENDING_RENEWAL, InsuranceStatus.PENDING_PAY, InsuranceStatus.PAID,
+)
+
+
+def apply_import_record(conn, student_id, id_card, batch_no, insurance_type,
+                        flag=None, pay_date=None, policy_no=None, expiry_date=None,
+                        operator='', partial=False):
+    """初始化导入写 insurance_records（按指定批次 upsert，支持历史批次补录）。
+
+    partial=False：全量覆盖（旧行为，未提供的字段视为空）。
+    partial=True ：仅补空——None=未提供（保留库内值），''=显式清空。
     仅在该行确有保险数据时建/改记录，空行不生成裸记录：
       - 学平险：主管标记 / 保单号 / 缴费日期 / 到期时间任一非空
       - 实习险：主管标记 / 缴费日期任一非空
-    状态推导：
-      - 不参保 → exempt
-      - 学平险办结 → 有到期时间 done，否则 exported（待补保单）
-      - 按计划办理学平险 → 首保批次 pending_approve；续保批次 approved（待导出）
-      - 实习就业险办结 → done；按计划办理实习就业险 → approved
-      - 无标记但有到期时间 → done；其余 → pending_approve
+    状态推导（有标记时以标记为准，否则按数据证据）：
+      - 不参保 → exempt；学平险办结 → 有到期 done，否则 exported
+      - 按计划办理 → 首保批次 pending_approve，其余 approved
+      - 有到期 → done；仅有保单/缴费 → approved（续保批次）或保持原终态
     返回 'created' / 'updated' / None（无数据不处理）。
     """
-    flag = (flag or '').strip()
-    policy_no = (policy_no or '').strip()
+    existing = _record_for_batch(conn, student_id, batch_no, insurance_type)
+    provided = (flag, pay_date, policy_no, expiry_date)
+
+    if partial:
+        if all(v is None for v in provided):
+            return None
+        cur = existing or {}
+        flag = flag or ''
+        pay_date = pay_date if pay_date is not None else (cur.get('pay_date') or '')
+        policy_no = policy_no if policy_no is not None else (cur.get('policy_no') or '')
+        expiry_date = (expiry_date if expiry_date is not None
+                       else (cur.get('expiry_date') or ''))
+    else:
+        flag = flag or ''
+        pay_date = pay_date or ''
+        policy_no = policy_no or ''
+        expiry_date = expiry_date or ''
+
+    flag = flag.strip()
+    policy_no = policy_no.strip()
     pay_date = normalize_insurance_date(pay_date)
     expiry_date = normalize_insurance_date(expiry_date)
 
@@ -444,19 +504,19 @@ def apply_import_record(conn, student_id, id_card, batch_no, insurance_type,
         return None
 
     if insurance_type == INSURANCE_TYPE_INTERN:
-        if not (flag or pay_date):
-            return None
         if flag == _FLAG_EXEMPT:
             status = InsuranceStatus.EXEMPT
         elif _FLAG_DONE_INTERN in flag:
             status = InsuranceStatus.DONE
         elif flag == _FLAG_PENDING_INTERN:
             status = InsuranceStatus.APPROVED
+        elif not (flag or pay_date):
+            return None
+        elif existing and existing['status'] in _IMPORT_KEEP_STATUSES:
+            status = existing['status']
         else:
             status = InsuranceStatus.PENDING_APPROVE
     else:
-        if not (flag or policy_no or pay_date or expiry_date):
-            return None
         plan = build_plan(stu['enrollment_year'], stu['grade'])
         first_batch = plan[0]['batch_no'] if plan else 1
         if flag == _FLAG_EXEMPT:
@@ -468,13 +528,20 @@ def apply_import_record(conn, student_id, id_card, batch_no, insurance_type,
                       else InsuranceStatus.PENDING_APPROVE)
         elif expiry_date:
             status = InsuranceStatus.DONE
+        elif not (policy_no or pay_date or flag):
+            if not existing:
+                return None
+            # 显式清空或空行：保留原状态，只清理字段
+            status = (existing['status'] if existing['status'] in _IMPORT_KEEP_STATUSES
+                      else InsuranceStatus.PENDING_APPROVE)
+        elif existing and existing['status'] in _IMPORT_KEEP_STATUSES:
+            status = existing['status']
         elif batch_no > first_batch:
             # 续保批次没有独立审批：有缴费/保单数据即视为已确认参保，等导出
             status = InsuranceStatus.APPROVED
         else:
             status = InsuranceStatus.PENDING_APPROVE
 
-    existing = _record_for_batch(conn, student_id, batch_no, insurance_type)
     now = _now()
     payload = {'pay_date': pay_date, 'policy_no': policy_no,
                'expiry_date': expiry_date, 'flag': flag}
@@ -513,6 +580,97 @@ def apply_import_record(conn, student_id, id_card, batch_no, insurance_type,
     log_operation(conn, {'id': cur.lastrowid, 'student_id': student_id},
                   'import', '', status, payload, operator=operator)
     return 'created'
+
+
+# ========== 导入批次留痕与撤销 ==========
+_IMPORT_RESTORE_FIELDS = (
+    'status', 'pay_date', 'premium', 'policy_no', 'expiry_date',
+    'export_batch_id', 'exported_at', 'approved_at', 'approved_by',
+    'pushed_at', 'completed_at', 'remark',
+)
+
+
+def snapshot_record(record):
+    """记录快照（JSON），供导入撤销时还原字段。"""
+    if not record:
+        return ''
+    return json.dumps({k: record.get(k, '') for k in _IMPORT_RESTORE_FIELDS},
+                      ensure_ascii=False)
+
+
+def create_import_batch(conn, file_name='', operator=''):
+    """创建一次导入批次，返回 batch_id（用于留痕与撤销）。"""
+    batch_id = uuid.uuid4().hex
+    conn.execute(
+        'INSERT INTO insurance_import_batches (id, file_name, operator) VALUES (?, ?, ?)',
+        (batch_id, file_name or '', operator or '')
+    )
+    return batch_id
+
+
+def record_import_entry(conn, batch_id, record, student_id, action, before, after):
+    """登记一条导入改动（before/after 为 snapshot_record 结果）。"""
+    conn.execute(
+        '''INSERT INTO insurance_import_entries
+             (batch_id, record_id, student_id, action, before_json, after_json)
+           VALUES (?, ?, ?, ?, ?, ?)''',
+        (batch_id, (record or {}).get('id', 0), student_id, action,
+         before or '', after or '')
+    )
+
+
+def finish_import_batch(conn, batch_id, total_rows, ok_rows):
+    conn.execute(
+        'UPDATE insurance_import_batches SET total_rows = ?, ok_rows = ? WHERE id = ?',
+        (int(total_rows or 0), int(ok_rows or 0), batch_id)
+    )
+
+
+def revert_import_batch(conn, batch_id, operator=''):
+    """撤销一次导入：created → 删除记录，updated → 还原 before 快照。
+
+    返回撤销的记录条数；同一批次不可重复撤销。
+    """
+    batch = conn.execute(
+        'SELECT * FROM insurance_import_batches WHERE id = ?', (batch_id,)
+    ).fetchone()
+    if not batch:
+        raise InsuranceTransitionError('导入批次不存在')
+    if batch['reversed_at']:
+        raise InsuranceTransitionError('该导入批次已撤销')
+
+    entries = conn.execute(
+        'SELECT * FROM insurance_import_entries WHERE batch_id = ? ORDER BY id DESC',
+        (batch_id,)
+    ).fetchall()
+    sids = set()
+    reverted = 0
+    for e in entries:
+        sids.add(e['student_id'])
+        if e['action'] == 'created':
+            if e['record_id']:
+                conn.execute('DELETE FROM insurance_records WHERE id = ?', (e['record_id'],))
+                reverted += 1
+            continue
+        before = json.loads(e['before_json'] or '{}')
+        if not before or not e['record_id']:
+            continue
+        fields = {k: before.get(k, '') for k in _IMPORT_RESTORE_FIELDS}
+        sets = ', '.join(f'{k} = ?' for k in fields)
+        conn.execute(
+            f'UPDATE insurance_records SET {sets}, updated_at = ? WHERE id = ?',
+            (*fields.values(), _now(), e['record_id'])
+        )
+        reverted += 1
+
+    conn.execute(
+        'UPDATE insurance_import_batches SET reversed_at = ? WHERE id = ?',
+        (_now(), batch_id)
+    )
+    for sid in sids:
+        sync_student_snapshot(conn, sid)
+    logger.info('撤销保险导入批次 %s：%s 条记录（operator=%s）', batch_id, reverted, operator)
+    return reverted
 
 
 def migrate_insurance_v3(conn):

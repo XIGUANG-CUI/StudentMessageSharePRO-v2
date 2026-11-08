@@ -1793,21 +1793,14 @@ def api_insurance_complete():
 @bp.route('/api/insurance/init-preview', methods=['POST'])
 @_json_roles('admin')
 def insurance_init_preview():
-    """初始化导入预览：后端用 openpyxl 解析上传的 Excel，返回预览行。"""
+    """初始化导入预览：后端解析 Excel 后按行解析目标批次，真实试算后回滚，返回逐行 diff。"""
     f = request.files.get('file')
     if not f:
         return jsonify({'error': '未收到文件'}), 400
     rows, errors = insurance_service.parse_insurance_excel(f)
     if errors:
         return jsonify({'success': False, 'errors': errors}), 400
-    preview = rows[:10]
-    return jsonify({
-        'success': True,
-        'total': len(rows),
-        'columns': insurance_service.IMPORT_COLUMNS,
-        'preview': preview,
-        'errors': [],
-    })
+    return jsonify(insurance_service.preview_insurance_import(rows))
 
 
 @bp.route('/insurance/init', methods=['GET', 'POST'])
@@ -1815,9 +1808,11 @@ def insurance_init_preview():
 def insurance_init():
     """初始化。GET 渲染页面；POST 接收 Excel 文件（或兼容旧 JSON rows）并启动后台导入。"""
     if request.method == 'POST':
+        file_name = ''
         # 优先使用上传的文件（后端解析，去 CDN）
         f = request.files.get('file')
         if f:
+            file_name = f.filename or ''
             rows, errors = insurance_service.parse_insurance_excel(f)
             if errors:
                 return jsonify({'error': '；'.join(errors)}), 400
@@ -1826,9 +1821,29 @@ def insurance_init():
             if not data or 'rows' not in data:
                 return jsonify({'error': '无效数据：未收到文件或 rows'}), 400
             rows = data['rows']
-        progress_id, total_count = insurance_service.start_insurance_init_import(rows, insurance_init_progress)
+        progress_id, total_count = insurance_service.start_insurance_init_import(
+            rows, insurance_init_progress, file_name=file_name,
+            operator=session.get('username', ''))
         return jsonify({'success': True, 'progress_id': progress_id, 'total': total_count})
     return render_template('insurance/init.html')
+
+
+@bp.route('/api/insurance/init/revert/<batch_id>', methods=['POST'])
+@_json_roles('admin')
+def insurance_init_revert(batch_id):
+    """撤销一次初始化导入：新建的记录删除，更新的记录还原到导入前快照。"""
+    conn = models.get_db()
+    try:
+        reverted = insurance_domain.revert_import_batch(
+            conn, batch_id, operator=session.get('username', ''))
+        conn.commit()
+    except insurance_domain.InsuranceTransitionError as exc:
+        conn.rollback()
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    except Exception as exc:                       # 兜底，避免半途崩溃留下半成品
+        conn.rollback()
+        return jsonify({'success': False, 'error': f'撤销失败：{exc}'}), 500
+    return jsonify({'success': True, 'reverted': reverted})
 
 
 @bp.route('/api/insurance/init-progress/<progress_id>')
@@ -1880,17 +1895,22 @@ def insurance_init_errors_csv(progress_id):
 @bp.route('/insurance/init/template')
 @_page_roles('admin')
 def insurance_init_template():
-    """初始化模板。"""
+    """初始化模板（按批次展开）：每个学生 × 计划内批次一行，预填库内现值。
+
+    「保险学年」「批次号」「险种」为定位列，用于精确指定历史批次；
+    空单元格表示"不修改"，填 `-` 表示显式清空。
+    """
     from io import BytesIO
     from openpyxl.utils import get_column_letter
     wb = Workbook()
     ws = wb.active
-    ws.title = '保险初始化导入模板'
+    ws.title = '保险初始化导入'
 
     header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
     header_font = Font(color='FFFFFF', bold=True, size=11)
-    headers = ['身份证号', '学平险保单号', '学平险缴费日期', '学平险到期时间', '实习险缴费日期', '主管标记']
-    col_widths = [22, 22, 16, 16, 16, 22]
+    headers = ['身份证号', '保险学年', '批次号', '险种', '学平险保单号',
+               '学平险缴费日期', '学平险到期时间', '实习险缴费日期', '主管标记']
+    col_widths = [22, 14, 8, 14, 24, 16, 16, 16, 22]
 
     for col_idx, (header, width) in enumerate(zip(headers, col_widths), 1):
         cell = ws.cell(row=1, column=col_idx, value=header)
@@ -1898,28 +1918,57 @@ def insurance_init_template():
         cell.font = header_font
         cell.alignment = Alignment(horizontal='center', vertical='center')
         ws.column_dimensions[get_column_letter(col_idx)].width = width
+    ws.freeze_panes = 'A2'
 
-    rows = models.get_db().execute(
-        '''SELECT id_card, student_insurance_no, student_insurance_pay_date,
-                  student_insurance_expiry, internship_insurance_pay_date,
-                  supervisor_flag
-           FROM students
-           WHERE is_deleted = 0
-           ORDER BY id_card'''
+    db = models.get_db()
+    students = db.execute(
+        'SELECT id, id_card, grade, enrollment_year FROM students '
+        'WHERE is_deleted = 0 ORDER BY id_card'
     ).fetchall()
+    records = db.execute(
+        'SELECT student_id, batch_no, insurance_type, policy_no, pay_date, expiry_date '
+        'FROM insurance_records'
+    ).fetchall()
+    rec_map = {(r['student_id'], r['batch_no'], r['insurance_type']): dict(r)
+               for r in records}
 
-    for row_idx, r in enumerate(rows, 2):
-        id_card = r[0] or ''
-        insurance_no = r[1] or ''
-        pay_date = r[2] or ''
-        expiry = r[3] or ''
-        intern_pay_date = r[4] or ''
-        flag = r[5] or ''
+    row_idx = 2
+    for student in students:
+        plan = insurance_domain.build_plan(student['enrollment_year'], student['grade'])
+        start = insurance_domain.start_year(student['enrollment_year'], student['grade'])
+        for step in plan:
+            is_intern = step['insurance_type'] == insurance_domain.INSURANCE_TYPE_INTERN
+            rec = rec_map.get((student['id'], step['batch_no'], step['insurance_type'])) or {}
+            year = start + step['batch_no'] - 1 if start else 0
+            values = [
+                student['id_card'] or '',
+                f'{year}-{year + 1}' if year else '',
+                step['batch_no'],
+                '实习就业险' if is_intern else '学平险',
+                '' if is_intern else (rec.get('policy_no') or ''),
+                rec.get('pay_date') or '',
+                '' if is_intern else (rec.get('expiry_date') or ''),
+                (rec.get('pay_date') or '') if is_intern else '',
+                '',
+            ]
+            for col_idx, value in enumerate(values, 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                cell.alignment = Alignment(horizontal='center')
+            row_idx += 1
 
-        vals = [id_card, insurance_no, pay_date, expiry, intern_pay_date, flag]
-        for col_idx, val in enumerate(vals, 1):
-            cell = ws.cell(row=row_idx, column=col_idx, value=val)
-            cell.alignment = Alignment(horizontal='center')
+    note = wb.create_sheet('填写说明')
+    notes = [
+        '1. 必须保留「身份证号」与「保险学年/批次号」列，旧 6 列模板已停用。',
+        '2. 保险学年优先（如 2024-2025）；留空则按「批次号」定位。',
+        '3. 默认仅补空：空单元格不修改任何数据；填 "-" 才清空该字段。',
+        '4. 险种与批次必须匹配：实习就业险批次不能填学平险列，反之亦然。',
+        '5. 每行只写一个批次；同一学生多个批次请分多行填写。',
+        '6. 主管标记留空表示不改状态；如需办结/放弃请显式填写标准标记。',
+        '7. 导入完成后可查看本次导入批次 id，并对该批次整批撤销。',
+    ]
+    for i, text in enumerate(notes, 1):
+        note.cell(row=i, column=1, value=text)
+    note.column_dimensions['A'].width = 82
 
     output = BytesIO()
     wb.save(output)

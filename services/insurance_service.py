@@ -12,6 +12,7 @@ import secrets
 import threading
 import time
 import datetime
+import logging
 
 import models
 import config
@@ -19,13 +20,26 @@ from models.insurance import (
     INSURANCE_TYPE_INTERN,
     INSURANCE_TYPE_XUEPING,
     apply_import_record,
+    batch_from_school_year,
     build_plan,
+    create_import_batch,
     current_insurance_batch,
+    finish_import_batch,
+    normalize_insurance_date,
+    record_import_entry,
+    snapshot_record,
+    start_year,
+    sync_student_snapshot,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # 导入模板列（中文表头）与 DB 字段映射
-IMPORT_COLUMNS = ['身份证号', '学平险保单号', '学平险缴费日期', '学平险到期时间', '实习险缴费日期', '主管标记']
+# 目标定位列（保险学年 / 批次号）为新增必填项：旧 6 列模板不再支持，避免"只能写当前批次"
+IMPORT_COLUMNS = ['身份证号', '保险学年', '批次号', '险种',
+                  '学平险保单号', '学平险缴费日期', '学平险到期时间',
+                  '实习险缴费日期', '主管标记']
 FIELD_MAPPING = {
     '学平险保单号': 'student_insurance_no',
     '学平险缴费日期': 'student_insurance_pay_date',
@@ -33,10 +47,15 @@ FIELD_MAPPING = {
     '实习险缴费日期': 'internship_insurance_pay_date',
     '主管标记': 'supervisor_flag',
 }
-# 学平险相关列：当学生应为"第3年实习就业险"(batch=3) 时整列忽略
+# 学平险相关列：与实习就业险批次互斥，填错即拒绝该行
 XUEPING_COLUMNS = ['学平险保单号', '学平险缴费日期', '学平险到期时间']
 # 日期型列：导入时 Excel 常以 int/float 序列号形式读入，需转成 YYYY-MM-DD 字符串
 DATE_COLUMNS = {'学平险缴费日期', '学平险到期时间', '实习险缴费日期'}
+
+TYPE_XUEPING = '学平险'
+TYPE_INTERN = '实习就业险'
+# 显式清空标记：默认"仅补空"，只有填这些值才清空库内字段
+CLEAR_TOKENS = {'-', '—', '－', '空', '清空', 'null', 'none', '无'}
 
 # 进度字典淘汰配置：防止 insurance_init_progress 内存单调增长
 PROGRESS_TTL_SECONDS = 600      # 已完成进度保留时长（秒），超时惰性删除
@@ -169,6 +188,8 @@ def parse_insurance_excel(file_storage):
                 idx_map[h] = i
         if '身份证号' not in idx_map:
             return rows, ['缺少"身份证号"列，无法匹配学生']
+        if '保险学年' not in idx_map and '批次号' not in idx_map:
+            return rows, ['缺少"保险学年"或"批次号"列：旧 6 列模板已停用，请重新下载新模板']
 
         for r in iter_rows:
             if r is None:
@@ -212,20 +233,47 @@ def parse_insurance_excel(file_storage):
     return rows, errors
 
 
-def start_insurance_init_import(rows, progress_dict):
+def _new_progress(total_count, file_name=''):
+    """导入进度初值（start_... 与测试共用，避免两处定义漂移）。"""
+    return {
+        'status': 'processing',
+        'total': total_count,
+        'current': 0,
+        'success': 0,
+        'skipped': 0,
+        'error': 0,
+        'message': '正在初始化...',
+        'errors': [],
+        'errors_full': [],
+        'batch_distribution': {},
+        'normalized': 0,
+        'unrecognized': 0,
+        'records_created': 0,
+        'records_updated': 0,
+        'unchanged': 0,
+        'warnings': [],
+        'import_batch_id': '',
+        'file_name': file_name or '',
+    }
+
+
+def start_insurance_init_import(rows, progress_dict, file_name='', operator=''):
     """启动保险数据初始化导入的后台处理。
 
-    语义（Phase 6 加固）：
-    - **全量覆盖**：匹配到的学生，该行提供的保险列整体覆盖库内对应字段；
-      空单元格按覆盖语义清空该字段（Excel 为该生该列完整真相）。
-    - **主管标记轻量归一化**：2 位年→4 位、年→年度、同义归一、留空默认待办结。
-    - **batch 感知**：按学生 grade 算 current_batch；batch=3（实习就业险年）
-      忽略学平险列（系统无学平险/保单号字段）。
+    语义（按批次精确 upsert）：
+    - **目标批次**：按行解析「保险学年」（2024-2025，优先）或「批次号」，
+      支持补录历史批次（不再限制"只能写当前批次/1~3"）。
+    - **仅补空**：空单元格跳过、不清字段；填 `-` 才显式清空。
+    - **快照统一投影**：写完记录后调用 sync_student_snapshot，杜绝两套数据分叉。
+    - **校验**：批次越界、险种与批次不符、学平险/实习险列混填 → 拒绝该行。
     - 未匹配（身份证号无对应学生）计入失败明细，不动该生记录。
+    - 每次导入生成 import_batch_id，可整批撤销。
 
     Args:
         rows: 待导入的行数据列表（每行含 身份证号 + 保险字段中文键）
         progress_dict: 进度存储字典（调用方持有，如 insurance_init_progress）
+        file_name: 源文件名（留痕用）
+        operator: 操作人（留痕用）
 
     Returns:
         (progress_id, total_count)
@@ -236,23 +284,7 @@ def start_insurance_init_import(rows, progress_dict):
     # 惰性清理旧进度，防止字典内存单调增长（进行中的条目不受影响）
     _cleanup_stale_progress(progress_dict)
 
-    progress_dict[progress_id] = {
-        'status': 'processing',
-        'total': total_count,
-        'current': 0,
-        'success': 0,
-        'skipped': 0,
-        'error': 0,
-        'message': '正在初始化...',
-        'errors': [],
-        'errors_full': [],
-        'batch_distribution': {1: 0, 2: 0, 3: 0},
-        'normalized': 0,
-        'unrecognized': 0,
-        'ignored_xueping': 0,
-        'records_created': 0,
-        'records_updated': 0,
-    }
+    progress_dict[progress_id] = _new_progress(total_count, file_name)
 
     def worker():
         """保险初始化导入的后台 worker 线程函数。"""
@@ -260,7 +292,14 @@ def start_insurance_init_import(rows, progress_dict):
         # 否则 models.get_db() 会走到非上下文分支、连接到错误的数据库。
         from app import app as _app
         with _app.app_context():
-            _run_import(rows, progress_dict, progress_id)
+            try:
+                _run_import(rows, progress_dict, progress_id, file_name, operator)
+            except Exception as exc:          # 兜底：避免后台线程静默失败
+                logger.exception('保险初始化导入失败')
+                p = progress_dict.get(progress_id) or {}
+                p['status'] = 'failed'
+                p['message'] = f'导入失败：{exc}'
+                p['completed_at'] = time.time()
 
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()
@@ -279,136 +318,303 @@ def _tick(progress_dict, progress_id, i, success_count, errors):
     p['message'] = f'正在处理第 {i}/{p["total"]} 行...'
 
 
-def _sync_insurance_records(student, id_card, current_batch, fields, progress):
-    """导入后同步 insurance_records（新状态机数据源），避免两套数据分叉。
+def _has_value(row, column):
+    """该单元格是否"有内容"（显式清空标记也算填写）。"""
+    return bool((row.get(column) or '').strip())
 
-    按保险计划中当前批次对应的步骤写入：学平险步骤写学平险记录，
-    实习就业险步骤写实习记录；学平险列被整列忽略时不动记录。
-    """
-    if current_batch not in (1, 2, 3):
-        return
-    db = models.get_db()
-    flag = (fields.get('supervisor_flag') or '').strip()
+
+def _cell(row, column):
+    """读取单元格：None=未提供（仅补空时跳过），''=显式清空，其余为原值。"""
+    raw = (row.get(column) or '').strip()
+    if not raw:
+        return None
+    if raw.lower() in CLEAR_TOKENS:
+        return ''
+    return raw
+
+
+def _resolve_target(row, student):
+    """解析本行目标批次：保险学年优先，批次号兜底。返回 (batch_no, step, error)。"""
     plan = build_plan(student['enrollment_year'], student['grade'])
-    step = next((s for s in plan if s['batch_no'] == current_batch), None)
-    if not step:
-        return
+    steps = {s['batch_no']: s for s in plan}
+    if not steps:
+        return None, None, '该生缺少年级/入学年份，无法推算保险计划'
 
-    if step['insurance_type'] == INSURANCE_TYPE_INTERN:
-        action = apply_import_record(
-            db, student['id'], id_card, step['batch_no'], INSURANCE_TYPE_INTERN,
-            flag=flag,
-            pay_date=fields.get('internship_insurance_pay_date', ''),
-            operator='import')
+    school_year = (row.get('保险学年') or '').strip()
+    batch_raw = (row.get('批次号') or '').strip()
+    batch = None
+    if school_year and school_year.lower() not in CLEAR_TOKENS:
+        batch = batch_from_school_year(school_year, student['enrollment_year'], student['grade'])
+        if batch is None and re.fullmatch(r'\d{4}', school_year):
+            start = start_year(student['enrollment_year'], student['grade'])
+            batch = int(school_year) - start + 1 if start else None
+        if batch is None:
+            return None, None, f'保险学年格式应为 2024-2025（收到：{school_year}）'
+    elif batch_raw and batch_raw.lower() not in CLEAR_TOKENS:
+        try:
+            batch = int(float(batch_raw))
+        except (TypeError, ValueError):
+            return None, None, f'批次号应为数字（收到：{batch_raw}）'
     else:
-        if 'student_insurance_pay_date' not in fields:
-            return
-        action = apply_import_record(
-            db, student['id'], id_card, step['batch_no'], INSURANCE_TYPE_XUEPING,
-            flag=flag,
-            pay_date=fields.get('student_insurance_pay_date', ''),
-            policy_no=fields.get('student_insurance_no', ''),
-            expiry_date=fields.get('student_insurance_expiry', ''),
-            operator='import')
+        return None, None, '缺少"保险学年"或"批次号"'
 
-    if action == 'created':
-        progress['records_created'] = progress.get('records_created', 0) + 1
-    elif action == 'updated':
-        progress['records_updated'] = progress.get('records_updated', 0) + 1
+    if batch not in steps:
+        allowed = f'{min(steps)}~{max(steps)}' if steps else '无'
+        return None, None, f'批次 {batch} 不在该生保险计划内（有效批次：{allowed}）'
+    return batch, steps[batch], ''
 
 
-def _run_import(rows, progress_dict, progress_id):
-    """导入核心循环（在 app context 内执行）。"""
+def _prepare_values(row, student, batch, step):
+    """把一行 Excel 转换为写入参数。返回 (values, warnings, error)。"""
+    is_intern = step['insurance_type'] == INSURANCE_TYPE_INTERN
+
+    # 险种与列互斥校验：填错列直接拒绝，避免把学平险数据写进实习险批次
+    if is_intern:
+        for column in XUEPING_COLUMNS:
+            if _has_value(row, column):
+                return None, None, f'批次 {batch} 为实习就业险，不能填写"{column}"'
+    elif _has_value(row, '实习险缴费日期'):
+        return None, None, f'批次 {batch} 为学平险，不能填写"实习险缴费日期"'
+
+    want = (row.get('险种') or '').strip()
+    if want and want.lower() not in CLEAR_TOKENS:
+        if want not in (TYPE_XUEPING, TYPE_INTERN):
+            return None, None, f'险种应为"{TYPE_XUEPING}"或"{TYPE_INTERN}"（收到：{want}）'
+        expect = TYPE_INTERN if is_intern else TYPE_XUEPING
+        if want != expect:
+            return None, None, f'批次 {batch} 为{expect}，与"险种={want}"不一致'
+
+    warnings = []
+
+    def _val(column):
+        value = _cell(row, column)
+        if value is None or value == '':
+            return value
+        if column in DATE_COLUMNS:
+            normalized = normalize_insurance_date(value)
+            if not normalized:
+                raise ValueError(f'"{column}"日期无法识别：{value}')
+            return normalized
+        return value
+
+    try:
+        if is_intern:
+            pay_date = _val('实习险缴费日期')
+            policy_no, expiry_date = None, None
+        else:
+            policy_no = _val('学平险保单号')
+            pay_date = _val('学平险缴费日期')
+            expiry_date = _val('学平险到期时间')
+    except ValueError as exc:
+        return None, None, str(exc)
+
+    if expiry_date and not is_intern:
+        start = start_year(student['enrollment_year'], student['grade'])
+        if start:
+            year = start + batch - 1
+            try:
+                if int(expiry_date[:4]) not in (year, year + 1):
+                    warnings.append(
+                        f'到期日 {expiry_date} 不在学年 {year}-{year + 1} 内')
+            except ValueError:
+                pass
+
+    flag_raw = (row.get('主管标记') or '').strip()
+    flag = None
+    if flag_raw and flag_raw.lower() not in CLEAR_TOKENS:
+        flag = normalize_supervisor_flag(flag_raw)
+
+    return {'flag': flag, 'pay_date': pay_date,
+            'policy_no': policy_no, 'expiry_date': expiry_date}, warnings, ''
+
+
+def _record_for_batch(conn, student_id, batch_no, insurance_type):
+    cur = conn.execute(
+        '''SELECT * FROM insurance_records
+           WHERE student_id = ? AND batch_no = ? AND insurance_type = ?
+           ORDER BY id DESC LIMIT 1''',
+        (student_id, batch_no, insurance_type))
+    row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def _apply_row(conn, row, student, batch, step):
+    """执行一行导入（调用方负责提交/回滚）。返回结果字典。"""
+    values, warnings, error = _prepare_values(row, student, batch, step)
+    if error:
+        return {'error': error}
+
+    old = _record_for_batch(conn, student['id'], batch, step['insurance_type'])
+    action = apply_import_record(
+        conn, student['id'], student['id_card'], batch, step['insurance_type'],
+        flag=values['flag'], pay_date=values['pay_date'],
+        policy_no=values['policy_no'], expiry_date=values['expiry_date'],
+        operator='import', partial=True)
+    if action:
+        sync_student_snapshot(conn, student['id'])
+    new = _record_for_batch(conn, student['id'], batch, step['insurance_type'])
+    return {'action': action, 'old': old, 'new': new, 'warnings': warnings,
+            'batch': batch, 'insurance_type': step['insurance_type']}
+
+
+_DIFF_LABELS = [('status', '状态'), ('policy_no', '保单号'),
+                ('pay_date', '缴费日期'), ('expiry_date', '到期日')]
+
+
+def _diff_records(old, new):
+    changes = []
+    for key, label in _DIFF_LABELS:
+        before = (old or {}).get(key, '') or ''
+        after = (new or {}).get(key, '') or ''
+        if before != after:
+            changes.append({'field': label, 'old': before, 'new': after})
+    return changes
+
+
+def preview_insurance_import(rows, limit=20):
+    """预览导入：真实执行后回滚（SAVEPOINT），返回逐行 diff 与校验结果。"""
+    conn = models.get_db()
+    items = []
+    summary = {'total': len(rows), 'ok': 0, 'reject': 0, 'warn': 0,
+               'created': 0, 'updated': 0, 'unchanged': 0}
+
+    for i, row in enumerate(rows, 1):
+        id_card = (row.get('身份证号') or '').strip()
+        item = {'row': i, 'id_card': id_card, 'name': '', 'batch': '',
+                'school_year': (row.get('保险学年') or '').strip(),
+                'type': '', 'action': '', 'changes': [], 'warnings': [],
+                'error': ''}
+        student = conn.execute(
+            'SELECT id, id_card, name, grade, enrollment_year, is_deleted '
+            'FROM students WHERE id_card = ?', (id_card,)).fetchone()
+        if not student:
+            item['error'] = f'身份证号 {id_card} 对应的学生不存在'
+        else:
+            item['name'] = student['name'] or ''
+            if student['is_deleted']:
+                item['error'] = '该学生已删除，将跳过'
+            else:
+                batch, step, error = _resolve_target(row, student)
+                if error:
+                    item['error'] = error
+                else:
+                    item['batch'] = batch
+                    item['type'] = (TYPE_XUEPING if step['insurance_type']
+                                    == INSURANCE_TYPE_XUEPING else TYPE_INTERN)
+                    conn.execute('SAVEPOINT preview_import')
+                    try:
+                        result = _apply_row(conn, row, student, batch, step)
+                    except Exception as exc:      # 预览失败不阻断其它行
+                        result = {'error': str(exc)}
+                    finally:
+                        conn.execute('ROLLBACK TO preview_import')
+                        conn.execute('RELEASE preview_import')
+                    if result.get('error'):
+                        item['error'] = result['error']
+                    else:
+                        item['action'] = result['action'] or ''
+                        item['warnings'] = result['warnings']
+                        item['changes'] = _diff_records(result['old'], result['new'])
+
+        if item['error']:
+            item['status'] = 'reject'
+            summary['reject'] += 1
+        elif item['warnings']:
+            item['status'] = 'warn'
+            summary['warn'] += 1
+            summary['ok'] += 1
+        else:
+            item['status'] = 'ok'
+            summary['ok'] += 1
+        if item['action'] == 'created':
+            summary['created'] += 1
+        elif item['action'] == 'updated':
+            summary['updated'] += 1
+        elif not item['error']:
+            summary['unchanged'] += 1
+
+        if len(items) < limit:
+            items.append(item)
+
+    return {'success': True, 'columns': IMPORT_COLUMNS,
+            'total': len(rows), 'summary': summary,
+            'preview': items, 'errors': []}
+
+
+def _run_import(rows, progress_dict, progress_id, file_name='', operator=''):
+    """导入核心循环（在 app context 内执行）。
+
+    每行：解析目标批次（保险学年优先）→ 仅补空 upsert 记录 → 快照重算；
+    改动登记到导入批次，支持事后撤销。
+    """
+    db = models.get_db()
+    batch_id = create_import_batch(db, file_name=file_name, operator=operator)
+    progress_dict[progress_id]['import_batch_id'] = batch_id
     success_count = 0
     errors = []
 
     for i, row in enumerate(rows, 1):
+        progress = progress_dict[progress_id]
         try:
             id_card = (row.get('身份证号') or '').strip()
             if not id_card:
-                errors.append(f'第{i}行: 缺少身份证号')
-                _tick(progress_dict, progress_id, i, success_count, errors)
-                continue
+                raise ValueError('缺少身份证号')
 
-            existing = models.get_db().execute(
-                'SELECT id, grade, enrollment_year, supervisor_flag, is_deleted FROM students WHERE id_card = ?',
-                (id_card,)
-            ).fetchone()
-
-            if not existing:
-                errors.append(f'第{i}行: 身份证号 {id_card} 对应的学生不存在')
-                _tick(progress_dict, progress_id, i, success_count, errors)
-                continue
-
-            if existing['is_deleted']:
-                # 已删除（回收站）学生不在导入范围：计入 skipped 而非 error，避免误报警
+            student = db.execute(
+                'SELECT id, id_card, name, grade, enrollment_year, is_deleted '
+                'FROM students WHERE id_card = ?', (id_card,)).fetchone()
+            if not student:
+                raise ValueError(f'身份证号 {id_card} 对应的学生不存在')
+            if student['is_deleted']:
+                # 已删除（回收站）学生不在导入范围：计入 skipped 而非 error
                 errors.append(f'第{i}行: 身份证号 {id_card} 对应的学生已删除，已跳过')
-                progress_dict[progress_id]['skipped'] = \
-                    progress_dict[progress_id].get('skipped', 0) + 1
+                progress['skipped'] = progress.get('skipped', 0) + 1
                 _tick(progress_dict, progress_id, i, success_count, errors)
                 continue
 
-            # batch 感知：current_batch = CURRENT_SCHOOL_YEAR − grade + 1
-            current_batch = compute_insurance_batch(existing['grade'], existing['enrollment_year'])
+            batch, step, error = _resolve_target(row, student)
+            if error:
+                raise ValueError(error)
 
-            fields = {}
-            ignored_xp = False
-            supervisor_raw_blank = False
-            for cn, en in FIELD_MAPPING.items():
-                if en == 'supervisor_flag':
-                    raw = (row.get(cn) or '').strip()
-                    if raw:
-                        norm = normalize_supervisor_flag(raw)
-                        # 归一化计数（原值非空且与归一化结果不同）
-                        if norm != re.sub(r'\s+', '', raw):
-                            progress_dict[progress_id]['normalized'] = \
-                                progress_dict[progress_id].get('normalized', 0) + 1
-                            if not _is_canonical_flag(norm):
-                                progress_dict[progress_id]['unrecognized'] = \
-                                    progress_dict[progress_id].get('unrecognized', 0) + 1
-                    else:
-                        # 主管标记留空：标记 raw 为空，后续按 batch 决定去向
-                        #   batch=1 → 占位缴费日期 + 按计划办理学平险（直接进待办，等同人工确认）
-                        #   batch=2/3 → 保持「待处理」(空串)，走 登记→审批→待办 正常流
-                        supervisor_raw_blank = True
-                        norm = ''
-                    fields[en] = norm
-                    continue
+            result = _apply_row(db, row, student, batch, step)
+            if result.get('error'):
+                raise ValueError(result['error'])
 
-                # batch=3 忽略学平险列
-                if current_batch == 3 and cn in XUEPING_COLUMNS:
-                    if (row.get(cn) or '').strip():
-                        ignored_xp = True
-                    continue
+            for warning in result.get('warnings', []):
+                progress['warnings'].append(
+                    f'第{i}行 {(student["name"] or id_card)}：{warning}')
 
-                # 全量覆盖：空单元格也写入（清空该字段）
-                val = (row.get(cn) or '').strip()
-                fields[en] = val
+            flag_raw = (row.get('主管标记') or '').strip()
+            if flag_raw and flag_raw.lower() not in CLEAR_TOKENS:
+                normalized = normalize_supervisor_flag(flag_raw)
+                if normalized != re.sub(r'\s+', '', flag_raw):
+                    progress['normalized'] = progress.get('normalized', 0) + 1
+                    if not _is_canonical_flag(normalized):
+                        progress['unrecognized'] = progress.get('unrecognized', 0) + 1
 
-            if ignored_xp:
-                progress_dict[progress_id]['ignored_xueping'] = \
-                    progress_dict[progress_id].get('ignored_xueping', 0) + 1
+            if result['action']:
+                record_import_entry(
+                    db, batch_id, result['new'], student['id'], result['action'],
+                    snapshot_record(result['old']), snapshot_record(result['new']))
+                success_count += 1
+                key = str(batch)
+                progress['batch_distribution'][key] = \
+                    progress['batch_distribution'].get(key, 0) + 1
+                if result['action'] == 'created':
+                    progress['records_created'] = progress.get('records_created', 0) + 1
+                else:
+                    progress['records_updated'] = progress.get('records_updated', 0) + 1
+            else:
+                progress['unchanged'] = progress.get('unchanged', 0) + 1
 
-            # batch=1 空标记：占位标记「新生默认首保」+ 按计划办理学平险（直接进待办，等同人工确认）
-            # 不写真实缴费日期——外部流转学生在系统内并未缴费，写日期会误导查账。
-            if current_batch == 1 and supervisor_raw_blank:
-                fields['supervisor_flag'] = config.InsuranceStatus.PENDING_XUEPING
-                if _is_blank(fields.get('student_insurance_pay_date')):
-                    fields['student_insurance_pay_date'] = config.InsuranceStatus.EXTERNAL_PAY_MARKER
-
-            models.update_student_insurance(existing['id'], fields)
-            # 记录同步以 Excel 原始标记为准：留空行不生成/降级记录
-            record_fields = dict(fields, supervisor_flag='') if supervisor_raw_blank else fields
-            _sync_insurance_records(existing, id_card, current_batch, record_fields,
-                                    progress_dict[progress_id])
-            success_count += 1
-            if current_batch in (1, 2, 3):
-                progress_dict[progress_id]['batch_distribution'][current_batch] += 1
-
+            db.commit()
         except Exception as e:
             errors.append(f'第{i}行: {str(e)}')
 
         _tick(progress_dict, progress_id, i, success_count, errors)
+
+    finish_import_batch(db, batch_id, len(rows), success_count)
+    db.commit()
 
     progress_dict[progress_id]['status'] = 'completed'
     progress_dict[progress_id]['message'] = '导入完成！'

@@ -13,14 +13,15 @@
 {% endblock %}
 {% block content %}
 <div class="ii-card">
-    {% with _fh_type='import', _fh_title='保险数据导入字段说明', _fh_icon='bi-shield-check', _fh_template_url=url_for('insurance.insurance_init_template'), _fh_note='以身份证号为唯一匹配依据，批量覆盖更新学生保险相关字段。整行为该生保险列的完整真相：空单元格将清空对应字段（完成 2 位年→4 位年的迁移）；未匹配（身份证号无对应学生）的记录不动。主管标记支持 `YYYY年度学平险办结` / `按计划办理学平险` / `不参保` 等，2 位年自动补全为 4 位年。' %}
+    {% with _fh_type='import', _fh_title='保险数据导入字段说明', _fh_icon='bi-shield-check', _fh_template_url=url_for('insurance.insurance_init_template'), _fh_note='按「身份证号 + 保险学年/批次号」定位到某生某批次，支持补录历史年份。默认仅补空：空单元格不修改数据，填 "-" 才清空。险种与批次必须匹配。每次导入生成批次 id，可整批撤销。主管标记支持 `YYYY年度学平险办结` / `按计划办理学平险` / `不参保` 等，2 位年自动补全为 4 位年。' %}
     {% include '_field_help.html' %}
     {% endwith %}
     <h4 class="mb-3"><i class="bi bi-cloud-upload me-2"></i>保险初始化导入</h4>
     <p class="text-muted small">
-        上传 Excel 文件（.xlsx），系统按<strong>身份证号</strong>匹配学生记录，<strong>整体覆盖</strong>写入保险数据。
-        <br>模板包含 6 列：身份证号、学平险保单号、学平险缴费日期、学平险到期时间、实习险缴费日期、主管标记。
-        <br><strong>全量覆盖语义</strong>：文件中某格为空，即视为清空该生对应字段；未匹配的学生记录保持不变。
+        上传 Excel 文件（.xlsx），系统按<strong>身份证号</strong>匹配学生、按<strong>保险学年 / 批次号</strong>定位批次，
+        写入该批次保险记录，并由记录重算学生档案快照。
+        <br>模板包含 9 列：身份证号、保险学年、批次号、险种、学平险保单号、学平险缴费日期、学平险到期时间、实习险缴费日期、主管标记。
+        <br><strong>仅补空语义</strong>：空单元格 = 不修改；填 <code>-</code> = 清空该字段。险种与批次不匹配、批次超出保险计划的行会被拒绝。
     </p>
     <div class="mb-3">
         <a href="{{ url_for('insurance.insurance_init_template') }}" class="btn btn-outline-primary btn-sm">
@@ -35,12 +36,26 @@
     </div>
 
     <div id="iiPreview" class="d-none mt-3">
-        <h6>预览数据 (<span id="iiRowCount">0</span> 行，仅显示前 10 行)</h6>
-        <div class="table-responsive" style="max-height: 300px;">
-            <table class="table table-sm table-bordered">
-                <thead><tr id="iiPreviewHead"></tr></thead>
+        <h6>试算结果 (<span id="iiRowCount">0</span> 行，仅显示前 20 行)</h6>
+        <div id="iiPreviewSummary" class="mb-2"></div>
+        <div class="table-responsive" style="max-height: 360px;">
+            <table class="table table-sm table-bordered align-middle">
+                <thead>
+                    <tr>
+                        <th style="width:52px;">行</th>
+                        <th>姓名</th>
+                        <th>身份证号</th>
+                        <th style="width:140px;">批次 / 险种</th>
+                        <th style="width:78px;">动作</th>
+                        <th>改动（旧 → 新）</th>
+                        <th>提示</th>
+                    </tr>
+                </thead>
                 <tbody id="iiPreviewBody"></tbody>
             </table>
+        </div>
+        <div class="form-text mb-2">
+            动作：新建 / 更新 / 无变化；被拒绝的行会显示原因，导入时自动跳过。
         </div>
         <button class="btn btn-primary" id="iiSubmitBtn">
             <i class="bi bi-check-lg"></i> 确认导入
@@ -98,13 +113,14 @@
                 </div>
                 <div id="iiSummary" class="ii-summary mt-3 p-2 rounded bg-light" style="display: none;">
                     <h6 class="mb-2">导入汇总</h6>
-                    <div class="mb-1">批次分布：
-                        <span class="badge bg-primary" id="iiBatch1">第1年 0</span>
-                        <span class="badge bg-info" id="iiBatch2">第2年 0</span>
-                        <span class="badge bg-secondary" id="iiBatch3">第3年 0</span>
-                    </div>
+                    <div class="mb-1">批次分布：<span id="iiBatchDist">—</span></div>
+                    <div class="mb-1">新建 <span id="iiCreated">0</span> 条 ｜ 更新 <span id="iiUpdated">0</span> 条 ｜ 无变化 <span id="iiUnchanged">0</span> 条</div>
                     <div class="mb-1">主管标记归一化：<span id="iiNormalized">0</span> 条（未识别 <span id="iiUnrecognized" class="text-danger">0</span> 条）</div>
-                    <div class="mb-0">忽略学平险列（应为实习就业险）：<span id="iiIgnoredXp">0</span> 条</div>
+                    <div class="mb-1">学年/到期日不匹配警告：<span id="iiWarnCount">0</span> 条</div>
+                    <div class="mb-1">本次导入批次：<code id="iiImportBatchId">-</code>
+                        <button class="btn btn-sm btn-outline-danger ms-2" id="iiRevertBtn" style="display:none;">撤销本次导入</button>
+                    </div>
+                    <ul id="iiWarnList" class="list-unstyled small text-warning mb-0" style="max-height:120px; overflow-y:auto;"></ul>
                 </div>
             </div>
             <div class="modal-footer">
@@ -119,6 +135,13 @@
 (function() {
     var pendingFile = null;
     var currentProgressId = null;   // 当前导入的 progress_id，供失败清单 CSV 导出使用
+    var currentImportBatchId = null; // 当前导入批次 id，供整批撤销使用
+
+    function esc(v) {
+        return String(v == null ? '' : v).replace(/[&<>"']/g, function(c) {
+            return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+        });
+    }
 
     document.getElementById('iiUploadZone').addEventListener('click', function() {
         document.getElementById('iiFileInput').click();
@@ -167,13 +190,44 @@
                   pendingFile = null;
                   return;
               }
-              var columns = data.columns || [];
-              var preview = data.preview || [];
+              var items = data.preview || [];
+              var summary = data.summary || {};
               document.getElementById('iiRowCount').textContent = data.total;
-              document.getElementById('iiPreviewHead').innerHTML =
-                  columns.map(function(h) { return '<th>' + h + '</th>'; }).join('');
-              document.getElementById('iiPreviewBody').innerHTML = preview.map(function(r) {
-                  return '<tr>' + columns.map(function(h) { return '<td>' + (r[h] != null ? r[h] : '') + '</td>'; }).join('') + '</tr>';
+              document.getElementById('iiPreviewSummary').innerHTML =
+                  '<span class="badge bg-success me-1">可导入 ' + (summary.ok || 0) + '</span>' +
+                  '<span class="badge bg-danger me-1">拒绝 ' + (summary.reject || 0) + '</span>' +
+                  '<span class="badge bg-warning text-dark me-1">警告 ' + (summary.warn || 0) + '</span>' +
+                  '<span class="badge bg-primary me-1">新建 ' + (summary.created || 0) + '</span>' +
+                  '<span class="badge bg-info text-dark">更新 ' + (summary.updated || 0) + '</span>';
+              document.getElementById('iiPreviewBody').innerHTML = items.map(function(it) {
+                  var actionText = it.error ? '拒绝'
+                      : (it.action === 'created' ? '新建'
+                      : (it.action === 'updated' ? '更新' : '无变化'));
+                  var actionCls = it.error ? 'text-danger'
+                      : (it.action === 'created' ? 'text-success'
+                      : (it.action === 'updated' ? 'text-primary' : 'text-muted'));
+                  var changes = (it.changes || []).map(function(c) {
+                      return '<div>' + esc(c.field) + '：<span class="text-muted">'
+                          + esc(c.old || '空') + '</span> → <strong>'
+                          + esc(c.new || '空') + '</strong></div>';
+                  }).join('');
+                  var notes = [];
+                  if (it.error) notes.push('<div class="text-danger">' + esc(it.error) + '</div>');
+                  (it.warnings || []).forEach(function(w) {
+                      notes.push('<div class="text-warning">' + esc(w) + '</div>');
+                  });
+                  var target = it.batch
+                      ? ('第' + esc(it.batch) + '批' + (it.type ? ' · ' + esc(it.type) : ''))
+                      : esc(it.school_year || '');
+                  return '<tr>' +
+                      '<td>' + it.row + '</td>' +
+                      '<td>' + esc(it.name) + '</td>' +
+                      '<td class="small">' + esc(it.id_card) + '</td>' +
+                      '<td class="small">' + (target || '—') + '</td>' +
+                      '<td class="' + actionCls + '">' + actionText + '</td>' +
+                      '<td class="small">' + (changes || '<span class="text-muted">—</span>') + '</td>' +
+                      '<td class="small">' + (notes.join('') || '') + '</td>' +
+                      '</tr>';
               }).join('');
           })
           .catch(function(err) {
@@ -185,7 +239,7 @@
 
     document.getElementById('iiSubmitBtn').addEventListener('click', function() {
         if (!pendingFile) return alert('请先选择文件');
-        if (!confirm('确认导入该文件？将以全量覆盖语义更新匹配到的学生保险字段。')) return;
+        if (!confirm('确认导入该文件？将按「保险学年/批次号」写入对应批次；空单元格不修改，填 "-" 才清空。')) return;
 
         var fd = new FormData();
         fd.append('file', pendingFile);
@@ -276,14 +330,27 @@
                               importStatus.className = 'text-success';
                               progressBar.classList.remove('progress-bar-animated');
 
-                              // 汇总
-                              var bd = progress.batch_distribution || {1:0,2:0,3:0};
-                              document.getElementById('iiBatch1').textContent = '第1年 ' + (bd[1]||0);
-                              document.getElementById('iiBatch2').textContent = '第2年 ' + (bd[2]||0);
-                              document.getElementById('iiBatch3').textContent = '第3年 ' + (bd[3]||0);
+                              var bd = progress.batch_distribution || {};
+                              var bdHtml = Object.keys(bd)
+                                  .sort(function(a, b) { return Number(a) - Number(b); })
+                                  .map(function(k) {
+                                      return '<span class="badge bg-primary me-1">第' + esc(k) + '批 ' + bd[k] + '</span>';
+                                  }).join('');
+                              document.getElementById('iiBatchDist').innerHTML = bdHtml || '<span class="text-muted">—</span>';
+                              document.getElementById('iiCreated').textContent = progress.records_created || 0;
+                              document.getElementById('iiUpdated').textContent = progress.records_updated || 0;
+                              document.getElementById('iiUnchanged').textContent = progress.unchanged || 0;
                               document.getElementById('iiNormalized').textContent = progress.normalized || 0;
                               document.getElementById('iiUnrecognized').textContent = progress.unrecognized || 0;
-                              document.getElementById('iiIgnoredXp').textContent = progress.ignored_xueping || 0;
+                              var warns = progress.warnings || [];
+                              document.getElementById('iiWarnCount').textContent = warns.length;
+                              document.getElementById('iiWarnList').innerHTML = warns.map(function(w) {
+                                  return '<li>' + esc(w) + '</li>';
+                              }).join('');
+                              var bid = progress.import_batch_id || '';
+                              currentImportBatchId = bid;
+                              document.getElementById('iiImportBatchId').textContent = bid || '-';
+                              document.getElementById('iiRevertBtn').style.display = bid ? 'inline-block' : 'none';
                               summaryEl.style.display = 'block';
 
                               // 失败清单下载：存在错误时显示按钮（内容由后端 errors_full 提供）
@@ -317,6 +384,26 @@
         document.getElementById('iiPreview').classList.add('d-none');
         document.getElementById('iiResult').classList.add('d-none');
         document.getElementById('iiFileInput').value = '';
+    });
+
+    // 撤销本次导入：created 删除、updated 还原到导入前快照
+    document.getElementById('iiRevertBtn').addEventListener('click', function() {
+        if (!currentImportBatchId) return;
+        if (!confirm('确认撤销本次导入？新建的记录将被删除，已更新的记录将还原到导入前的值。')) return;
+        fetch('/api/insurance/init/revert/' + currentImportBatchId, {method: 'POST'})
+            .then(function(r) {
+                return r.json().then(function(d) { return {ok: r.ok, data: d}; });
+            })
+            .then(function(res) {
+                if (!res.ok || !res.data.success) {
+                    throw new Error(res.data.error || '撤销失败');
+                }
+                alert('已撤销 ' + res.data.reverted + ' 条记录');
+                document.getElementById('iiRevertBtn').style.display = 'none';
+            })
+            .catch(function(err) {
+                alert('撤销失败: ' + err.message);
+            });
     });
 
     // 下载失败清单：从后端导出全量错误 CSV（不再受轮询"最近 10 条"截断限制）
