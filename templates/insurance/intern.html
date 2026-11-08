@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}实习就业险办结 - 学生数据管理系统{% endblock %}
+{% block title %}就业险办结 - 学生数据管理系统{% endblock %}
 {% block head %}
 <style>
     .iin-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
@@ -29,7 +29,7 @@
 {% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-2">
-    <h5 class="mb-0"><i class="bi bi-mortarboard me-2"></i>实习就业险办结</h5>
+    <h5 class="mb-0"><i class="bi bi-mortarboard me-2"></i>就业险办结</h5>
     <span class="text-muted small">审批通过 → 导出办结（实习险无保单号）</span>
 </div>
 
@@ -266,7 +266,7 @@
                 var url = URL.createObjectURL(blob);
                 var a = document.createElement('a');
                 a.href = url;
-                a.download = '实习就业险办结.xlsx';
+                a.download = '就业险办结.xlsx';
                 document.body.appendChild(a);
                 a.click();
                 a.remove();

@@ -512,6 +512,98 @@ def coverage(grade=None):
     }
 
 
+# ---------------------------------------------------------------- 跨县检索
+def search_dispatches(keyword='', grade=None, school=None, limit=500):
+    """跨县检索派遣状态：姓名 / 姓名拼音 / 身份证号 / 学号。
+
+    同时返回尚未生成派遣记录的毕业生（状态由调用方显示为「未生成」），
+    让「按县派遣」的全局查询可以直接定位到该生所在县。
+    """
+    keyword = (keyword or '').strip()
+    conn = get_db()
+    sql = '''
+        SELECT s.id AS student_id, s.student_no, s.id_card, s.name, s.name_pinyin,
+               s.school, s.grade, s.admin_class, s.address, s.major_direction,
+               s.student_phone, s.parent_phone,
+               s.district_province_code, s.district_province_name,
+               s.district_city_code, s.district_city_name,
+               s.district_county_code, s.district_county_name,
+               d.id AS dispatch_id, d.batch_no, d.dispatch_status, d.dispatch_date,
+               d.agency_no, d.agency_name, d.agency_address, d.agency_phone,
+               d.county_code AS dispatch_county_code, d.county_name AS dispatch_county_name,
+               d.graduate_year, d.operator, d.returned_at, d.match_status, d.match_reason
+        FROM students s
+        LEFT JOIN archive_dispatch d ON d.student_id = s.id AND d.is_deleted = 0
+        WHERE s.is_deleted = 0
+          AND (s.registration_status = '毕业' OR d.id IS NOT NULL)
+    '''
+    params = []
+    if grade:
+        sql += ' AND s.grade = ?'
+        params.append(grade)
+    if school:
+        sql += ' AND s.school = ?'
+        params.append(int(school))
+    if keyword:
+        sql += (' AND (s.name LIKE ? OR s.name_pinyin LIKE ? OR s.id_card LIKE ? '
+                'OR s.student_no LIKE ?)')
+        like = f'%{keyword}%'
+        params.extend([like, like, like, like])
+    sql += ' ORDER BY s.grade DESC, s.admin_class, s.name LIMIT ?'
+    params.append(int(limit))
+    rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+    conn.close()
+
+    result = []
+    for row in rows:
+        code, name = _group_key(row)
+        status = row.get('dispatch_status') or ''
+        result.append({
+            'student_id': row['student_id'],
+            'student_no': row.get('student_no') or '',
+            'name': row.get('name') or '',
+            'name_pinyin': row.get('name_pinyin') or '',
+            'id_card': row.get('id_card') or '',
+            'school': row.get('school'),
+            'grade': row.get('grade') or '',
+            'admin_class': row.get('admin_class') or '',
+            'major_direction': row.get('major_direction') or '',
+            'address': row.get('address') or '',
+            'student_phone': row.get('student_phone') or '',
+            'parent_phone': row.get('parent_phone') or '',
+            'county_code': row.get('dispatch_county_code') or code,
+            'county_name': row.get('dispatch_county_name') or name or '未匹配区划',
+            'origin_place': _origin_place(row),
+            'graduate_year': row.get('graduate_year') or graduate_year_of(row.get('grade')),
+            'dispatch_id': row.get('dispatch_id'),
+            'dispatch_status': status,
+            'status_label': status or '未生成',
+            'dispatch_date': row.get('dispatch_date') or '',
+            'batch_no': row.get('batch_no') or '',
+            'agency_no': row.get('agency_no') or '',
+            'agency_name': row.get('agency_name') or '',
+            'agency_address': row.get('agency_address') or '',
+            'agency_phone': row.get('agency_phone') or '',
+            'operator': row.get('operator') or '',
+            'returned_at': row.get('returned_at') or '',
+            'match_status': row.get('match_status') or '',
+            'match_reason': row.get('match_reason') or '',
+        })
+
+    if keyword:
+        lower = keyword.lower()
+
+        def _rank(item):
+            for value in (item['student_no'], item['id_card'], item['name'],
+                          item['name_pinyin']):
+                if value and value.lower() == lower:
+                    return 0
+            return 1
+
+        result.sort(key=_rank)
+    return result
+
+
 # ---------------------------------------------------------------- 批次生成
 def _next_batch_no(conn, graduate_year, county_name):
     prefix = f'{graduate_year}-{county_name}-'
@@ -612,30 +704,40 @@ def create_batch(group_code, student_ids, operator, overrides=None):
 
 
 def list_batches(school=None):
-    """批次汇总：退档、重派、升学、失效分别计数。"""
+    """批次汇总：退档、重派、升学、失效分别计数，并附带最近一次转递单导出标记。"""
     conn = get_db()
-    sql = """SELECT batch_no, county_code, county_name,
+    sql = """SELECT d.batch_no, d.county_code, d.county_name,
                   COUNT(*) AS total,
-                  SUM(CASE WHEN dispatch_status = '已派遣' THEN 1 ELSE 0 END) AS sent,
-                  SUM(CASE WHEN dispatch_status = '已退回' THEN 1 ELSE 0 END) AS returned,
-                  SUM(CASE WHEN dispatch_status = '已派遣'
-                            AND COALESCE(returned_at, '') != '' THEN 1 ELSE 0 END) AS redispatch,
-                  SUM(CASE WHEN dispatch_status = '升学' THEN 1 ELSE 0 END) AS study,
-                  SUM(CASE WHEN dispatch_status = '已失效' THEN 1 ELSE 0 END) AS invalid,
-                  MIN(created_at) AS created_at,
-                  MIN(handler) AS handler
-           FROM archive_dispatch
-           WHERE is_deleted = 0 AND batch_no != ''"""
+                  SUM(CASE WHEN d.dispatch_status = '已派遣' THEN 1 ELSE 0 END) AS sent,
+                  SUM(CASE WHEN d.dispatch_status = '已退回' THEN 1 ELSE 0 END) AS returned,
+                  SUM(CASE WHEN d.dispatch_status = '已派遣'
+                            AND COALESCE(d.returned_at, '') != '' THEN 1 ELSE 0 END) AS redispatch,
+                  SUM(CASE WHEN d.dispatch_status = '升学' THEN 1 ELSE 0 END) AS study,
+                  SUM(CASE WHEN d.dispatch_status = '已失效' THEN 1 ELSE 0 END) AS invalid,
+                  MIN(d.created_at) AS created_at,
+                  MIN(d.handler) AS handler,
+                  MAX(e.created_at) AS exported_at,
+                  MAX(e.created_by) AS exported_by
+           FROM archive_dispatch d
+           LEFT JOIN export_history e ON e.id = (
+               SELECT h.id FROM export_history h
+               WHERE h.scheme_name = d.batch_no
+                 AND h.template_name LIKE '档案转递单%'
+               ORDER BY h.created_at DESC, h.id DESC LIMIT 1
+           )
+           WHERE d.is_deleted = 0 AND d.batch_no != ''"""
     params = []
     if school:
-        sql += ' AND school = ?'
+        sql += ' AND d.school = ?'
         params.append(int(school))
-    sql += ' GROUP BY batch_no ORDER BY created_at DESC'
+    sql += ' GROUP BY d.batch_no ORDER BY created_at DESC'
     rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
     conn.close()
     for row in rows:
         # 应派遣 = 总人数 - 升学 - 已失效；否则升学/失效会一直占着分母，批次永远「未完成」
         row['active_total'] = (row['total'] or 0) - (row['study'] or 0) - (row['invalid'] or 0)
+        row['exported_at'] = row.get('exported_at') or ''
+        row['exported_by'] = row.get('exported_by') or ''
     return rows
 
 
@@ -939,3 +1041,31 @@ def build_export_rows(batch_no, redispatch_only=False):
         })
         result.append(item)
     return result
+
+
+def get_dispatch_detail_rows(start_date=None, end_date=None, school=None):
+    """派遣明细（Excel 导出用）：按派遣日期范围跨批次/跨区县汇总。
+
+    只取有实际派遣日期的记录（升学、已退回等日期为空的记录不参与报销口径）；
+    school 为空表示全部校别。
+    """
+    sql = ("SELECT d.*, s.address, s.major_direction, s.name_pinyin "
+           "FROM archive_dispatch d "
+           "LEFT JOIN students s ON s.id = d.student_id "
+           "WHERE d.is_deleted = 0 "
+           "AND LENGTH(COALESCE(d.dispatch_date, '')) > 0")
+    params = []
+    if start_date:
+        sql += ' AND d.dispatch_date >= ?'
+        params.append(start_date)
+    if end_date:
+        sql += ' AND d.dispatch_date <= ?'
+        params.append(end_date)
+    if school:
+        sql += ' AND d.school = ?'
+        params.append(int(school))
+    sql += ' ORDER BY d.dispatch_date, d.county_code, d.student_no'
+    conn = get_db()
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

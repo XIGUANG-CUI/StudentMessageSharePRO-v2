@@ -601,9 +601,9 @@ def api_insurance_intern_export():
                             'message': '仅能导出已审批的实习就业险记录'}), 400
         records.append(rec)
 
-    output = _build_export_workbook(conn, records, '实习就业险办结', '0B7285')
+    output = _build_export_workbook(conn, records, '就业险办结', '0B7285')
     timestamp = datetime.now().strftime('%Y%m%d_%H%M')
-    filename = f'实习就业险办结_{timestamp}.xlsx'
+    filename = f'就业险办结_{timestamp}.xlsx'
     operator = session.get('username', '')
     try:
         insurance_domain.export_records(
@@ -777,9 +777,9 @@ def api_insurance_first_export():
                             'message': '仅能导出已办理的首保记录'}), 400
         records.append(rec)
 
-    output = _build_export_workbook(conn, records, '新生首保参保数据', '6F42C1')
+    output = _build_export_workbook(conn, records, '学平险首保参保数据', '6F42C1')
     timestamp = datetime.now().strftime('%Y%m%d_%H%M')
-    filename = f'新生首保参保数据_{timestamp}.xlsx'
+    filename = f'学平险首保参保数据_{timestamp}.xlsx'
     operator = session.get('username', '')
     try:
         insurance_domain.export_records(
@@ -996,7 +996,7 @@ def api_insurance_renewal_export():
 
     output = _build_export_workbook(conn, records, '学平险续保', '0D6EFD')
     timestamp = datetime.now().strftime('%Y%m%d_%H%M')
-    filename = f'续保参保数据_{timestamp}.xlsx'
+    filename = f'学平险续保参保数据_{timestamp}.xlsx'
     operator = session.get('username', '')
     try:
         insurance_domain.export_records(
@@ -1121,38 +1121,50 @@ def api_insurance_collection_export():
         insurance_domain.INSURANCE_TYPE_INTERN: '实习就业险',
     }
 
+    # 分险种分表导出：学平险 / 实习就业险 各一个 sheet
     wb = Workbook()
-    ws = wb.active
-    ws.title = '待缴费名单'
-    ws.append(['姓名', '学号', '身份证号', '校别', '班级', '专业', '年级', '险种', '批次', '状态'])
+    wb.remove(wb.active)
+    headers = ['姓名', '学号', '身份证号', '校别', '班级', '专业', '年级', '险种', '批次', '状态']
+    widths = (12, 16, 22, 14, 14, 18, 10, 12, 10, 10)
     fill = PatternFill('solid', fgColor='0D6EFD')
-    for cell in ws[1]:
-        cell.font = Font(bold=True, color='FFFFFF')
-        cell.fill = fill
-        cell.alignment = Alignment(horizontal='center', vertical='center')
+    groups = (
+        (insurance_domain.INSURANCE_TYPE_XUEPING, '学平险'),
+        (insurance_domain.INSURANCE_TYPE_INTERN, '实习就业险'),
+    )
+    for ins_type, label in groups:
+        rows = [i for i in items if i.get('insurance_type') == ins_type]
+        if not rows:
+            continue
+        ws = wb.create_sheet(label)
+        ws.append(headers)
+        for cell in ws[1]:
+            cell.font = Font(bold=True, color='FFFFFF')
+            cell.fill = fill
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+        for item in rows:
+            ws.append([
+                item.get('name') or '',
+                item.get('student_no') or '',
+                item.get('id_card') or '',
+                school_names.get(item.get('school'), item.get('school') or ''),
+                item.get('admin_class') or '',
+                item.get('major') or '',
+                item.get('grade') or '',
+                type_labels.get(item.get('insurance_type'), item.get('insurance_type') or ''),
+                f"第{item.get('batch_no')}年" if item.get('batch_no') else '',
+                '待缴费',
+            ])
+        for column, width in zip('ABCDEFGHIJ', widths):
+            ws.column_dimensions[column].width = width
 
-    for item in items:
-        ws.append([
-            item.get('name') or '',
-            item.get('student_no') or '',
-            item.get('id_card') or '',
-            school_names.get(item.get('school'), item.get('school') or ''),
-            item.get('admin_class') or '',
-            item.get('major') or '',
-            item.get('grade') or '',
-            type_labels.get(item.get('insurance_type'), item.get('insurance_type') or ''),
-            f"第{item.get('batch_no')}年" if item.get('batch_no') else '',
-            '待缴费',
-        ])
-
-    for column, width in zip('ABCDEFGHIJ', (12, 16, 22, 14, 14, 18, 10, 12, 10, 10)):
-        ws.column_dimensions[column].width = width
+    if not wb.worksheets:
+        return jsonify({'success': False, 'message': '没有待缴费记录可导出'}), 400
 
     output = BytesIO()
     wb.save(output)
     output.seek(0)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M')
-    filename = f'待缴费名单_{timestamp}.xlsx'
+    filename = f'待缴费名单_分险种_{timestamp}.xlsx'
     return send_file(
         output,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

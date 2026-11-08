@@ -28,6 +28,8 @@ CREATE TABLE students (
     grade TEXT,
     enrollment_year INTEGER,
     is_deleted INTEGER DEFAULT 0,
+    registration_status TEXT DEFAULT '',
+    attendance_status TEXT DEFAULT '',
     student_insurance_no TEXT DEFAULT '',
     student_insurance_pay_date TEXT DEFAULT '',
     student_insurance_expiry TEXT DEFAULT '',
@@ -338,3 +340,34 @@ class TestBackfill:
             'students': 0, 'xueping': 0, 'intern': 0,
             'skipped': 0, 'unparsed_date': 0,
         }
+
+
+# ============================================================
+# 从未投保老生收敛（迁移内自动执行）
+# ============================================================
+class TestNeverInsuredConvergence:
+    def test_uninsured_old_student_auto_exempt(self):
+        """空标记且无数据的老生：已到学年的学平险批次自动放弃，不留空占位。"""
+        conn = _make_db([{'id_card': 'N', 'grade': '2025', 'enrollment_year': 2025}])
+        ins.migrate_insurance_v3(conn)
+
+        recs = sorted(_records(conn, 'xueping'), key=lambda r: r['batch_no'])
+        assert [(r['batch_no'], r['status']) for r in recs] == [
+            (1, ins.InsuranceStatus.EXEMPT), (2, ins.InsuranceStatus.EXEMPT)]
+        assert all(r['remark'] == ins.REMARK_AUTO_UNINSURED for r in recs)
+        flag = conn.execute(
+            'SELECT supervisor_flag FROM students WHERE id = 1').fetchone()[0]
+        assert flag == '不参保'
+
+    def test_old_student_with_policy_untouched(self):
+        conn = _make_db([{
+            'id_card': 'O', 'grade': '2025', 'enrollment_year': 2025,
+            'no': 'P-005', 'pay': '2025/9/1', 'expiry': '2026/8/31',
+            'flag': '2025年度学平险办结',
+        }])
+        ins.migrate_insurance_v3(conn)
+
+        recs = _records(conn, 'xueping')
+        assert len(recs) == 1
+        assert recs[0]['status'] == ins.InsuranceStatus.DONE
+        assert recs[0]['remark'] != ins.REMARK_AUTO_UNINSURED

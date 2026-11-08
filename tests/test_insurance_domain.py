@@ -29,6 +29,8 @@ CREATE TABLE students (
     grade TEXT,
     enrollment_year INTEGER,
     is_deleted INTEGER DEFAULT 0,
+    registration_status TEXT DEFAULT '',
+    attendance_status TEXT DEFAULT '',
     student_insurance_no TEXT DEFAULT '',
     student_insurance_pay_date TEXT DEFAULT '',
     student_insurance_expiry TEXT DEFAULT '',
@@ -338,6 +340,27 @@ class TestSnapshot:
         assert s['student_insurance_no'] == 'P-OLD'
         assert s['student_insurance_pay_date'] == '2025-09-01'
         assert s['student_insurance_expiry'] == '2026-10-01'
+
+    def test_exempt_later_batch_keeps_done_flag(self):
+        """放弃本期（后一批 exempt）不覆盖已办结批次的 supervisor_flag。"""
+        conn = _db()
+        sid = _add_student(conn)
+        _add_record(conn, sid, status=S.DONE, batch_no=1,
+                    school_year='2025-2026', expiry_date='2026-10-01')
+        _add_record(conn, sid, status=S.EXEMPT, batch_no=2,
+                    school_year='2026-2027')
+        ins.sync_student_snapshot(conn, sid)
+        assert _student(conn, sid)['supervisor_flag'] == \
+            config.InsuranceStatus.done_xueping(2025)
+
+    def test_only_exempt_shows_exempt_flag(self):
+        """没有任何已办结记录时，exempt 批次仍显示「不参保」。"""
+        conn = _db()
+        sid = _add_student(conn)
+        _add_record(conn, sid, status=S.EXEMPT, batch_no=1,
+                    school_year='2026-2027')
+        ins.sync_student_snapshot(conn, sid)
+        assert _student(conn, sid)['supervisor_flag'] == config.InsuranceStatus.EXEMPT
 
 
 # ============================================================

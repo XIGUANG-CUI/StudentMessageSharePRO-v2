@@ -347,13 +347,183 @@ class TestCollectionPool:
                     batch_no=3, pay_date='2026-10-01')
         assert query_collection_pool(conn) == []
 
+    def test_blank_migrated_placeholder_never_collected(self, conn):
+        """迁移生成的空占位记录（从未投保）绝不能出现在催缴名单。"""
+        sid = _add_student(conn, '空占位', grade='2025', enrollment_year=2025)
+        _add_record(conn, sid, status=S.PENDING_APPROVE, batch_no=2)
+        assert query_collection_pool(conn) == []
+
+    def test_real_data_batch_not_over_filtered(self, conn):
+        """带真实保单/到期数据的批次不受空占位过滤影响。"""
+        sid = _add_student(conn, '有单据', grade='2025', enrollment_year=2025)
+        _add_record(conn, sid, status=S.PENDING_APPROVE, batch_no=2,
+                    policy_no='P-1', expiry_date='2027-08-31')
+        items = query_collection_pool(conn)
+        assert len(items) == 1
+        assert items[0]['batch_no'] == 2
+
+
+# ============================================================
+# ③b 从未投保老生收敛
+# ============================================================
+class TestNeverInsuredRepair:
+    def test_old_student_auto_exempt_and_never_collected(self, conn):
+        """从未投保的老生：已到学年的学平险批次自动放弃，且不进催缴。"""
+        sid = _add_student(conn, '从未投保', grade='2025', enrollment_year=2025)
+        _add_record(conn, sid, status=S.PENDING_APPROVE, batch_no=2)
+
+        stats = ins.repair_never_insured_xueping(conn, current_year=2026)
+        conn.commit()
+        assert stats['students'] == 1
+
+        recs = ins.get_student_records(conn, sid)
+        assert sorted((r['batch_no'], r['status']) for r in recs) == [
+            (1, S.EXEMPT), (2, S.EXEMPT)]
+        assert all(r['remark'] == ins.REMARK_AUTO_UNINSURED for r in recs)
+        assert query_collection_pool(conn) == []
+
+        student = conn.execute(
+            'SELECT supervisor_flag FROM students WHERE id = ?', (sid,)).fetchone()
+        assert student['supervisor_flag'] == '不参保'
+
+    def test_mis_filled_pay_date_cleared_and_exempted(self, conn):
+        """空占位被误填统一缴费日期/保费后，仍能识别为未投保并清空脏数据。"""
+        sid = _add_student(conn, '误填缴费', grade='2025', enrollment_year=2025)
+        _add_record(conn, sid, status=S.PENDING_APPROVE, batch_no=2,
+                    pay_date='2026-01-01')
+        conn.execute(
+            "UPDATE insurance_records SET premium='100' WHERE student_id=? AND batch_no=2",
+            (sid,))
+        conn.commit()
+
+        stats = ins.repair_never_insured_xueping(conn, current_year=2026)
+        conn.commit()
+        assert stats['students'] == 1
+
+        recs = {r['batch_no']: r for r in ins.get_student_records(conn, sid)}
+        assert recs[2]['status'] == S.EXEMPT
+        assert recs[2]['pay_date'] == ''
+        assert recs[2]['premium'] == ''
+        assert recs[2]['remark'] == ins.REMARK_AUTO_UNINSURED
+        snap = conn.execute(
+            'SELECT student_insurance_pay_date, supervisor_flag '
+            'FROM students WHERE id = ?', (sid,)).fetchone()
+        assert snap['student_insurance_pay_date'] == ''
+        assert snap['supervisor_flag'] == '不参保'
+        assert query_collection_pool(conn) == []
+
+    def test_snapshot_pay_date_does_not_block_repair(self, conn):
+        """students 快照被误填缴费日期后，学生仍应被识别为未投保。"""
+        sid = _add_student(conn, '快照污染', grade='2025', enrollment_year=2025)
+        _add_record(conn, sid, status=S.PENDING_APPROVE, batch_no=2,
+                    pay_date='2026-01-01')
+        conn.execute(
+            'UPDATE students SET student_insurance_pay_date = ?, '
+            "supervisor_flag = '' WHERE id = ?", ('2026-01-01', sid))
+        conn.commit()
+
+        assert query_collection_pool(conn) == []      # 空占位不进催缴
+        stats = ins.repair_never_insured_xueping(conn, current_year=2026)
+        conn.commit()
+        assert stats['students'] == 1
+
+        snap = conn.execute(
+            'SELECT student_insurance_pay_date, supervisor_flag '
+            'FROM students WHERE id = ?', (sid,)).fetchone()
+        assert snap['student_insurance_pay_date'] == ''
+        assert snap['supervisor_flag'] == '不参保'
+
+    def test_already_exempt_residual_date_self_heals(self, conn):
+        """已是「放弃」但残留误填缴费日期：重跑时自愈清空。"""
+        sid = _add_student(conn, '残留', grade='2025', enrollment_year=2025)
+        _add_record(conn, sid, status=S.EXEMPT, batch_no=2,
+                    pay_date='2026-01-01', policy_no='', expiry_date='')
+
+        stats = ins.repair_never_insured_xueping(conn, current_year=2026)
+        conn.commit()
+        assert stats['cleared'] >= 1
+
+        recs = {r['batch_no']: r for r in ins.get_student_records(conn, sid)}
+        assert recs[2]['pay_date'] == ''
+        assert recs[2]['status'] == S.EXEMPT
+
+    def test_repair_idempotent(self, conn):
+        sid = _add_student(conn, '幂等', grade='2025', enrollment_year=2025)
+        _add_record(conn, sid, status=S.PENDING_APPROVE, batch_no=2)
+        ins.repair_never_insured_xueping(conn, current_year=2026)
+        stats = ins.repair_never_insured_xueping(conn, current_year=2026)
+        assert stats['created'] == 0 and stats['exempted'] == 0
+
+    def test_first_year_student_untouched(self, conn):
+        """仍在首保学年的学生属于正常待办，不自动放弃。"""
+        sid = _add_student(conn, '新生')
+        _add_record(conn, sid, status=S.PENDING_APPROVE, batch_no=1)
+        stats = ins.repair_never_insured_xueping(conn, current_year=2026)
+        assert stats['students'] == 0
+        assert len(query_first_pool(conn, current_year=2026)) == 1
+
+    def test_student_with_real_data_untouched(self, conn):
+        sid = _add_student(conn, '有数据', grade='2025', enrollment_year=2025)
+        _add_record(conn, sid, status=S.PENDING_APPROVE, batch_no=2,
+                    policy_no='P-9', expiry_date='2027-08-31')
+        stats = ins.repair_never_insured_xueping(conn, current_year=2026)
+        assert stats['students'] == 0
+        rec = ins.get_student_records(conn, sid)[0]
+        assert rec['status'] == S.PENDING_APPROVE
+
+    def test_intern_record_skipped(self, conn):
+        sid = _add_student(conn, '有实习记录', grade='2024', enrollment_year=2024)
+        _add_record(conn, sid, status=S.PENDING_APPROVE, batch_no=2)
+        _add_record(conn, sid, insurance_type='intern', status=S.APPROVED,
+                    batch_no=3)
+        stats = ins.repair_never_insured_xueping(conn, current_year=2026)
+        assert stats['students'] == 0
+
+    def test_pushed_only_when_intern_year_arrives(self, conn):
+        """收敛后不提前推送：学年推进到实习批次才进入推送池。"""
+        sid = _add_student(conn, '老生', grade='2025', enrollment_year=2025)
+        _add_record(conn, sid, status=S.PENDING_APPROVE, batch_no=2)
+        ins.repair_never_insured_xueping(conn, current_year=2026)
+        conn.commit()
+
+        assert query_push_pool(conn, current_year=2026) == []
+        assert query_renewal_pool(conn, today=date(2026, 11, 7),
+                                  current_year=2026) == []
+        items = query_push_pool(conn, current_year=2027)
+        assert len(items) == 1
+        assert items[0]['batch_no'] == 3
+
+    def test_overdue_old_student_pushed_immediately(self, conn):
+        """已到实习学年的从未投保老生直接进入推送池。"""
+        sid = _add_student(conn, '已到实习年', grade='2024', enrollment_year=2024)
+        _add_record(conn, sid, status=S.PENDING_APPROVE, batch_no=2)
+        ins.repair_never_insured_xueping(conn, current_year=2026)
+        conn.commit()
+
+        items = query_push_pool(conn, current_year=2026)
+        assert len(items) == 1
+        assert items[0]['batch_no'] == 3
+
+    def test_out_of_plan_placeholder_converged(self, conn):
+        """占位落在计划外批次的转学生同样收敛，不留「待审批」残影。"""
+        sid = _add_student(conn, '转学生', grade='2024', enrollment_year=2025)
+        _add_record(conn, sid, status=S.PENDING_APPROVE, batch_no=3)
+
+        ins.repair_never_insured_xueping(conn, current_year=2026)
+        conn.commit()
+
+        recs = {r['batch_no']: r['status']
+                for r in ins.get_student_records(conn, sid)}
+        assert recs == {2: S.EXEMPT, 3: S.EXEMPT}
+        assert len(query_push_pool(conn, current_year=2026)) == 1
+
 
 # ============================================================
 # ④ 待推送池
 # ============================================================
 class TestPushPool:
     def test_all_xueping_done_enters(self, conn):
-        sid = _add_student(conn, '可推送')
+        sid = _add_student(conn, '可推送', grade='2024', enrollment_year=2024)
         _add_record(conn, sid, status=S.DONE, batch_no=1)
         _add_record(conn, sid, status=S.DONE, batch_no=2)
         items = query_push_pool(conn, current_year=2026)
@@ -377,11 +547,12 @@ class TestPushPool:
         assert query_push_pool(conn, current_year=2026) == []
 
     def test_exempt_batch_counts_as_terminal(self, conn):
-        """放弃本期不阻塞实习险推送（该批次视为已了结）。"""
+        """放弃本期视为该批次已了结，但仍须等学年推进到实习险批次。"""
         sid = _add_student(conn, '放弃后推送')
         _add_record(conn, sid, status=S.DONE, batch_no=1)
         _add_record(conn, sid, status=S.EXEMPT, batch_no=2)
-        items = query_push_pool(conn, current_year=2026)
+        assert query_push_pool(conn, current_year=2026) == []
+        items = query_push_pool(conn, current_year=2028)
         assert len(items) == 1
         assert items[0]['previous_batch_no'] == 2
 
@@ -519,7 +690,7 @@ class TestPoolSummary:
         _add_record(conn, collection, status=S.DONE, batch_no=1)
         _add_record(conn, collection, status=S.APPROVED, batch_no=2)
 
-        push = _add_student(conn, '推送')
+        push = _add_student(conn, '推送', grade='2024', enrollment_year=2024)
         _add_record(conn, push, status=S.DONE, batch_no=1)
         _add_record(conn, push, status=S.DONE, batch_no=2,
                     pay_date='2026-09-01')

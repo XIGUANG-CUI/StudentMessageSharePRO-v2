@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """档案派遣：人才机构字典、按县批次生成、转递单导出、升学标记与转递单配置。"""
 import os
+import re
 from datetime import datetime
 
 from flask import Blueprint, render_template, request, jsonify, session, send_file
@@ -51,6 +52,14 @@ def agencies_page():
 def dispatch_page():
     grades = models.get_graduated_list_grades()
     return render_template('archive/dispatch.html', list_grades=grades)
+
+
+@bp.route('/admin/archive/query')
+@auth.admin_required
+def query_page():
+    """档案派遣查询：按姓名/拼音/身份证号/学号查派遣状态与接收地址。"""
+    grades = models.get_graduated_list_grades()
+    return render_template('archive/query.html', list_grades=grades)
 
 
 @bp.route('/admin/archive/settings', methods=['GET'])
@@ -207,6 +216,19 @@ def api_students():
     return jsonify({'students': data, 'count': len(data)})
 
 
+@bp.route('/api/archive/search')
+@auth.admin_required
+def api_search():
+    """跨县检索毕业生派遣状态（姓名/拼音/身份证号/学号）。"""
+    keyword = request.args.get('keyword', '').strip()
+    grade = request.args.get('grade', '').strip() or None
+    school = request.args.get('school', '').strip() or None
+    if not keyword:
+        return jsonify({'students': [], 'count': 0})
+    rows = models.search_dispatches(keyword, grade=grade, school=school)
+    return jsonify({'students': rows, 'count': len(rows)})
+
+
 @bp.route('/api/archive/generate', methods=['POST'])
 @auth.admin_required
 def api_generate():
@@ -249,6 +271,138 @@ def export_batch(batch_no):
     models.add_export_history(None, title, batch_no, len(rows), path, _operator())
     suffix = '_重派转递单' if redispatch_only else '_档案转递单'
     return send_file(path, as_attachment=True, download_name=f'{batch_no}{suffix}.docx')
+
+
+@bp.route('/admin/archive/export-merged')
+@auth.admin_required
+def export_merged_batches():
+    """把多个区县批次合并导出一个转递单 docx（每个学生一页，连续打印）。"""
+    from blueprints.export import _export_docx
+
+    batch_nos = []
+    for raw in request.args.getlist('batch_nos'):
+        for part in raw.split(','):
+            part = part.strip()
+            if part and part not in batch_nos:
+                batch_nos.append(part)
+    if not batch_nos:
+        return jsonify({'success': False, 'message': '请勾选要导出的批次'}), 400
+    if len(batch_nos) > 100:
+        return jsonify({'success': False, 'message': '单次最多合并 100 个批次'}), 400
+    if not os.path.exists(TRANSFER_TEMPLATE_PATH):
+        return jsonify({'success': False, 'message': '转递单模板缺失，请检查 archive_templates 目录'}), 500
+
+    merged_rows = []
+    exported = []
+    skipped = []
+    for batch_no in batch_nos:
+        rows = models.build_export_rows(batch_no)
+        if not rows:
+            skipped.append(batch_no)
+            continue
+        merged_rows.extend(rows)
+        exported.append((batch_no, len(rows)))
+    if not merged_rows:
+        return jsonify({'success': False,
+                        'message': '所选批次均没有可打印的转递单（退档待重派 / 已失效 / 升学的档案不出转递单）'}), 404
+
+    path = _export_docx(TRANSFER_TEMPLATE_PATH, merged_rows, _mappings())
+    # 每个批次各记一条导出历史，用于「已导出」标记
+    for batch_no, count in exported:
+        models.add_export_history(None, '档案转递单（合并）', batch_no, count, path, _operator())
+
+    filename = f"档案转递单_合并{len(exported)}批次_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
+    return send_file(path, as_attachment=True, download_name=filename)
+
+
+DETAIL_COLUMNS = [
+    # (表头, 字段, 列宽)
+    ('学号', 'student_no', 16), ('姓名', 'student_name', 10),
+    ('身份证号', 'id_card', 20), ('届', 'graduate_year', 8),
+    ('年级', 'grade', 12), ('班级', 'admin_class', 14),
+    ('县（区）', 'county_name', 14), ('批次号', 'batch_no', 22),
+    ('派遣状态', 'dispatch_status', 10), ('派遣日期', 'dispatch_date', 12),
+    ('经办人', 'operator', 10),
+    ('接收机构', 'agency_name', 30), ('机构地址', 'agency_address', 34),
+    ('联系电话', 'agency_phone', 16), ('机构编号', 'agency_no', 14),
+    ('学生电话', 'student_phone', 14), ('家长电话', 'parent_phone', 14),
+    ('生源地', 'origin_place', 12), ('家庭住址', 'address', 32),
+]
+
+
+@bp.route('/admin/archive/export-detail')
+@auth.admin_required
+def export_dispatch_detail():
+    """按派遣日期范围导出派遣明细 Excel（跨批次/跨区县，含状态列与汇总统计）。"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    start_date = request.args.get('start_date', '').strip()
+    end_date = request.args.get('end_date', '').strip()
+    school = request.args.get('school', '').strip() or None
+    for value in (start_date, end_date):
+        if value and not re.match(r'^\d{4}-\d{2}-\d{2}$', value):
+            return jsonify({'success': False, 'message': '日期格式应为 YYYY-MM-DD'}), 400
+    if start_date and end_date and start_date > end_date:
+        return jsonify({'success': False, 'message': '开始日期不能晚于结束日期'}), 400
+
+    rows = models.get_dispatch_detail_rows(start_date or None, end_date or None, school)
+    if not rows:
+        return jsonify({'success': False, 'message': '该日期范围内没有可导出的派遣明细'}), 404
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = '派遣明细'
+    fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+    for idx, (title, _key, width) in enumerate(DETAIL_COLUMNS, 1):
+        cell = ws.cell(row=1, column=idx, value=title)
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = fill
+        cell.alignment = Alignment(horizontal='center')
+        ws.column_dimensions[get_column_letter(idx)].width = width
+
+    for r, row in enumerate(rows, 2):
+        for idx, (_title, key, _width) in enumerate(DETAIL_COLUMNS, 1):
+            value = row.get(key) or ''
+            if key == 'operator':
+                value = row.get('operator') or row.get('handler') or ''
+            elif key == 'dispatch_status':
+                value = row.get('dispatch_status') or '未生成'
+            ws.cell(row=r, column=idx, value=value)
+
+    last_row = len(rows) + 1
+    ws.freeze_panes = 'A2'
+    ws.auto_filter.ref = f'A1:{get_column_letter(len(DETAIL_COLUMNS))}{last_row}'
+
+    # 汇总统计行：固定状态顺序在前，其余状态按名称追加
+    counts = {}
+    for row in rows:
+        status = row.get('dispatch_status') or '未生成'
+        counts[status] = counts.get(status, 0) + 1
+    ordered = [(s, counts.pop(s)) for s in
+               (models.STATUS_PENDING, models.STATUS_SENT, models.STATUS_RETURNED,
+                models.STATUS_INVALID, models.STATUS_STUDY) if s in counts]
+    ordered += sorted(counts.items())
+
+    start = last_row + 2
+    ws.cell(row=start, column=1, value='状态汇总').font = Font(bold=True)
+    ws.cell(row=start, column=2, value='人数').font = Font(bold=True)
+    r = start + 1
+    for status, count in ordered:
+        ws.cell(row=r, column=1, value=status)
+        ws.cell(row=r, column=2, value=count)
+        r += 1
+    ws.cell(row=r, column=1, value='合计').font = Font(bold=True)
+    ws.cell(row=r, column=2, value=len(rows)).font = Font(bold=True)
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    date_label = f"{start_date or '不限'}_至_{end_date or '不限'}"
+    filename = f"派遣明细_{date_label}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    return send_file(output, as_attachment=True, download_name=filename,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
 @bp.route('/api/archive/dispatch/<int:dispatch_id>/status', methods=['POST'])

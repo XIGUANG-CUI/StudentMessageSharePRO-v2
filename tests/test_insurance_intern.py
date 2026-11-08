@@ -177,10 +177,10 @@ class TestPushInternRoutes:
         try:
             resp = client.get('/insurance/push')
             assert resp.status_code == 200
-            assert '实习推送' in resp.get_data(as_text=True)
+            assert '就业险推送' in resp.get_data(as_text=True)
             resp = client.get('/insurance/intern')
             assert resp.status_code == 200
-            assert '实习就业险办结' in resp.get_data(as_text=True)
+            assert '就业险办结' in resp.get_data(as_text=True)
             # 财务主管同样可进入实习推送页
             self._login(client, 'finance_chief')
             assert client.get('/insurance/push').status_code == 200
@@ -189,7 +189,7 @@ class TestPushInternRoutes:
 
     def test_push_list_and_start(self, client, db_conn):
         self._clean(db_conn)
-        sid = self._student(db_conn, '可推送')
+        sid = self._student(db_conn, '可推送', grade='2024', enrollment_year=2024)
         self._record(db_conn, sid, S.DONE, batch_no=1)
         self._record(db_conn, sid, S.DONE, batch_no=2)
         self._login(client)

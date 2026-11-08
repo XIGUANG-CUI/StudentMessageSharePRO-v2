@@ -220,7 +220,7 @@ class TestFirstRoutes:
         try:
             page = client.get('/insurance/first')
             assert page.status_code == 200
-            assert '新生首保' in page.get_data(as_text=True)
+            assert '学平险首保' in page.get_data(as_text=True)
 
             data = client.get('/api/insurance/first/list').get_json()
             assert data['success'] is True

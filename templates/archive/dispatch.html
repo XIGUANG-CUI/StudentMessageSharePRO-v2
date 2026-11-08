@@ -89,6 +89,12 @@
     .ad-empty { text-align: center; padding: 2.5rem 1rem; color: var(--ad-gray-500); font-size: .85rem; }
     .ad-agency-result { padding: .5rem .75rem; border-bottom: 1px solid var(--ad-gray-100); cursor: pointer; font-size: .84rem; }
     .ad-agency-result:hover { background: var(--ad-primary-light); }
+
+    .ad-global-results { max-height: 240px; overflow-y: auto; border-top: 1px solid var(--ad-gray-100); }
+    .ad-global-item { display: flex; align-items: center; gap: .75rem; padding: .5rem 1rem; border-bottom: 1px solid var(--ad-gray-100); font-size: .84rem; }
+    .ad-global-item:last-child { border-bottom: none; }
+    .ad-global-main { min-width: 0; flex: 1; }
+    .ad-table tbody tr.is-located { background: #fef9c3; box-shadow: inset 3px 0 0 #ca8a04; }
 </style>
 {% endblock %}
 {% block content %}
@@ -141,6 +147,22 @@
 
 <!-- ==================== 按县派遣 ==================== -->
 <div data-pane="dispatch">
+    <div class="ad-card mb-3">
+        <div class="ad-toolbar">
+            <span class="fw-bold"><i class="bi bi-search"></i> 全局查询</span>
+            <div class="input-group input-group-sm" style="max-width:420px">
+                <input type="text" class="form-control" id="adGlobalSearch"
+                       placeholder="姓名 / 拼音 / 身份证号 / 学号（跨县查询）" autocomplete="off">
+                <button class="btn btn-primary" type="button" id="adGlobalSearchBtn">
+                    <i class="bi bi-search"></i> 查询
+                </button>
+                <button class="btn btn-outline-secondary" type="button" id="adGlobalResetBtn">重置</button>
+            </div>
+            <span class="small text-muted">查到后点「定位」自动切到该生所在县并高亮</span>
+            <span class="ms-auto small text-muted">查询范围跟随当前校别 / 年级筛选</span>
+        </div>
+        <div class="ad-global-results" id="adGlobalResults" hidden></div>
+    </div>
     <div class="row g-3">
         <div class="col-lg-3">
             <div class="ad-card">
@@ -208,11 +230,34 @@
 <!-- ==================== 派遣批次 ==================== -->
 <div data-pane="batches" hidden>
     <div class="ad-card">
-        <div class="ad-card-header"><span><i class="bi bi-box-seam"></i> 派遣批次</span></div>
+        <div class="ad-card-header">
+            <span><i class="bi bi-box-seam"></i> 派遣批次</span>
+            <div class="d-flex align-items-center gap-2 flex-wrap small">
+                <span>派遣日期</span>
+                <input type="date" class="form-control form-control-sm" id="adExportStart" style="max-width:150px">
+                <span>至</span>
+                <input type="date" class="form-control form-control-sm" id="adExportEnd" style="max-width:150px">
+                <button type="button" class="btn btn-sm btn-light text-dark fw-bold" id="adExportDetailBtn">
+                    <i class="bi bi-file-earmark-excel"></i> 导出派遣明细
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-light" id="adExportClearBtn">清空日期</button>
+            </div>
+        </div>
+        <div class="ad-toolbar">
+            <button type="button" class="btn btn-sm btn-primary" id="adBatchExportBtn" disabled>
+                <i class="bi bi-file-earmark-word"></i> 合并导出转递单
+            </button>
+            <span class="ad-sel-count" id="adBatchSelCount">已选 0 个批次</span>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="adBatchClearSelBtn">清空选择</button>
+            <span class="small text-muted ms-auto">
+                勾选多个区县批次可合并为一个 Word 连续打印；已导出批次会显示标记，重复导出前会二次确认
+            </span>
+        </div>
         <div class="ad-table-wrap" style="max-height:66vh">
             <table class="ad-table">
                 <thead>
                     <tr>
+                        <th style="width:34px"><input type="checkbox" id="adBatchSelectAll"></th>
                         <th>批次号</th>
                         <th>县（区）</th>
                         <th>应派遣</th>
@@ -225,7 +270,7 @@
                     </tr>
                 </thead>
                 <tbody id="adBatchBody">
-                    <tr><td colspan="9" class="ad-empty">暂无批次</td></tr>
+                    <tr><td colspan="10" class="ad-empty">暂无批次</td></tr>
                 </tbody>
             </table>
         </div>
@@ -327,7 +372,10 @@
         studyCounty: '',
         selected: new Set(),
         studySelected: new Set(),
-        agencyDispatchId: null
+        batchSelected: new Set(),
+        agencyDispatchId: null,
+        globalResults: [],
+        highlightId: null
     };
 
     var STATUS_CLASS = {
@@ -374,6 +422,80 @@
                 }
             })
             .catch(function() { showToast('操作失败，请重试', 'danger'); });
+    }
+
+    // ---------------------------------------------------- 全局查询（跨县定位）
+    function renderGlobalResults(list) {
+        var box = document.getElementById('adGlobalResults');
+        box.hidden = false;
+        if (!list.length) {
+            box.innerHTML = '<div class="ad-empty">未找到匹配的学生，请检查关键词或放宽校别 / 年级筛选</div>';
+            return;
+        }
+        var shown = list.slice(0, 30);
+        state.globalResults = shown;
+        var html = shown.map(function(s, i) {
+            var statusCls = STATUS_CLASS[s.status_label] || 'ad-badge-pending';
+            var meta = esc(s.county_name) + ' · ' + badge(s.status_label, statusCls);
+            if (s.dispatch_date) meta += ' · 派遣日期 ' + esc(s.dispatch_date);
+            if (s.batch_no) meta += ' · ' + esc(s.batch_no);
+            return '<div class="ad-global-item">' +
+                '<div class="ad-global-main">' +
+                    '<span class="ad-name">' + esc(s.name) + '</span> ' +
+                    '<span class="ad-mono">' + esc(s.student_no || '—') + '</span> ' +
+                    '<span class="small text-muted">' + esc(s.grade) + ' · ' + esc(s.admin_class) + '</span>' +
+                    '<div class="small text-muted">' + meta + '</div>' +
+                '</div>' +
+                '<button type="button" class="btn btn-sm btn-outline-primary" data-locate="' + i + '">定位</button>' +
+                '</div>';
+        }).join('');
+        if (list.length > shown.length) {
+            html += '<div class="ad-empty">共 ' + list.length + ' 条，仅显示前 ' +
+                shown.length + ' 条，请细化关键词</div>';
+        }
+        box.innerHTML = html;
+    }
+
+    function globalSearch() {
+        var keyword = document.getElementById('adGlobalSearch').value.trim();
+        var box = document.getElementById('adGlobalResults');
+        state.highlightId = null;
+        if (!keyword) {
+            box.hidden = true;
+            box.innerHTML = '';
+            return;
+        }
+        var params = new URLSearchParams({
+            keyword: keyword,
+            grade: state.grade,
+            school: state.school
+        });
+        box.hidden = false;
+        box.innerHTML = '<div class="ad-empty">查询中…</div>';
+        fetch('/api/archive/search?' + params.toString())
+            .then(function(r) { return r.json(); })
+            .then(function(data) { renderGlobalResults(data.students || []); })
+            .catch(function() {
+                box.innerHTML = '<div class="ad-empty">查询失败，请重试</div>';
+            });
+    }
+
+    function locateStudent(item) {
+        if (!item.county_code) {
+            showToast('该生未匹配到县（区），请先补全区划信息后再派遣', 'warning');
+            return;
+        }
+        var found = state.counties.filter(function(c) { return c.county_code === item.county_code; })[0];
+        if (!found) {
+            showToast('该生所在县不在当前校别 / 年级筛选范围内，请调整筛选后重试', 'warning');
+            return;
+        }
+        switchPane('dispatch');
+        state.highlightId = item.student_id;
+        // 定位后展示该县全部学生：清空县内状态筛选与关键词，仅用高亮标记目标学生
+        document.getElementById('adStatusFilter').value = '';
+        document.getElementById('adSearch').value = '';
+        selectCounty(item.county_code);
     }
 
     // ---------------------------------------------------- 概览
@@ -441,9 +563,16 @@
     function renderBatches() {
         var body = document.getElementById('adBatchBody');
         if (!state.batches.length) {
-            body.innerHTML = '<tr><td colspan="9" class="ad-empty">暂无批次，请在「按县派遣」中生成</td></tr>';
+            state.batchSelected.clear();
+            body.innerHTML = '<tr><td colspan="10" class="ad-empty">暂无批次，请在「按县派遣」中生成</td></tr>';
+            updateBatchSel();
             return;
         }
+        // 丢弃已不存在的批次选择（切换校别后批次列表会变化）
+        var existing = new Set(state.batches.map(function(b) { return b.batch_no; }));
+        Array.from(state.batchSelected).forEach(function(no) {
+            if (!existing.has(no)) state.batchSelected.delete(no);
+        });
         body.innerHTML = state.batches.map(function(b) {
             var active = b.active_total || 0;
             var sent = b.sent || 0;
@@ -451,6 +580,12 @@
             var returned = b.returned || 0;
             var ignored = (b.study || 0) + (b.invalid || 0);
             var allSent = active > 0 && sent >= active;
+            var picked = state.batchSelected.has(b.batch_no);
+            var exportMark = b.exported_at
+                ? '<div class="small text-success mt-1"><i class="bi bi-check2-circle"></i> 已导出 ' +
+                  esc(String(b.exported_at).slice(0, 16)) +
+                  (b.exported_by ? ' · ' + esc(b.exported_by) : '') + '</div>'
+                : '';
             var actions = '<a class="btn btn-sm btn-primary" href="/admin/archive/export/' +
                 encodeURIComponent(b.batch_no) + '"><i class="bi bi-file-earmark-word"></i> 导出转递单</a>';
             if (redispatch) {
@@ -466,8 +601,10 @@
             var returnedCell = returned
                 ? '<span class="ad-badge ad-badge-returned">' + returned + '</span>'
                 : '<span class="text-muted">0</span>';
-            return '<tr>' +
-                '<td class="ad-name">' + esc(b.batch_no) + '</td>' +
+            return '<tr class="' + (picked ? 'is-picked' : '') + '">' +
+                '<td><input type="checkbox" class="ad-batch-check" data-batch="' + esc(b.batch_no) + '"' +
+                    (picked ? ' checked' : '') + '></td>' +
+                '<td class="ad-name">' + esc(b.batch_no) + exportMark + '</td>' +
                 '<td>' + esc(b.county_name) + '</td>' +
                 '<td>' + active + '</td>' +
                 '<td>' + sentCell + (allSent ? ' <span class="ad-badge ad-badge-sent">完成</span>' : '') + '</td>' +
@@ -478,6 +615,18 @@
                 '<td class="text-nowrap">' + actions + '</td>' +
                 '</tr>';
         }).join('');
+        updateBatchSel();
+    }
+
+    function updateBatchSel() {
+        document.getElementById('adBatchSelCount').textContent =
+            '已选 ' + state.batchSelected.size + ' 个批次';
+        document.getElementById('adBatchExportBtn').disabled = state.batchSelected.size === 0;
+        var all = document.getElementById('adBatchSelectAll');
+        all.checked = state.batches.length > 0 &&
+            state.batchSelected.size === state.batches.length;
+        all.indeterminate = state.batchSelected.size > 0 &&
+            state.batchSelected.size < state.batches.length;
     }
 
     // ---------------------------------------------------- 学生列表
@@ -560,7 +709,7 @@
             } else if (!s.dispatch_id) {
                 actions = '<span class="small text-muted">未生成</span>';
             }
-            return '<tr class="' + (picked ? 'is-picked' : '') + '">' +
+            return '<tr class="' + (picked ? 'is-picked' : '') + '" data-student-id="' + s.id + '">' +
                 '<td>' + (pickable
                     ? '<input type="checkbox" class="ad-row-check" data-id="' + s.id + '"' + (picked ? ' checked' : '') + '>'
                     : '') + '</td>' +
@@ -578,6 +727,14 @@
                 '</tr>';
         }).join('');
         updateSelCount();
+
+        if (state.highlightId) {
+            var located = body.querySelector('tr[data-student-id="' + state.highlightId + '"]');
+            if (located) {
+                located.classList.add('is-located');
+                located.scrollIntoView({ block: 'center' });
+            }
+        }
     }
 
     function updateSelCount() {
@@ -590,7 +747,31 @@
     document.getElementById('adCountyList').addEventListener('click', function(e) {
         var item = e.target.closest('.ad-county-item');
         if (!item) return;
+        state.highlightId = null;
         selectCounty(item.getAttribute('data-code'));
+    });
+
+    document.getElementById('adGlobalSearchBtn').addEventListener('click', globalSearch);
+    document.getElementById('adGlobalSearch').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') globalSearch();
+    });
+    document.getElementById('adGlobalResetBtn').addEventListener('click', function() {
+        // 恢复全局查询初始状态：清空关键词与结果，并移除定位高亮
+        document.getElementById('adGlobalSearch').value = '';
+        var box = document.getElementById('adGlobalResults');
+        box.hidden = true;
+        box.innerHTML = '';
+        state.globalResults = [];
+        state.highlightId = null;
+        document.querySelectorAll('#adTableBody tr.is-located').forEach(function(tr) {
+            tr.classList.remove('is-located');
+        });
+    });
+    document.getElementById('adGlobalResults').addEventListener('click', function(e) {
+        var btn = e.target.closest('[data-locate]');
+        if (!btn) return;
+        var item = state.globalResults[parseInt(btn.getAttribute('data-locate'), 10)];
+        if (item) locateStudent(item);
     });
 
     document.getElementById('adStatusFilter').addEventListener('change', loadStudents);
@@ -773,6 +954,110 @@
         }).catch(function() { showToast('操作失败，请重试', 'danger'); });
     });
 
+    // ---------------------------------------------------- 合并导出转递单
+    function exportMergedBatches() {
+        var selected = state.batches.filter(function(b) {
+            return state.batchSelected.has(b.batch_no);
+        });
+        if (!selected.length) return;
+        var exported = selected.filter(function(b) { return b.exported_at; });
+        var total = selected.reduce(function(sum, b) {
+            return sum + Math.max(0, (b.active_total || 0) - (b.returned || 0));
+        }, 0);
+        var message;
+        var type = 'info';
+        if (exported.length) {
+            message = '所选批次中有 ' + exported.length + ' 个已导出过（如「' +
+                exported[0].county_name + '」' + String(exported[0].exported_at).slice(0, 16) +
+                '），确定重复打印？';
+            type = 'warn';
+        } else {
+            message = '合并导出 ' + selected.length + ' 个区县批次、约 ' + total + ' 人的转递单？';
+        }
+        showConfirm(message, type).then(function(ok) {
+            if (!ok) return;
+            var params = new URLSearchParams();
+            selected.forEach(function(b) { params.append('batch_nos', b.batch_no); });
+            downloadFile('/admin/archive/export-merged?' + params.toString())
+                .then(function() {
+                    showToast('已合并导出 ' + selected.length + ' 个批次的转递单', 'success');
+                    state.batchSelected.clear();
+                    loadOverview();
+                })
+                .catch(function(err) {
+                    showToast(err.message || '导出失败，请重试', 'danger');
+                });
+        });
+    }
+
+    document.getElementById('adBatchBody').addEventListener('change', function(e) {
+        var chk = e.target.closest('.ad-batch-check');
+        if (!chk) return;
+        var batchNo = chk.getAttribute('data-batch');
+        if (chk.checked) state.batchSelected.add(batchNo);
+        else state.batchSelected.delete(batchNo);
+        chk.closest('tr').classList.toggle('is-picked', chk.checked);
+        updateBatchSel();
+    });
+    document.getElementById('adBatchSelectAll').addEventListener('change', function(e) {
+        state.batchSelected.clear();
+        if (e.target.checked) {
+            state.batches.forEach(function(b) { state.batchSelected.add(b.batch_no); });
+        }
+        renderBatches();
+    });
+    document.getElementById('adBatchClearSelBtn').addEventListener('click', function() {
+        state.batchSelected.clear();
+        renderBatches();
+    });
+    document.getElementById('adBatchExportBtn').addEventListener('click', exportMergedBatches);
+
+    // ---------------------------------------------------- 派遣明细导出（全局 · 按日期范围）
+    function downloadFile(url) {
+        return fetch(url).then(function(res) {
+            var contentType = res.headers.get('Content-Type') || '';
+            if (!res.ok || contentType.indexOf('json') >= 0) {
+                return res.json().then(function(data) {
+                    throw new Error(data.message || '导出失败');
+                });
+            }
+            var disposition = res.headers.get('Content-Disposition') || '';
+            var matched = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+            var name = matched ? decodeURIComponent(matched[1]) : '派遣明细.xlsx';
+            return res.blob().then(function(blob) {
+                var link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = name;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(link.href);
+            });
+        });
+    }
+
+    function exportDispatchDetail() {
+        var start = document.getElementById('adExportStart').value;
+        var end = document.getElementById('adExportEnd').value;
+        if (start && end && start > end) {
+            showToast('开始日期不能晚于结束日期', 'warning');
+            return;
+        }
+        var params = new URLSearchParams();
+        if (start) params.set('start_date', start);
+        if (end) params.set('end_date', end);
+        if (state.school) params.set('school', state.school);
+        var query = params.toString();
+        downloadFile('/admin/archive/export-detail' + (query ? '?' + query : ''))
+            .catch(function(err) { showToast(err.message || '导出失败，请重试', 'danger'); });
+    }
+
+    document.getElementById('adExportDetailBtn').addEventListener('click', exportDispatchDetail);
+    document.getElementById('adExportClearBtn').addEventListener('click', function() {
+        document.getElementById('adExportStart').value = '';
+        document.getElementById('adExportEnd').value = '';
+    });
+
     // ---------------------------------------------------- 升学名单
     function loadStudy() {
         var params = new URLSearchParams({
@@ -894,20 +1179,21 @@
     });
 
     // ---------------------------------------------------- 标签页 / 全局
-    document.getElementById('adTabs').addEventListener('click', function(e) {
-        var btn = e.target.closest('[data-pane]');
-        if (!btn) return;
+    function switchPane(pane) {
         document.querySelectorAll('#adTabs .nav-link').forEach(function(el) {
-            el.classList.toggle('active', el === btn);
+            el.classList.toggle('active', el.getAttribute('data-pane') === pane);
         });
-        var pane = btn.getAttribute('data-pane');
-        document.querySelectorAll('[data-pane]').forEach(function(el) {
-            if (el.tagName === 'DIV' && el.hasAttribute('data-pane')) {
-                el.hidden = el.getAttribute('data-pane') !== pane;
-            }
+        document.querySelectorAll('div[data-pane]').forEach(function(el) {
+            el.hidden = el.getAttribute('data-pane') !== pane;
         });
         if (pane === 'batches') loadOverview();
         if (pane === 'study') loadStudy();
+    }
+
+    document.getElementById('adTabs').addEventListener('click', function(e) {
+        var btn = e.target.closest('[data-pane]');
+        if (!btn) return;
+        switchPane(btn.getAttribute('data-pane'));
     });
 
     document.getElementById('adGrade').addEventListener('change', function() {

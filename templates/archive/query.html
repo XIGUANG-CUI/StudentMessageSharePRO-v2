@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+{% block title %}档案派遣查询 - 学生数据管理系统{% endblock %}
+{% block head %}
+<style>
+    :root {
+        --ad-primary: #0f766e;
+        --ad-primary-light: #f0fdfa;
+        --ad-gray-50: #f9fafb;
+        --ad-gray-100: #f3f4f6;
+        --ad-gray-200: #e5e7eb;
+        --ad-gray-500: #6b7280;
+        --ad-gray-700: #374151;
+        --ad-gray-900: #111827;
+        --ad-radius: 14px;
+        --ad-shadow: 0 4px 12px rgba(0,0,0,.06), 0 2px 4px rgba(0,0,0,.04);
+    }
+    .ad-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: .75rem; }
+    .ad-title { font-size: 1.5rem; font-weight: 700; color: var(--ad-gray-900); display: flex; align-items: center; gap: .5rem; }
+    .ad-title i { color: var(--ad-primary); }
+    .ad-subtitle { font-size: .875rem; color: var(--ad-gray-500); margin-top: .25rem; }
+
+    .ad-card { background: #fff; border: 1px solid var(--ad-gray-200); border-radius: var(--ad-radius); box-shadow: var(--ad-shadow); overflow: hidden; }
+    .ad-card-header {
+        padding: .75rem 1.1rem; font-weight: 600; font-size: .9rem;
+        display: flex; align-items: center; justify-content: space-between; gap: .6rem; flex-wrap: wrap;
+        background: linear-gradient(135deg, #134e4a, #0f766e); color: #fff;
+    }
+    .ad-toolbar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; padding: .75rem 1rem; background: var(--ad-gray-50); border-bottom: 1px solid var(--ad-gray-100); font-size: .85rem; }
+
+    .ad-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
+    .ad-stat { background: #fff; border: 1px solid var(--ad-gray-200); border-radius: var(--ad-radius); padding: .75rem 1rem; box-shadow: var(--ad-shadow); }
+    .ad-stat-label { font-size: .76rem; color: var(--ad-gray-500); font-weight: 600; }
+    .ad-stat-num { font-size: 1.4rem; font-weight: 700; color: var(--ad-gray-900); line-height: 1.35; }
+    .ad-stat-num.is-ok { color: #059669; }
+    .ad-stat-num.is-warn { color: #b45309; }
+
+    .ad-table-wrap { overflow: auto; max-height: 62vh; }
+    .ad-table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+    .ad-table thead { background: var(--ad-gray-50); position: sticky; top: 0; z-index: 1; }
+    .ad-table th { white-space: nowrap; padding: .5rem .65rem; text-align: left; font-size: .73rem; font-weight: 700; color: var(--ad-gray-700); border-bottom: 2px solid var(--ad-gray-200); }
+    .ad-table td { padding: .45rem .65rem; border-bottom: 1px solid var(--ad-gray-100); color: var(--ad-gray-700); vertical-align: middle; }
+    .ad-table tbody tr:hover { background: var(--ad-primary-light); }
+    .ad-mono { font-family: ui-monospace, monospace; font-size: .77rem; color: var(--ad-gray-500); }
+    .ad-name { font-weight: 600; color: var(--ad-gray-900); }
+    .ad-idcard { font-family: ui-monospace, monospace; font-size: .77rem; color: var(--ad-gray-500); white-space: nowrap; }
+    .ad-addr { max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .ad-badge { display: inline-flex; align-items: center; padding: .16rem .5rem; border-radius: 20px; font-size: .71rem; font-weight: 700; white-space: nowrap; }
+    .ad-badge-pending { background: #fef3c7; color: #b45309; }
+    .ad-badge-sent { background: #ecfdf5; color: #047857; }
+    .ad-badge-study { background: #eff6ff; color: #1d4ed8; }
+    .ad-badge-returned { background: #fef2f2; color: #b91c1c; }
+    .ad-badge-invalid, .ad-badge-none { background: var(--ad-gray-100); color: var(--ad-gray-500); }
+
+    .ad-empty { text-align: center; padding: 2.5rem 1rem; color: var(--ad-gray-500); font-size: .85rem; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="ad-header">
+    <div>
+        <div class="ad-title"><i class="bi bi-search"></i> 档案派遣查询</div>
+        <div class="ad-subtitle">按姓名 / 姓名拼音 / 身份证号 / 学号查询学生派遣状态、派遣日期与档案接收地址</div>
+    </div>
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+        <a href="{{ url_for('archive.dispatch_page') }}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-send-check"></i> 派遣工作台
+        </a>
+    </div>
+</div>
+
+<div class="ad-card mb-3">
+    <div class="ad-toolbar">
+        <div class="input-group" style="max-width:520px">
+            <input type="text" class="form-control" id="aqKeyword"
+                   placeholder="姓名 / 姓名拼音 / 身份证号 / 学号" autocomplete="off">
+            <button class="btn btn-primary" type="button" id="aqSearchBtn">
+                <i class="bi bi-search"></i> 查询
+            </button>
+            <button class="btn btn-outline-secondary" type="button" id="aqResetBtn">重置</button>
+        </div>
+        <label class="small text-muted mb-0 ms-1">校别</label>
+        <select class="form-select form-select-sm" id="aqSchool" style="max-width:140px">
+            <option value="">全部校别</option>
+            {% for st in school_types %}
+            <option value="{{ st.code }}">{{ st.name }}{% if not st.is_active %}（已停用）{% endif %}</option>
+            {% endfor %}
+        </select>
+        <label class="small text-muted mb-0">年级</label>
+        <select class="form-select form-select-sm" id="aqGrade" style="max-width:140px">
+            <option value="">全部年级</option>
+            {% for g in list_grades %}
+            <option value="{{ g }}">{{ g }}</option>
+            {% endfor %}
+        </select>
+        <span class="small text-muted ms-auto">支持部分匹配；拼音不区分大小写</span>
+    </div>
+</div>
+
+<div class="ad-stats">
+    <div class="ad-stat"><div class="ad-stat-label">匹配人数</div><div class="ad-stat-num" id="aqStatTotal">-</div></div>
+    <div class="ad-stat"><div class="ad-stat-label">已派遣</div><div class="ad-stat-num is-ok" id="aqStatSent">-</div></div>
+    <div class="ad-stat"><div class="ad-stat-label">待派遣</div><div class="ad-stat-num is-warn" id="aqStatPending">-</div></div>
+    <div class="ad-stat"><div class="ad-stat-label">升学 / 失效</div><div class="ad-stat-num" id="aqStatOther">-</div></div>
+</div>
+
+<div class="ad-card">
+    <div class="ad-card-header">
+        <span><i class="bi bi-list-check"></i> 查询结果</span>
+        <span class="small" id="aqResultHint"></span>
+    </div>
+    <div class="ad-table-wrap">
+        <table class="ad-table">
+            <thead>
+                <tr>
+                    <th>学号</th>
+                    <th>姓名</th>
+                    <th>身份证号</th>
+                    <th>届</th>
+                    <th>年级</th>
+                    <th>班级</th>
+                    <th>县（区）</th>
+                    <th>派遣状态</th>
+                    <th>派遣日期</th>
+                    <th>批次号</th>
+                    <th>接收机构</th>
+                    <th>档案接收地址</th>
+                    <th>联系电话</th>
+                </tr>
+            </thead>
+            <tbody id="aqTableBody">
+                <tr><td colspan="13" class="ad-empty">请输入关键词后点击「查询」</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function() {
+    'use strict';
+
+    var STATUS_CLASS = {
+        '待派遣': 'ad-badge-pending',
+        '已派遣': 'ad-badge-sent',
+        '已退回': 'ad-badge-returned',
+        '已失效': 'ad-badge-invalid',
+        '升学': 'ad-badge-study',
+        '未生成': 'ad-badge-none'
+    };
+
+    var rows = [];
+
+    function esc(v) {
+        return String(v === null || v === undefined ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function badge(text) {
+        var cls = STATUS_CLASS[text] || 'ad-badge-none';
+        return '<span class="ad-badge ' + cls + '">' + esc(text) + '</span>';
+    }
+
+    function renderStats() {
+        var sent = 0, pending = 0, other = 0;
+        rows.forEach(function(r) {
+            if (r.dispatch_status === '已派遣') sent++;
+            else if (r.dispatch_status === '' || r.dispatch_status === '待派遣' || r.dispatch_status === '已退回') pending++;
+            else other++;
+        });
+        document.getElementById('aqStatTotal').textContent = rows.length;
+        document.getElementById('aqStatSent').textContent = rows.length ? sent : '-';
+        document.getElementById('aqStatPending').textContent = rows.length ? pending : '-';
+        document.getElementById('aqStatOther').textContent = rows.length ? other : '-';
+        document.getElementById('aqResultHint').textContent = rows.length ? '共 ' + rows.length + ' 条' : '';
+    }
+
+    function renderRows() {
+        var body = document.getElementById('aqTableBody');
+        if (!rows.length) {
+            body.innerHTML = '<tr><td colspan="13" class="ad-empty">未找到匹配的学生，请检查关键词或放宽筛选条件</td></tr>';
+            renderStats();
+            return;
+        }
+        body.innerHTML = rows.map(function(r) {
+            return '<tr>' +
+                '<td class="ad-mono">' + esc(r.student_no) + '</td>' +
+                '<td class="ad-name">' + esc(r.name) +
+                    (r.name_pinyin ? ' <span class="small text-muted">' + esc(r.name_pinyin) + '</span>' : '') + '</td>' +
+                '<td class="ad-idcard">' + esc(r.id_card || '—') + '</td>' +
+                '<td>' + esc(r.graduate_year) + '</td>' +
+                '<td>' + esc(r.grade) + '</td>' +
+                '<td>' + esc(r.admin_class) + '</td>' +
+                '<td>' + esc(r.county_name) + '</td>' +
+                '<td>' + badge(r.status_label) + '</td>' +
+                '<td class="ad-mono">' + esc(r.dispatch_date || '—') + '</td>' +
+                '<td class="ad-mono">' + esc(r.batch_no || '—') + '</td>' +
+                '<td>' + esc(r.agency_name || '—') + '</td>' +
+                '<td class="ad-addr" title="' + esc(r.agency_address || '') + '">' + esc(r.agency_address || '—') + '</td>' +
+                '<td class="ad-mono">' + esc(r.agency_phone || '—') + '</td>' +
+                '</tr>';
+        }).join('');
+        renderStats();
+    }
+
+    function search() {
+        var keyword = document.getElementById('aqKeyword').value.trim();
+        if (!keyword) {
+            showToast('请输入姓名、拼音、身份证号或学号', 'warning');
+            document.getElementById('aqKeyword').focus();
+            return;
+        }
+        var params = new URLSearchParams({
+            keyword: keyword,
+            school: document.getElementById('aqSchool').value,
+            grade: document.getElementById('aqGrade').value
+        });
+        document.getElementById('aqTableBody').innerHTML =
+            '<tr><td colspan="13" class="ad-empty">查询中…</td></tr>';
+        fetch('/api/archive/search?' + params.toString())
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                rows = data.students || [];
+                renderRows();
+            })
+            .catch(function() {
+                document.getElementById('aqTableBody').innerHTML =
+                    '<tr><td colspan="13" class="ad-empty">查询失败，请重试</td></tr>';
+            });
+    }
+
+    document.getElementById('aqSearchBtn').addEventListener('click', search);
+    document.getElementById('aqKeyword').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') search();
+    });
+    document.getElementById('aqSchool').addEventListener('change', function() {
+        if (document.getElementById('aqKeyword').value.trim()) search();
+    });
+    document.getElementById('aqGrade').addEventListener('change', function() {
+        if (document.getElementById('aqKeyword').value.trim()) search();
+    });
+    document.getElementById('aqResetBtn').addEventListener('click', function() {
+        document.getElementById('aqKeyword').value = '';
+        document.getElementById('aqSchool').value = '';
+        document.getElementById('aqGrade').value = '';
+        rows = [];
+        document.getElementById('aqTableBody').innerHTML =
+            '<tr><td colspan="13" class="ad-empty">请输入关键词后点击「查询」</td></tr>';
+        renderStats();
+    });
+})();
+</script>
+{% endblock %}

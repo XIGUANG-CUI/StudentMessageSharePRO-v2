@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}第二年续保 - 学生数据管理系统{% endblock %}
+{% block title %}学平险续保 - 学生数据管理系统{% endblock %}
 {% block head %}
 <style>
     .irn-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
@@ -412,7 +412,7 @@
                 var url = URL.createObjectURL(blob);
                 var a = document.createElement('a');
                 a.href = url;
-                a.download = '续保参保数据.xlsx';
+                a.download = '学平险续保参保数据.xlsx';
                 document.body.appendChild(a);
                 a.click();
                 a.remove();

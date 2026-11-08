@@ -151,6 +151,7 @@ from models.archive import (
     load_graduates,
     summarize_counties,
     coverage,
+    search_dispatches,
     create_batch,
     list_batches,
     get_batch_rows,
@@ -162,7 +163,8 @@ from models.archive import (
     cancel_further_study,
     list_further_study,
     mark_dispatches_invalid,
-    build_export_rows
+    build_export_rows,
+    get_dispatch_detail_rows
 )
 
 from models.school_types import (
@@ -310,6 +312,7 @@ __all__ = [
     'load_graduates',
     'summarize_counties',
     'coverage',
+    'search_dispatches',
     'create_batch',
     'list_batches',
     'get_batch_rows',
@@ -322,4 +325,5 @@ __all__ = [
     'list_further_study',
     'mark_dispatches_invalid',
     'build_export_rows',
+    'get_dispatch_detail_rows',
 ]

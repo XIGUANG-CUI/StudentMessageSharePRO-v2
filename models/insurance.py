@@ -540,6 +540,15 @@ def migrate_insurance_v3(conn):
             stats['skipped'], stats['unparsed_date']
         )
 
+    repaired = repair_never_insured_xueping(conn)
+    if repaired['students']:
+        logger.info(
+            '保险从未投保收敛：候选 %s 人，处理 %s 人，新建放弃记录 %s 条，'
+            '更新为放弃 %s 条，清理误填缴费 %s 条',
+            repaired['candidates'], repaired['students'],
+            repaired['created'], repaired['exempted'], repaired['cleared']
+        )
+
     try:
         cursor.execute(
             'UPDATE schema_version SET version = ?, applied_at = CURRENT_TIMESTAMP '
@@ -548,6 +557,150 @@ def migrate_insurance_v3(conn):
         )
     except sqlite3.OperationalError:
         pass
+
+    return stats
+
+
+# ============================================================
+# 从未投保老生收敛（历史脏数据修复）
+# ============================================================
+REMARK_AUTO_UNINSURED = 'auto_uninsured'
+
+
+def has_real_xueping_data(record):
+    """该学平险记录是否有真实投保凭证（保单号 / 到期时间任一非空）。
+
+    缴费日期（pay_date）仅是收费登记，不构成投保凭证——历史上曾出现
+    「从未投保的空占位被误填统一缴费日期」的脏数据，因此不把 pay_date
+    视为真实投保的依据。真实投保必须有保单号或到期日。
+    """
+    return any((record.get(field) or '').strip()
+               for field in ('policy_no', 'expiry_date'))
+
+
+def repair_never_insured_xueping(conn, current_year=None):
+    """把「从未投保的老生」已到学年的学平险批次标记为「放弃本批次参保」。
+
+    背景：历史迁移把「主管标记为空且无任何保险数据」的学生也当成已参保，
+    按当时批次生成了空占位记录（pending_approve），使他们出现在催缴名单里，
+    却永远无法推进到实习就业险。
+
+    判定（全部满足才处理，谨慎对待旧数据）：
+      1) 未删除、未毕业、非托管；
+      2) 主管标记为空或「不参保」，且无保单号 / 到期日（缴费日期不作为投保凭证，
+         因历史上出现过空占位被批量误填统一缴费日期的脏数据）；
+      3) 无实习就业险记录（已有则说明走过保险流程，不做推断）；
+      4) 学平险记录只可能停留在「待审批 / 放弃」，且没有保单号 / 到期日；
+      5) 当前批次已越过计划首保批次（仍在首保学年的学生不处理）。
+    处理：仅把「学年已到达」的计划内学平险批次置为 exempt（remark=auto_uninsured），
+    并清空 pay_date / premium（这些学生从未投保，缴费日期只可能是误填）；
+    不删除记录、不改写保单号/到期日等真实凭证；未到学年的批次留待下次启动继续收敛。
+    幂等：重复执行不会重复写入，也不会改动已办结/已审批的记录。
+    """
+    if current_year is None:
+        current_year = config.CURRENT_SCHOOL_YEAR
+
+    stats = {'candidates': 0, 'students': 0, 'created': 0, 'exempted': 0,
+             'cleared': 0}
+
+    rows = conn.execute(
+        '''SELECT s.id, s.id_card, s.grade, s.enrollment_year
+           FROM students s
+           WHERE COALESCE(s.is_deleted, 0) = 0
+             AND COALESCE(s.registration_status, '') != '毕业'
+             AND COALESCE(s.attendance_status, '') != '托管'
+             AND COALESCE(TRIM(s.supervisor_flag), '') IN ('', ?)
+             AND COALESCE(TRIM(s.student_insurance_no), '') = ''
+             AND COALESCE(TRIM(s.student_insurance_expiry), '') = ''
+             AND COALESCE(TRIM(s.internship_insurance_pay_date), '') = '' ''',
+        (config.InsuranceStatus.EXEMPT,)
+    ).fetchall()
+    candidates = [dict(r) for r in rows]
+    stats['candidates'] = len(candidates)
+    rec_map = _records_map(conn, [c['id'] for c in candidates])
+    insert_cursor = conn.cursor()
+
+    for s in candidates:
+        plan = build_plan(s.get('enrollment_year'), s.get('grade'), current_year)
+        xueping_steps = [p for p in plan
+                         if p['insurance_type'] == INSURANCE_TYPE_XUEPING]
+        if not xueping_steps:
+            continue
+        now_batch = batch_now(s.get('enrollment_year'), s.get('grade'), current_year)
+        if now_batch <= xueping_steps[0]['batch_no']:
+            continue                    # 仍处于首保学年：属正常待办，不自动放弃
+
+        records = rec_map.get(s['id'], [])
+        if any(r['insurance_type'] == INSURANCE_TYPE_INTERN for r in records):
+            continue                    # 已有实习险记录：不推断
+        xueping_records = [r for r in records
+                           if r['insurance_type'] == INSURANCE_TYPE_XUEPING]
+        if any(has_real_xueping_data(r) for r in xueping_records):
+            continue                    # 有任何真实数据：绝不改写
+        if any(r['status'] not in (InsuranceStatus.PENDING_APPROVE,
+                                   InsuranceStatus.EXEMPT)
+               for r in xueping_records):
+            continue                    # 已进入办理流程：不干预
+
+        start = start_year(s.get('enrollment_year'), s.get('grade'))
+        changed = False
+        for step in xueping_steps:
+            if step['batch_no'] > now_batch:
+                continue                # 学年未到：留给后续批次，不提前放弃
+            rec = _find_record(rec_map, s['id'], step['batch_no'], INSURANCE_TYPE_XUEPING)
+            if rec is None:
+                if not _insert_record(
+                    insert_cursor, s['id'], s.get('id_card'),
+                    _school_year(start, step['batch_no']), step['batch_no'],
+                    INSURANCE_TYPE_XUEPING, InsuranceStatus.EXEMPT,
+                    remark=REMARK_AUTO_UNINSURED
+                ):
+                    continue
+                rec = _record_for_batch(conn, s['id'], step['batch_no'],
+                                        INSURANCE_TYPE_XUEPING)
+                _update_record(conn, rec['id'], completed_at=_now())
+                log_operation(conn, rec, 'auto_uninsured', '',
+                              InsuranceStatus.EXEMPT,
+                              {'reason': 'never_insured'})
+                stats['created'] += 1
+                changed = True
+                continue
+            if rec['status'] == InsuranceStatus.EXEMPT:
+                # 已是「放弃」但残留误填的缴费日期/保费：一并清空（幂等自愈）。
+                if (rec.get('pay_date') or '').strip() or (rec.get('premium') or '').strip():
+                    _update_record(conn, rec['id'], pay_date='', premium='')
+                    stats['cleared'] += 1
+                    changed = True
+                continue
+            # 清空误填的缴费日期/保费：这些学生从未投保，pay_date/premium
+            # 只可能是迁移占位或人工误填（如统一填 2026-01-01）。
+            _update_record(conn, rec['id'], status=InsuranceStatus.EXEMPT,
+                           pay_date='', premium='', completed_at=_now(),
+                           remark=REMARK_AUTO_UNINSURED)
+            log_operation(conn, rec, 'auto_uninsured', rec['status'],
+                          InsuranceStatus.EXEMPT, {'reason': 'never_insured'})
+            stats['exempted'] += 1
+            changed = True
+
+        # 迁移可能把空占位生成在计划之外的批次（如转学生的更高批次），
+        # 已到学年的空占位一并了结，避免残留「待审批」出现在记录页。
+        plan_batches = {p['batch_no'] for p in xueping_steps}
+        for rec in xueping_records:
+            if (rec['batch_no'] in plan_batches
+                    or rec['batch_no'] > now_batch
+                    or rec['status'] != InsuranceStatus.PENDING_APPROVE):
+                continue
+            _update_record(conn, rec['id'], status=InsuranceStatus.EXEMPT,
+                           pay_date='', premium='', completed_at=_now(),
+                           remark=REMARK_AUTO_UNINSURED)
+            log_operation(conn, rec, 'auto_uninsured', rec['status'],
+                          InsuranceStatus.EXEMPT, {'reason': 'never_insured'})
+            stats['exempted'] += 1
+            changed = True
+
+        if changed:
+            sync_student_snapshot(conn, s['id'])
+            stats['students'] += 1
 
     return stats
 
@@ -665,6 +818,23 @@ def get_latest_record(conn, student_id, insurance_type):
     return _row_to_dict(cur, cur.fetchone())
 
 
+def get_latest_done_record(conn, student_id, insurance_type):
+    """返回指定险种中批次最高的「已办结」记录（DONE / EXPORTED）。
+
+    用于快照投影：当学生存在已办结批次时，优先展示该批次的标记，
+    而不是被后续「放弃本期」（exempt）批次覆盖。
+    """
+    cur = conn.execute(
+        '''SELECT * FROM insurance_records
+           WHERE student_id = ? AND insurance_type = ?
+             AND status IN (?, ?)
+           ORDER BY batch_no DESC LIMIT 1''',
+        (student_id, insurance_type,
+         InsuranceStatus.DONE, InsuranceStatus.EXPORTED)
+    )
+    return _row_to_dict(cur, cur.fetchone())
+
+
 # ============================================================
 # 状态流转 + 操作日志 + 快照投影
 # ============================================================
@@ -766,27 +936,24 @@ def sync_student_snapshot(conn, student_id):
         else:
             flag = config.InsuranceStatus.PENDING_INTERN
     elif xp:
-        if xp['status'] in (InsuranceStatus.DONE, InsuranceStatus.EXPORTED):
-            flag = config.InsuranceStatus.done_xueping(_flag_year_from_school_year(xp['school_year']))
-        elif xp['status'] == InsuranceStatus.EXEMPT:
+        # 优先展示「已办结」批次的学平险标记；仅当没有任何已办结记录时，
+        # 才按最高批次的状态展示（如「放弃本期」exempt → 不参保）。
+        done_rec = get_latest_done_record(conn, student_id, INSURANCE_TYPE_XUEPING)
+        base = done_rec if done_rec else xp
+        if base['status'] in (InsuranceStatus.DONE, InsuranceStatus.EXPORTED):
+            flag = config.InsuranceStatus.done_xueping(
+                _flag_year_from_school_year(base['school_year']))
+        elif base['status'] == InsuranceStatus.EXEMPT:
             flag = config.InsuranceStatus.EXEMPT
-        elif xp['status'] in (InsuranceStatus.PENDING_PAY, InsuranceStatus.PAID, InsuranceStatus.APPROVED):
+        elif base['status'] in (InsuranceStatus.PENDING_PAY, InsuranceStatus.PAID,
+                                InsuranceStatus.APPROVED):
             flag = config.InsuranceStatus.PENDING_XUEPING
-        elif xp['status'] == InsuranceStatus.PENDING_RENEWAL:
+        elif base['status'] == InsuranceStatus.PENDING_RENEWAL:
             # 已推送待续保：当前保单仍在有效期内，继续显示上一批已办结标记
-            cur = conn.execute(
-                '''SELECT school_year FROM insurance_records
-                   WHERE student_id = ? AND insurance_type = ?
-                     AND status IN (?, ?)
-                   ORDER BY batch_no DESC, id DESC LIMIT 1''',
-                (student_id, INSURANCE_TYPE_XUEPING,
-                 InsuranceStatus.DONE, InsuranceStatus.EXPORTED)
-            )
-            prev = cur.fetchone()
             flag = (config.InsuranceStatus.done_xueping(
-                        _flag_year_from_school_year(prev['school_year']))
-                    if prev else config.InsuranceStatus.PENDING_XUEPING)
-        elif xp['status'] == InsuranceStatus.PENDING_APPROVE:
+                        _flag_year_from_school_year(done_rec['school_year']))
+                    if done_rec else config.InsuranceStatus.PENDING_XUEPING)
+        elif base['status'] == InsuranceStatus.PENDING_APPROVE:
             flag = ''
 
     conn.execute(
@@ -1294,6 +1461,22 @@ def _days_left(expiry_date, today):
         return None
 
 
+def _coverage_start_date(expiry_date):
+    """投保日期：记录未单独保存，按到期日期减一年推算。"""
+    raw = (expiry_date or '').strip()
+    if not raw:
+        return ''
+    normalized = raw.replace('/', '-').replace('.', '-')
+    try:
+        parsed = datetime.strptime(normalized[:10], '%Y-%m-%d').date()
+    except (TypeError, ValueError):
+        return ''
+    try:
+        return parsed.replace(year=parsed.year - 1).isoformat()
+    except ValueError:                     # 2 月 29 日 → 上一年 2 月 28 日
+        return parsed.replace(year=parsed.year - 1, day=28).isoformat()
+
+
 def _pool_item(student, step, record=None, today=None):
     record = record or {}
     item = dict(student)
@@ -1309,6 +1492,7 @@ def _pool_item(student, step, record=None, today=None):
         'premium': record.get('premium', ''),
         'policy_no': record.get('policy_no', ''),
         'expiry_date': record.get('expiry_date', ''),
+        'start_date': _coverage_start_date(record.get('expiry_date')),
         'days_left': _days_left(record.get('expiry_date'), today) if today else None,
         'kind': student_kind(student.get('enrollment_year'), student.get('grade')),
     })
@@ -1613,12 +1797,11 @@ def query_push_pool(conn, current_year=None, **filters):
         if any(r['insurance_type'] == INSURANCE_TYPE_INTERN for r in records):
             continue
 
-        # 转学/推迟注册学生：严格按「入学年 − grade」推算实习险批次，
-        # 只有学年推进到实习批次才进入推送，避免放弃本期后提前推送。
-        if (student_kind(s.get('enrollment_year'), s.get('grade'))
-                in (STUDENT_KIND_TRANSFER, STUDENT_KIND_DEFERRED)
-                and batch_now(s.get('enrollment_year'), s.get('grade'), current_year)
-                < intern_step['batch_no']):
+        # 学年门槛对所有学生生效：严格按「入学年 − grade」推算实习险批次，
+        # 只有学年推进到实习批次才进入推送。避免「放弃本期 / 从未投保」的学生
+        # 在学平险批次被了结后提前一年被推入实习就业险。
+        if batch_now(s.get('enrollment_year'), s.get('grade'),
+                     current_year) < intern_step['batch_no']:
             continue
 
         last_done = last_terminal
@@ -1956,6 +2139,11 @@ def query_collection_stage(conn, paid=False, insurance_types=None,
             if rec['insurance_type'] == INSURANCE_TYPE_XUEPING:
                 if rec['batch_no'] <= first_batch:
                     continue    # 首保缴费在审批环节登记，不进催缴
+                # 迁移生成的空占位记录（从未投保）没有任何可催缴的数据，
+                # 无论如何都不能出现在催缴名单中。
+                if (rec['status'] == InsuranceStatus.PENDING_APPROVE
+                        and not has_real_xueping_data(rec)):
+                    continue
             elif rec['status'] not in (InsuranceStatus.APPROVED,
                                        InsuranceStatus.EXPORTED,
                                        InsuranceStatus.DONE):
