@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
+import config
 import models.insurance as ins
 from models.insurance import (
     InsuranceStatus,
@@ -256,6 +257,7 @@ class TestRenewalCollectionRoutes:
             assert '学平险续保' in html
             assert '已过期' in html
             assert 'id="irnExemptBtn"' in html
+            assert 'id="irnPushInternBtn"' in html
             # 保险员不能「放弃本期」
             assert 'var canExempt = false' in html
             # 保费催缴页仅财务角色可见，保险员不可访问
@@ -345,6 +347,128 @@ class TestRenewalCollectionRoutes:
             pool = client.get(
                 '/api/insurance/renewal/list?today=2025-06-01').get_json()
             assert pool['total'] == 0
+        finally:
+            self._logout(client)
+            self._clean(db_conn)
+
+    def test_renewal_push_intern_marks_exempt_and_enters_intern_pool(self, client, db_conn):
+        """续保页推送就业险：当前学平险批次置为放弃本期，再生成实习险待审批记录。"""
+        self._clean(db_conn)
+        sid = self._student(db_conn, '推迟注册', grade='2027', enrollment_year=2026)
+        self._record(db_conn, sid, S.DONE, batch_no=1,
+                     expiry_date='2026-11-20')
+        self._login(client)
+        try:
+            data = self._post(
+                client,
+                '/api/insurance/renewal/push-intern?today=2026-11-01',
+                {'student_ids': [sid], 'window_days': 30},
+            ).get_json()
+            assert data['success'] is True
+            assert data['count'] == 1
+            assert data['skipped'] == 0
+
+            # 当前待续保批次（第 2 年）被标记为「放弃本期」，而非虚构已办结
+            xp = db_conn.execute(
+                'SELECT * FROM insurance_records WHERE student_id = ? '
+                'AND batch_no = 2 AND insurance_type = ?', (sid, 'xueping')
+            ).fetchone()
+            assert xp['status'] == S.EXEMPT
+            assert xp['remark'] == 'push_intern'
+            assert xp['completed_at']
+
+            # 实习就业险记录按计划批次生成，进入实习办结页待审批
+            intern = db_conn.execute(
+                'SELECT * FROM insurance_records WHERE student_id = ? '
+                'AND insurance_type = ?', (sid, 'intern')
+            ).fetchone()
+            assert intern['batch_no'] == 4
+            assert intern['status'] == S.PENDING_APPROVE
+            assert intern['remark'] == '提前至第1年实习'
+            assert intern['school_year'] == '2026-2027'
+
+            # 学生快照同步为「按计划办理实习就业险」
+            snap = db_conn.execute(
+                'SELECT supervisor_flag FROM students WHERE id = ?', (sid,)
+            ).fetchone()
+            assert snap['supervisor_flag'] == config.InsuranceStatus.PENDING_INTERN
+
+            # 已进入实习险：续保池与推送池都不再出现，实习办结页可见
+            assert client.get(
+                '/api/insurance/renewal/list?today=2026-11-01'
+            ).get_json()['total'] == 0
+            assert client.get(
+                '/api/insurance/pools/push'
+            ).get_json()['total'] == 0
+            intern_list = client.get(
+                '/api/insurance/intern/list?status=pending'
+            ).get_json()
+            assert intern_list['total'] == 1
+            assert intern_list['items'][0]['id'] == sid
+
+            # 重复推送：已存在实习险记录，跳过且不重复建档
+            again = self._post(
+                client,
+                '/api/insurance/renewal/push-intern?today=2026-11-01',
+                {'student_ids': [sid], 'window_days': 30},
+            ).get_json()
+            assert again['success'] is True
+            assert again['count'] == 0
+            assert again['skipped'] == 1
+            assert db_conn.execute(
+                'SELECT COUNT(*) FROM insurance_records WHERE student_id = ? '
+                'AND insurance_type = ?', (sid, 'intern')
+            ).fetchone()[0] == 1
+        finally:
+            self._logout(client)
+            self._clean(db_conn)
+
+    def test_renewal_push_intern_outside_window_skipped(self, client, db_conn):
+        """未进入续保窗口的学生不允许推送，避免提前终结未来批次。"""
+        self._clean(db_conn)
+        sid = self._student(db_conn, '未到期', grade='2027', enrollment_year=2026)
+        self._record(db_conn, sid, S.DONE, batch_no=1,
+                     expiry_date='2027-06-01')
+        self._login(client)
+        try:
+            data = self._post(
+                client,
+                '/api/insurance/renewal/push-intern?today=2026-11-01',
+                {'student_ids': [sid], 'window_days': 30},
+            ).get_json()
+            assert data['success'] is True
+            assert data['count'] == 0
+            assert data['skipped'] == 1
+            assert data['errors'][0]['message'] == '该学生尚未进入续保窗口'
+            assert db_conn.execute(
+                'SELECT COUNT(*) FROM insurance_records WHERE student_id = ? '
+                'AND insurance_type = ?', (sid, 'intern')
+            ).fetchone()[0] == 0
+        finally:
+            self._logout(client)
+            self._clean(db_conn)
+
+    def test_renewal_push_intern_rejects_normal_student(self, client, db_conn):
+        """普通学生（非推迟注册）不允许从续保页提前推送就业险。"""
+        self._clean(db_conn)
+        sid = self._student(db_conn, '普通生')
+        self._record(db_conn, sid, S.DONE, batch_no=1,
+                     expiry_date='2026-11-20')
+        self._login(client)
+        try:
+            data = self._post(
+                client,
+                '/api/insurance/renewal/push-intern?today=2026-11-01',
+                {'student_ids': [sid], 'window_days': 30},
+            ).get_json()
+            assert data['success'] is True
+            assert data['count'] == 0
+            assert data['skipped'] == 1
+            assert data['errors'][0]['message'] == '仅推迟注册学生可提前推送就业险'
+            assert db_conn.execute(
+                'SELECT COUNT(*) FROM insurance_records WHERE student_id = ? '
+                'AND (insurance_type = ? OR batch_no = 2)', (sid, 'intern')
+            ).fetchone()[0] == 0
         finally:
             self._logout(client)
             self._clean(db_conn)
@@ -459,3 +583,132 @@ class TestRenewalCollectionRoutes:
         resp = client.get('/api/insurance/collection/list')
         assert resp.status_code == 401
         assert resp.get_json()['success'] is False
+
+
+# ============================================================
+# 推迟注册学生提前去实习：人工推送的数据流
+# ============================================================
+class TestRenewalPushInternDeferred:
+    def test_offset_minus_1_early_push_uses_actual_school_year(self, conn):
+        """推迟一年：计划为 3 批学平险 + 第 4 批实习险；第 3 年人工提前推送。"""
+        sid = _add_student(conn, '推迟一年', grade='2027', enrollment_year=2026)
+        _add_record(conn, sid, S.DONE, batch_no=1, expiry_date='2027-11-20')
+        _add_record(conn, sid, S.DONE, batch_no=2, expiry_date='2028-11-20')
+        today = date(2028, 11, 1)
+
+        plan = ins.build_plan(2026, '2027', 2028)
+        assert [p['batch_no'] for p in plan
+                if p['insurance_type'] == 'xueping'] == [1, 2, 3]
+        assert [p['batch_no'] for p in plan
+                if p['insurance_type'] == 'intern'] == [4]
+
+        # 第 3 年自动推送池不可见（实习批次为第 4 批），续保池出现第 3 批
+        assert ins.query_push_pool(conn, current_year=2028) == []
+        assert [(p['batch_no'], p['remaining_xueping']) for p in
+                query_renewal_pool(conn, today=today, current_year=2028)] == [(3, 0)]
+
+        result = ins.push_intern_from_renewal(
+            conn, [sid], current_year=2028, today=today)
+        assert result['created'] == 1
+        assert result['skipped'] == 0
+
+        xp3 = conn.execute(
+            'SELECT * FROM insurance_records WHERE student_id = ? '
+            'AND batch_no = 3 AND insurance_type = ?', (sid, 'xueping')
+        ).fetchone()
+        assert xp3['status'] == S.EXEMPT
+        assert xp3['remark'] == 'push_intern'
+        assert xp3['school_year'] == '2028-2029'
+
+        intern = conn.execute(
+            'SELECT * FROM insurance_records WHERE student_id = ? '
+            'AND insurance_type = ?', (sid, 'intern')
+        ).fetchone()
+        assert intern['batch_no'] == 4
+        assert intern['status'] == S.PENDING_APPROVE
+        # 实际第 3 年去实习，学年必须是 2028-2029，而非计划第 4 年 2029-2030
+        assert intern['school_year'] == '2028-2029'
+        assert intern['remark'] == '提前至第3年实习'
+
+        assert query_renewal_pool(conn, today=today, current_year=2028) == []
+        assert ins.query_push_pool(conn, current_year=2028) == []
+        assert [i['batch_no'] for i in ins.query_intern_stage(conn)] == [4]
+
+    def test_offset_minus_2_early_push_uses_actual_school_year(self, conn):
+        """推迟两年：计划为 4 批学平险 + 第 5 批实习险；第 3 年人工提前推送。"""
+        sid = _add_student(conn, '推迟两年', grade='2028', enrollment_year=2026)
+        _add_record(conn, sid, S.DONE, batch_no=1, expiry_date='2027-11-20')
+        _add_record(conn, sid, S.DONE, batch_no=2, expiry_date='2028-11-20')
+        today = date(2028, 11, 1)
+
+        assert ins.query_push_pool(conn, current_year=2028) == []
+        # 当前续保批次为第 3 批，但计划内还有第 4 批学平险将不再办理
+        assert [(p['batch_no'], p['remaining_xueping']) for p in
+                query_renewal_pool(conn, today=today, current_year=2028)] == [(3, 1)]
+        result = ins.push_intern_from_renewal(
+            conn, [sid], current_year=2028, today=today)
+        assert result['created'] == 1
+
+        intern = conn.execute(
+            'SELECT * FROM insurance_records WHERE student_id = ? '
+            'AND insurance_type = ?', (sid, 'intern')
+        ).fetchone()
+        assert intern['batch_no'] == 5
+        assert intern['school_year'] == '2028-2029'
+        assert intern['remark'] == '提前至第3年实习'
+
+    def test_revert_restores_created_xueping_placeholder(self, conn):
+        """撤销提前推送：推送时新建的学平险占位记录应删除，学生回到续保池。"""
+        sid = _add_student(conn, '撤销新建', grade='2027', enrollment_year=2026)
+        _add_record(conn, sid, S.DONE, batch_no=1, expiry_date='2027-11-20')
+        _add_record(conn, sid, S.DONE, batch_no=2, expiry_date='2028-11-20')
+        today = date(2028, 11, 1)
+        ins.push_intern_from_renewal(conn, [sid], current_year=2028, today=today)
+        assert conn.execute(
+            'SELECT COUNT(*) FROM insurance_records WHERE student_id = ? '
+            'AND batch_no = 3 AND insurance_type = ?', (sid, 'xueping')
+        ).fetchone()[0] == 1
+
+        ins.revert_student(conn, sid, operator='tester')
+
+        assert conn.execute(
+            'SELECT COUNT(*) FROM insurance_records WHERE student_id = ? '
+            'AND insurance_type = ?', (sid, 'intern')
+        ).fetchone()[0] == 0
+        assert conn.execute(
+            'SELECT COUNT(*) FROM insurance_records WHERE student_id = ? '
+            'AND batch_no = 3 AND insurance_type = ?', (sid, 'xueping')
+        ).fetchone()[0] == 0
+        assert [(p['batch_no'], p['remaining_xueping']) for p in
+                query_renewal_pool(conn, today=today, current_year=2028)] == [(3, 0)]
+        assert ins.query_push_pool(conn, current_year=2028) == []
+
+    def test_revert_restores_existing_pending_renewal(self, conn):
+        """撤销提前推送：推送前已存在的待续保记录应恢复为 pending_renewal。"""
+        sid = _add_student(conn, '撤销待续保', grade='2027', enrollment_year=2026)
+        _add_record(conn, sid, S.DONE, batch_no=1, expiry_date='2027-11-20')
+        _add_record(conn, sid, S.DONE, batch_no=2, expiry_date='2028-11-20')
+        _add_record(conn, sid, S.DONE, batch_no=3, expiry_date='2028-11-20')
+        assert ins.push_to_renewal(conn, [sid], current_year=2028)['created'] == 1
+        today = date(2028, 11, 1)
+
+        ins.push_intern_from_renewal(conn, [sid], current_year=2028, today=today)
+        xp4 = conn.execute(
+            'SELECT * FROM insurance_records WHERE student_id = ? '
+            'AND batch_no = 4 AND insurance_type = ?', (sid, 'xueping')
+        ).fetchone()
+        assert xp4['status'] == S.EXEMPT
+
+        ins.revert_student(conn, sid, operator='tester')
+
+        xp4 = conn.execute(
+            'SELECT * FROM insurance_records WHERE student_id = ? '
+            'AND batch_no = 4 AND insurance_type = ?', (sid, 'xueping')
+        ).fetchone()
+        assert xp4['status'] == S.PENDING_RENEWAL
+        assert not xp4['completed_at']
+        assert xp4['remark'] == 'renewal'
+        assert conn.execute(
+            'SELECT COUNT(*) FROM insurance_records WHERE student_id = ? '
+            'AND insurance_type = ?', (sid, 'intern')
+        ).fetchone()[0] == 0

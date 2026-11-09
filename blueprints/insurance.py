@@ -493,6 +493,31 @@ def api_insurance_push_start():
                     'skipped': result['skipped']})
 
 
+@bp.route('/api/insurance/push/exempt', methods=['POST'])
+def api_insurance_push_exempt():
+    """放弃实习险：将选中学生标记为不参加实习就业险（保险业务终了）。"""
+    err = _require_roles_json('admin', 'finance_chief')
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    student_ids = data.get('student_ids') or []
+    if not student_ids:
+        return jsonify({'success': False, 'message': '请选择学生'}), 400
+
+    conn = models.get_db()
+    operator = session.get('username', '')
+    try:
+        result = insurance_domain.exempt_intern(
+            conn, student_ids, operator=operator)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({'success': True, 'count': result['count'],
+                    'skipped': result['skipped'],
+                    'errors': result['errors']})
+
+
 @bp.route('/api/insurance/push/renewal', methods=['POST'])
 def api_insurance_push_renewal():
     """推送至续保：为推迟注册学生追加下一批学平险记录。"""
@@ -905,6 +930,41 @@ def api_insurance_renewal_start():
                     'errors': errors[:20]})
 
 
+@bp.route('/api/insurance/renewal/push-intern', methods=['POST'])
+def api_insurance_renewal_push_intern():
+    """推送就业险：把当前待续保学平险批次标记为放弃本期，再进入实习险池。"""
+    err = _require_roles_json('admin', 'finance_chief', 'insurance_officer')
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    student_ids = data.get('student_ids') or []
+    if not student_ids:
+        return jsonify({'success': False, 'message': '请选择学生'}), 400
+
+    try:
+        window_days = int(data.get('window_days') or 30)
+    except (TypeError, ValueError):
+        window_days = 30
+    window_days = max(1, min(window_days, 365))
+    try:
+        today = _pool_today()
+    except ValueError:
+        return jsonify({'success': False, 'message': 'today 需为 YYYY-MM-DD'}), 400
+
+    conn = models.get_db()
+    operator = session.get('username', '')
+    try:
+        result = insurance_domain.push_intern_from_renewal(
+            conn, student_ids, operator=operator,
+            window_days=window_days, today=today)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({'success': True, 'count': result['created'],
+                    'skipped': result['skipped'], 'errors': result['errors']})
+
+
 @bp.route('/api/insurance/renewal/exempt', methods=['POST'])
 def api_insurance_renewal_exempt():
     """放弃本期续保：把下一个待续保批次标记为 exempt。
@@ -1230,11 +1290,30 @@ def api_insurance_records_list():
         return err
     insurance_type = (request.args.get('insurance_type') or '').strip()
     status = (request.args.get('status') or '').strip()
+    latest_only = (request.args.get('latest_only') or '') in ('1', 'true', 'yes')
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = int(request.args.get('page_size', 100))
+    except (TypeError, ValueError):
+        page_size = 100
+    page_size = max(1, min(page_size, 200))
+
     conn = models.get_db()
     items = insurance_domain.query_insurance_records(
         conn, insurance_type=insurance_type or None,
-        status=status or None, **_pool_filters())
-    return jsonify({'success': True, 'total': len(items), 'items': items})
+        status=status or None, latest_only=latest_only, **_pool_filters())
+    total = len(items)
+    pages = max(1, (total + page_size - 1) // page_size)
+    page = min(page, pages)
+    start = (page - 1) * page_size
+    page_items = items[start:start + page_size]
+    return jsonify({'success': True, 'total': total,
+                    'page': page, 'page_size': page_size,
+                    'pages': pages,
+                    'latest_only': latest_only, 'items': page_items})
 
 
 @bp.route('/insurance/revert')

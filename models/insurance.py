@@ -1353,11 +1353,54 @@ def _detach_record_from_batch(conn, batch_id, record_id):
             (_now(), batch_id))
 
 
+def _restore_early_push_xueping(conn, student_id, operator=''):
+    """撤销「提前推送就业险」时，还原被置为放弃本期的学平险批次。
+
+    「推送就业险」是原子操作：当前学平险批次置为 exempt + 新建实习险记录。
+    按学生撤销只删除实习险记录，这里把学平险批次还原到推送前状态：
+    - 推送时新建的占位记录（原状态 pending_approve）→ 删除
+    - 推送前已存在的待续保记录（原状态 pending_renewal）→ 恢复待续保
+    """
+    cur = conn.execute(
+        '''SELECT * FROM insurance_records
+           WHERE student_id = ? AND insurance_type = ? AND status = ?
+             AND remark = 'push_intern'
+           ORDER BY batch_no DESC, id DESC LIMIT 1''',
+        (student_id, INSURANCE_TYPE_XUEPING, InsuranceStatus.EXEMPT)
+    )
+    rec = _row_to_dict(cur, cur.fetchone())
+    if not rec:
+        return 0
+
+    row = conn.execute(
+        '''SELECT from_status FROM insurance_operation_logs
+           WHERE record_id = ? AND action = 'exempt_renewal'
+           ORDER BY id DESC LIMIT 1''',
+        (rec['id'],)
+    ).fetchone()
+    from_status = (row[0] if row else '') or ''
+
+    if from_status == InsuranceStatus.PENDING_RENEWAL:
+        _update_record(conn, rec['id'],
+                       status=InsuranceStatus.PENDING_RENEWAL,
+                       completed_at='', remark='renewal')
+        log_operation(conn, rec, 'revert', InsuranceStatus.EXEMPT,
+                      InsuranceStatus.PENDING_RENEWAL, operator=operator)
+        return 1
+
+    conn.execute('DELETE FROM insurance_records WHERE id = ?', (rec['id'],))
+    log_operation(conn, rec, 'revert', InsuranceStatus.EXEMPT, 'deleted',
+                  {'remark': 'push_intern'}, operator=operator)
+    return 1
+
+
 def revert_student(conn, student_id, operator=''):
     """按学生撤销最后一次参保：删除最近一条保险记录，回到办理前状态。
 
     - 记录本身（保单号、到期日、缴费日期、办结时间）一并删除
     - 从所属导出批次中剔除；批次清空则标记已撤销
+    - 若最近一条是「提前推送就业险」的实习险记录，同步还原被置为
+      放弃本期的学平险批次（删除占位记录或恢复为待续保）
     - students 旧字段按剩余记录重新投影（历史缴费/保单回退到上一批）
     - 操作日志保留（action='revert'，to_status='deleted'）
     返回被删除的记录字典。
@@ -1381,6 +1424,11 @@ def revert_student(conn, student_id, operator=''):
             'pay_date': rec.get('pay_date') or '',
         },
         export_batch_id=batch_id, operator=operator)
+
+    if (rec['insurance_type'] == INSURANCE_TYPE_INTERN
+            and (rec.get('remark') or '').startswith('提前至')):
+        _restore_early_push_xueping(conn, student_id, operator=operator)
+
     sync_student_snapshot(conn, student_id)
     return rec
 
@@ -1410,6 +1458,50 @@ def search_student_last_records(conn, search, limit=50):
     return [dict(r) for r in rows]
 
 
+def _create_intern_record(conn, student, operator='', current_year=None,
+                          remark='pushed', school_year=None, log_action='push'):
+    """按计划为学生创建实习就业险待审批记录；已存在或无实习批次时返回 None。
+
+    school_year 缺省按计划实习批次推算；人工提前推送时由调用方传入
+    实际办理学年，避免记录落在计划实习年份（未来）上。
+    log_action 为空表示不在这里记日志，由调用方自行落一条完整动作日志。
+    """
+    plan = build_plan(student.get('enrollment_year'), student.get('grade'), current_year)
+    intern_step = next(
+        (p for p in plan if p['insurance_type'] == INSURANCE_TYPE_INTERN), None
+    )
+    if not intern_step:
+        return None
+
+    exists = conn.execute(
+        'SELECT 1 FROM insurance_records '
+        'WHERE student_id = ? AND batch_no = ? AND insurance_type = ?',
+        (student['id'], intern_step['batch_no'], INSURANCE_TYPE_INTERN)
+    ).fetchone()
+    if exists:
+        return None
+
+    start = start_year(student.get('enrollment_year'), student.get('grade'))
+    if not school_year:
+        school_year = _school_year(start, intern_step['batch_no'])
+    conn.execute(
+        '''INSERT INTO insurance_records
+           (student_id, id_card, school_year, batch_no, insurance_type,
+            status, pushed_at, remark)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+        (student['id'], student.get('id_card') or '', school_year,
+         intern_step['batch_no'], INSURANCE_TYPE_INTERN,
+         InsuranceStatus.PENDING_APPROVE, _now(), remark)
+    )
+    new_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+    rec = get_record(conn, new_id)
+    if log_action:
+        log_operation(conn, rec, log_action, '', InsuranceStatus.PENDING_APPROVE,
+                      operator=operator)
+    sync_student_snapshot(conn, student['id'])
+    return rec
+
+
 def push_to_intern(conn, student_ids, operator='', current_year=None):
     """手动推送：为续保/首保已完成的学生创建实习就业险待审批记录。
 
@@ -1429,41 +1521,115 @@ def push_to_intern(conn, student_ids, operator='', current_year=None):
             skipped += 1
             continue
 
-        plan = build_plan(student.get('enrollment_year'), student.get('grade'), current_year)
-        intern_step = next(
-            (p for p in plan if p['insurance_type'] == INSURANCE_TYPE_INTERN), None
-        )
-        if not intern_step:
+        if _create_intern_record(conn, student, operator=operator,
+                                 current_year=current_year) is None:
             skipped += 1
             continue
-
-        exists = conn.execute(
-            'SELECT 1 FROM insurance_records '
-            'WHERE student_id = ? AND batch_no = ? AND insurance_type = ?',
-            (sid, intern_step['batch_no'], INSURANCE_TYPE_INTERN)
-        ).fetchone()
-        if exists:
-            skipped += 1
-            continue
-
-        start = start_year(student.get('enrollment_year'), student.get('grade'))
-        school_year = _school_year(start, intern_step['batch_no'])
-        conn.execute(
-            '''INSERT INTO insurance_records
-               (student_id, id_card, school_year, batch_no, insurance_type,
-                status, pushed_at, remark)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-            (sid, student.get('id_card') or '', school_year, intern_step['batch_no'],
-             INSURANCE_TYPE_INTERN, InsuranceStatus.PENDING_APPROVE, _now(), 'pushed')
-        )
-        new_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
-        rec = get_record(conn, new_id)
-        log_operation(conn, rec, 'push', '', InsuranceStatus.PENDING_APPROVE,
-                      operator=operator)
-        sync_student_snapshot(conn, sid)
         created += 1
 
     return {'created': created, 'skipped': skipped}
+
+
+def exempt_intern(conn, student_ids, operator='', current_year=None):
+    """放弃实习险：建立实习险批次记录并直接置为 exempt（不参保）。
+
+    实习就业险是该生最后一个保险批次，标记 exempt 后该生不再进入续保 /
+    推送 / 催缴任何名单，全部保险业务视为终了。已存在实习险记录的学生跳过。
+    返回 {'count': n, 'skipped': m, 'errors': [...]}。
+    """
+    if current_year is None:
+        current_year = config.CURRENT_SCHOOL_YEAR
+
+    count = 0
+    skipped = 0
+    errors = []
+    for sid in student_ids:
+        cur = conn.execute(
+            'SELECT id, id_card, grade, enrollment_year FROM students '
+            'WHERE id = ? AND COALESCE(is_deleted, 0) = 0', (sid,)
+        )
+        student = _row_to_dict(cur, cur.fetchone())
+        if not student:
+            skipped += 1
+            errors.append({'student_id': sid, 'message': '学生不存在'})
+            continue
+
+        rec = _create_intern_record(conn, student, operator=operator,
+                                    current_year=current_year,
+                                    remark='exempt_intern', log_action='')
+        if rec is None:
+            skipped += 1
+            errors.append({'student_id': sid,
+                           'message': '该生无实习就业险批次或已存在记录'})
+            continue
+        _update_record(conn, rec['id'], status=InsuranceStatus.EXEMPT,
+                       completed_at=_now())
+        log_operation(conn, rec, 'exempt_intern', '', InsuranceStatus.EXEMPT,
+                      operator=operator)
+        sync_student_snapshot(conn, student['id'])
+        count += 1
+
+    return {'count': count, 'skipped': skipped, 'errors': errors[:20]}
+
+
+def push_intern_from_renewal(conn, student_ids, operator='', current_year=None,
+                             window_days=30, today=None):
+    """续保页「推送就业险」：终结当前待续保学平险批次，再生成实习就业险记录。
+
+    学平险该批次并未实际投保，因此标记为 `exempt`（放弃本期）而非 `done`：
+    - 让该批次成为终态，满足「实习险前置条件：学平险批次全部终结」；
+    - 不虚构保单号/到期日，避免虚增「学平险已办结批次」与快照标记。
+
+    逐生校验续保窗口/已有实习险等前置条件，失败计入 skipped 与 errors。
+    返回 {'created': n, 'skipped': m, 'errors': [...]}。
+    """
+    if current_year is None:
+        current_year = config.CURRENT_SCHOOL_YEAR
+
+    created = 0
+    skipped = 0
+    errors = []
+    for sid in student_ids:
+        cur = conn.execute(
+            'SELECT id, id_card, grade, enrollment_year FROM students '
+            'WHERE id = ? AND COALESCE(is_deleted, 0) = 0', (sid,)
+        )
+        student = _row_to_dict(cur, cur.fetchone())
+        if not student:
+            skipped += 1
+            errors.append({'student_id': sid, 'message': '学生不存在'})
+            continue
+
+        if student_kind(student.get('enrollment_year'),
+                        student.get('grade')) != STUDENT_KIND_DEFERRED:
+            skipped += 1
+            errors.append({'student_id': sid,
+                           'message': '仅推迟注册学生可提前推送就业险'})
+            continue
+
+        try:
+            # 复用「放弃本期」的全部前置校验与状态流转，并把当前批次置为终态
+            exempt_renewal_batch(
+                conn, sid, current_year=current_year, operator=operator,
+                remark='push_intern', today=today, window_days=window_days)
+        except InsuranceTransitionError as exc:
+            skipped += 1
+            errors.append({'student_id': sid, 'message': str(exc)})
+            continue
+
+        rec = _create_intern_record(
+            conn, student, operator=operator, current_year=current_year,
+            school_year=_school_year(current_year, 1),
+            remark='提前至第%d年实习' % (
+                current_year - start_year(student.get('enrollment_year'),
+                                          student.get('grade')) + 1))
+        if rec is None:
+            skipped += 1
+            errors.append({'student_id': sid, 'message': '已存在实习就业险记录'})
+            continue
+        created += 1
+
+    return {'created': created, 'skipped': skipped, 'errors': errors[:20]}
 
 
 def push_to_renewal(conn, student_ids, operator='', current_year=None):
@@ -1780,6 +1946,11 @@ def _renewal_urgency(expiry_date, today, active_months):
 
 
 def _renewal_item(student, step, previous, record_id, urgency, today):
+    plan = build_plan(student.get('enrollment_year'), student.get('grade'))
+    remaining_xueping = sum(
+        1 for p in plan
+        if p['insurance_type'] == INSURANCE_TYPE_XUEPING
+        and p['batch_no'] > step['batch_no'])
     item = _pool_item(student, step, previous, today=today)
     item.update({
         'record_id': record_id,
@@ -1789,6 +1960,7 @@ def _renewal_item(student, step, previous, record_id, urgency, today):
         'previous_expiry': previous.get('expiry_date', ''),
         'days_left': _days_left(previous.get('expiry_date'), today),
         'urgency': urgency,
+        'remaining_xueping': remaining_xueping,
         'target_school_year': _school_year(
             start_year(student.get('enrollment_year'), student.get('grade')),
             step['batch_no']),
@@ -2193,7 +2365,7 @@ def start_renewal(conn, student_id, current_year=None, operator=''):
 
 
 def exempt_renewal_batch(conn, student_id, current_year=None, operator='',
-                         remark='', today=None):
+                         remark='', today=None, window_days=30):
     """续保页「放弃本期」：把下一个待续保批次标记为 exempt。
 
     语义：仅终结该批次，学生后续批次仍按计划自动投保，不会永久退出流程。
@@ -2261,7 +2433,7 @@ def exempt_renewal_batch(conn, student_id, current_year=None, operator='',
     if latest['status'] == InsuranceStatus.DONE:
         urgency = _renewal_urgency(
             latest.get('expiry_date'), today,
-            _renewal_active_months(conn, today, 30))
+            _renewal_active_months(conn, today, window_days))
         if urgency is None:
             raise InsuranceTransitionError('该学生尚未进入续保窗口')
     else:
@@ -2412,18 +2584,29 @@ def intern_stage_counts(conn, **filters):
 # ============================================================
 # 记录查询 / 撤销中心 / 操作日志（P6）
 # ============================================================
-def query_insurance_records(conn, insurance_type=None, status=None, **filters):
-    """保险记录查询：以 insurance_records 为数据源的统一查询。"""
+def query_insurance_records(conn, insurance_type=None, status=None,
+                            latest_only=False, **filters):
+    """保险记录查询：以 insurance_records 为数据源的统一查询。
+
+    latest_only=True 时，每名学生只保留已筛选记录中批次号最大的一条
+    （保险只保一年，往年批次仅存档，页面上无需与当前批次并列展示）。
+    """
     students = _pool_students(conn, **filters)
     rec_map = _records_map(conn, [s['id'] for s in students])
 
     items = []
     for s in students:
+        matched = []
         for rec in rec_map.get(s['id'], []):
             if insurance_type and rec['insurance_type'] != insurance_type:
                 continue
             if status and rec['status'] != status:
                 continue
+            matched.append(rec)
+        if latest_only and matched:
+            matched = [max(matched, key=lambda r: (r['batch_no'],
+                                                  r['insurance_type']))]
+        for rec in matched:
             step = {'batch_no': rec['batch_no'],
                     'insurance_type': rec['insurance_type'],
                     'stage': STAGE_PUSH if rec['insurance_type'] == INSURANCE_TYPE_INTERN

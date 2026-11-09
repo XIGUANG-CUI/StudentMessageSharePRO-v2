@@ -32,7 +32,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-2">
     <h5 class="mb-0"><i class="bi bi-card-list me-2"></i>保险记录查询</h5>
-    <span class="text-muted small">数据源：保险记录表（含学平险 / 实习就业险全部批次）</span>
+    <span class="text-muted small">数据源：保险记录表（默认每名学生仅显示最新批次，往年批次仅存档）</span>
 </div>
 
 <div class="irec-toolbar">
@@ -71,6 +71,10 @@
         <option value="done">已办结</option>
         <option value="exempt">不办理</option>
     </select>
+    <div class="form-check form-switch ms-1 mb-0">
+        <input class="form-check-input" type="checkbox" id="irecHistory">
+        <label class="form-check-label small text-muted" for="irecHistory">显示历史批次</label>
+    </div>
     <button type="button" class="btn btn-sm btn-outline-secondary" id="irecReset">重置</button>
     <span class="ms-auto text-muted small">共 <strong id="irecTotal">0</strong> 条</span>
 </div>
@@ -89,6 +93,14 @@
             <tr><td colspan="15" class="text-center text-muted py-4">加载中…</td></tr>
         </tbody>
     </table>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mt-2">
+    <span class="text-muted small" id="irecPageInfo">第 1 / 1 页</span>
+    <div class="btn-group btn-group-sm">
+        <button type="button" class="btn btn-outline-secondary" id="irecPrev">上一页</button>
+        <button type="button" class="btn btn-outline-secondary" id="irecNext">下一页</button>
+    </div>
 </div>
 {% endblock %}
 {% block scripts %}
@@ -113,6 +125,9 @@
         setTimeout(function () { div.remove(); }, 2600);
     }
 
+    var PAGE_SIZE = 100;
+    var page = 1;
+
     function queryString() {
         var map = {
             search: $('irecSearch').value.trim(),
@@ -120,8 +135,11 @@
             grade: $('irecGrade').value,
             admin_class: $('irecClass').value,
             insurance_type: $('irecType').value,
-            status: $('irecStatus').value
+            status: $('irecStatus').value,
+            page: page,
+            page_size: PAGE_SIZE
         };
+        if (!$('irecHistory').checked) { map.latest_only = 1; }
         var parts = [];
         Object.keys(map).forEach(function (key) {
             if (map[key]) { parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(map[key])); }
@@ -164,29 +182,38 @@
         body.innerHTML = html;
     }
 
-    function load() {
+    function load(targetPage) {
+        if (typeof targetPage === 'number') { page = Math.max(1, targetPage); }
         fetch('/api/insurance/records/list?' + queryString())
             .then(function (r) { return r.json(); })
             .then(function (data) {
                 if (!data.success) { toast(data.message || '加载失败', 'error'); return; }
+                page = data.page || 1;
                 $('irecTotal').textContent = data.total || 0;
+                $('irecPageInfo').textContent = '第 ' + page + ' / ' + (data.pages || 1) + ' 页';
+                $('irecPrev').disabled = page <= 1;
+                $('irecNext').disabled = page >= (data.pages || 1);
                 render(data.items || []);
+                document.querySelector('.irec-table-wrap').scrollTop = 0;
             })
             .catch(function () { toast('加载失败', 'error'); });
     }
 
     $('irecSearch').addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') { load(); }
+        if (e.key === 'Enter') { load(1); }
     });
-    ['irecSchool', 'irecGrade', 'irecClass', 'irecType', 'irecStatus'].forEach(function (id) {
-        $(id).addEventListener('change', load);
+    ['irecSchool', 'irecGrade', 'irecClass', 'irecType', 'irecStatus', 'irecHistory'].forEach(function (id) {
+        $(id).addEventListener('change', function () { load(1); });
     });
+    $('irecPrev').addEventListener('click', function () { load(page - 1); });
+    $('irecNext').addEventListener('click', function () { load(page + 1); });
     $('irecReset').addEventListener('click', function () {
         $('irecSearch').value = '';
         ['irecSchool', 'irecGrade', 'irecClass', 'irecType', 'irecStatus'].forEach(function (id) {
             $(id).value = '';
         });
-        load();
+        $('irecHistory').checked = false;
+        load(1);
     });
 
     load();

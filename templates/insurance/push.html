@@ -27,7 +27,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-2">
     <h5 class="mb-0"><i class="bi bi-send me-2"></i>就业险推送</h5>
-    <span class="text-muted small">学平险全部办结的学生 → 推送至实习就业险催缴池；推迟注册学生可推送至续保</span>
+    <span class="text-muted small">学平险全部办结的学生 → 推送至实习就业险催缴池；推迟注册学生可推送至续保；不参加实习的学生可放弃实习险</span>
 </div>
 
 <div class="ips-toolbar">
@@ -59,6 +59,9 @@
         </button>
         <button type="button" class="btn btn-sm btn-success" id="ipsPushBtn">
             <i class="bi bi-send me-1"></i>推送至实习险
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-danger{% if session.role not in ('admin', 'finance_chief') %} d-none{% endif %}" id="ipsExemptBtn">
+            <i class="bi bi-slash-circle me-1"></i>放弃实习险
         </button>
     </div>
 </div>
@@ -279,6 +282,30 @@
             selected = {};
             load();
         }).catch(function () { toast('推送失败', 'error'); });
+    });
+
+    $('ipsExemptBtn').addEventListener('click', function () {
+        var ids = Object.keys(selected);
+        if (!ids.length) { toast('请先选择学生', 'error'); return; }
+        if (!confirm('确认放弃选中的 ' + ids.length + ' 名学生「实习就业险」？\n\n' +
+                '实习就业险是该生最后一个保险批次，放弃后该生不再进入续保 / 推送 / 催缴名单，' +
+                '全部保险业务终了。')) { return; }
+        fetch('/api/insurance/push/exempt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ student_ids: ids.map(Number) })
+        }).then(function (r) { return r.json(); }).then(function (data) {
+            if (!data.success) { toast(data.message || '操作失败', 'error'); return; }
+            var msg = '已放弃实习险 ' + data.count + ' 人';
+            if (data.skipped) {
+                msg += '，跳过 ' + data.skipped + ' 人';
+                var first = (data.errors || [])[0];
+                if (first && first.message) { msg += '（' + first.message + '）'; }
+            }
+            toast(msg, data.count ? 'success' : 'error');
+            selected = {};
+            load();
+        }).catch(function () { toast('操作失败', 'error'); });
     });
 
     load();
