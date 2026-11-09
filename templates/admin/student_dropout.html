@@ -210,6 +210,92 @@
         color: #fff;
         font-size: .95rem;
     }
+
+    .sdp-btn-view {
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+        padding: .28rem .7rem;
+        border-radius: 6px;
+        border: 1px solid var(--sdp-primary);
+        background: #fff;
+        color: var(--sdp-primary);
+        font-size: .75rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all var(--sdp-transition);
+        white-space: nowrap;
+    }
+    .sdp-btn-view:hover {
+        background: var(--sdp-primary);
+        color: #fff;
+    }
+
+    /* 只读详情弹窗 */
+    .sdp-detail-modal .modal-dialog { max-width: 1080px; }
+    .sdp-detail-modal .ro-section {
+        font-size: 15px;
+        font-weight: 600;
+        padding: 8px 14px;
+        margin: 18px 0 12px 0;
+        border-left: 4px solid;
+        border-radius: 0 6px 6px 0;
+        background: #f8f9fa;
+    }
+    .sdp-detail-modal #ddFields > .ro-section:first-child { margin-top: 0; }
+    .sdp-detail-modal .ro-section.leave-info { border-color: #ef4444; color: #ef4444; }
+    .sdp-detail-modal .ro-section.id-info { border-color: #0d6efd; color: #0d6efd; }
+    .sdp-detail-modal .ro-section.enroll-info { border-color: #198754; color: #198754; }
+    .sdp-detail-modal .ro-section.parent-info { border-color: #fd7e14; color: #fd7e14; }
+    .sdp-detail-modal .ro-section.contact-info { border-color: #0dcaf0; color: #0dcaf0; }
+    .sdp-detail-modal .ro-section.other-info { border-color: #6c757d; color: #6c757d; }
+    .sdp-detail-modal .ro-item {
+        height: 100%;
+        padding: .5rem .7rem;
+        border: 1px solid #f1f3f5;
+        background: #f9fafb;
+        border-radius: 8px;
+    }
+    .sdp-detail-modal .ro-label {
+        font-size: 12px;
+        font-weight: 600;
+        color: #6b7280;
+        margin-bottom: 2px;
+    }
+    .sdp-detail-modal .ro-value {
+        font-size: 14px;
+        color: #111827;
+        line-height: 1.5;
+        word-break: break-all;
+    }
+    .sdp-detail-modal .ro-value.empty { color: #9ca3af; }
+    .sdp-photo-card {
+        border: 2px dashed #dee2e6;
+        border-radius: 10px;
+        padding: 14px;
+        text-align: center;
+        background: #fdfdfd;
+    }
+    .sdp-photo-card img {
+        width: 120px;
+        height: 156px;
+        object-fit: cover;
+        border-radius: 6px;
+        border: 1px solid #e0e0e0;
+    }
+    .sdp-photo-placeholder {
+        width: 120px;
+        height: 156px;
+        border-radius: 6px;
+        border: 1px solid #e0e0e0;
+        background: #f5f5f5;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: #adb5bd;
+    }
+    .sdp-photo-placeholder i { font-size: 2.5rem; margin-bottom: 4px; }
 </style>
 
 <div class="sdp-header">
@@ -283,6 +369,7 @@
                         <th>处理日期</th>
                         <th>软删除标记</th>
                         <th>处理状态</th>
+                        <th>操作</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -331,10 +418,15 @@
                             <span class="sdp-badge sdp-badge-pending"><i class="bi bi-exclamation-circle"></i> 待处理</span>
                             {% endif %}
                         </td>
+                        <td>
+                            <button type="button" class="sdp-btn-view" onclick="openDropoutDetail({{ s.id }})">
+                                <i class="bi bi-eye"></i> 查看
+                            </button>
+                        </td>
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="13">
+                        <td colspan="14">
                             <div class="sdp-empty">
                                 <div class="sdp-empty-icon"><i class="bi bi-emoji-smile"></i></div>
                                 <div class="sdp-empty-title">暂无退学学生</div>
@@ -402,6 +494,189 @@ function exportDropoutData() {
     {% if pagination.name %}params.push('name=' + encodeURIComponent('{{ pagination.name }}'));{% endif %}
     if (params.length > 0) url += '?' + params.join('&');
     window.location.href = url;
+}
+</script>
+
+<!-- 退学学生只读档案弹窗 -->
+<div class="modal fade sdp-detail-modal" id="dropoutDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content shadow-lg">
+            <div class="modal-header py-3" style="background: linear-gradient(135deg, #1e293b, #334155); color: #fff;">
+                <h5 class="modal-title fs-6">
+                    <i class="bi bi-person-vcard me-1"></i><span id="ddTitleName">学生档案</span>
+                    <span class="sdp-badge ms-2" id="ddStatusBadge"></span>
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body p-3">
+                <div id="ddLoading" class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <div class="text-muted mt-2" style="font-size: .8125rem;">加载学生档案中...</div>
+                </div>
+                <div id="ddContent" class="d-none">
+                    <div class="row g-3">
+                        <div class="col-lg-9" id="ddFields"></div>
+                        <div class="col-lg-3">
+                            <div class="sticky-top" style="top: 10px;">
+                                <div class="sdp-photo-card mb-3">
+                                    <div class="fw-semibold text-secondary mb-2 small">
+                                        <i class="bi bi-camera me-1"></i>身份证照片
+                                    </div>
+                                    <div class="d-flex justify-content-center">
+                                        <img id="ddPhoto" src="" alt="学生照片" style="display: none;">
+                                        <div id="ddPhotoPlaceholder" class="sdp-photo-placeholder">
+                                            <i class="bi bi-person-bounding-box"></i>
+                                            <small>暂无照片</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button type="button" class="btn btn-secondary btn-sm w-100" data-bs-dismiss="modal">
+                                    <i class="bi bi-x-circle"></i> 关闭
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+var DD_DETAIL_URL = "{{ url_for('lifecycle.api_student_dropout_detail', student_id=0) }}";
+var _ddModal = null;
+
+var DD_GROUPS = [
+    { cls: 'leave-info', icon: 'bi-box-arrow-right', title: '退学信息', fields: [
+        ['退学表提交日期', 'dropout_date'],
+        ['处理日期', 'process_date'],
+        ['处理状态', 'process_status'],
+        ['软删除标记', 'deleted_mark'],
+        ['异动信息', 'change_info', 'col-12']
+    ]},
+    { cls: 'id-info', icon: 'bi-person-vcard', title: '身份信息', fields: [
+        ['学生姓名', 'name'],
+        ['性别', 'gender'],
+        ['民族', 'ethnicity'],
+        ['出生日期', 'birth_date'],
+        ['身份证号', 'id_card'],
+        ['签发机关', 'issue_authority'],
+        ['有效期·始', 'valid_start'],
+        ['有效期·止', 'valid_end'],
+        ['住址', 'address', 'col-12']
+    ]},
+    { cls: 'enroll-info', icon: 'bi-mortarboard', title: '学籍信息', fields: [
+        ['学号', 'student_no'],
+        ['国网学籍号', 'national_no'],
+        ['年级', 'grade'],
+        ['入学年份', 'enrollment_year'],
+        ['学校类别', 'school_name'],
+        ['专业', 'major'],
+        ['专业方向', 'major_direction'],
+        ['行政班级', 'admin_class'],
+        ['虚拟班级', 'virtual_class'],
+        ['学籍状态', 'registration_status'],
+        ['在校状态', 'attendance_status']
+    ]},
+    { cls: 'parent-info', icon: 'bi-people-fill', title: '家长信息', fields: [
+        ['家长姓名', 'parent_name'],
+        ['家长关系', 'parent_relation'],
+        ['家长身份证号', 'parent_id_card'],
+        ['家长电话', 'parent_phone']
+    ]},
+    { cls: 'contact-info', icon: 'bi-telephone', title: '联系方式', fields: [
+        ['学生电话', 'student_phone'],
+        ['备用电话1', 'backup_phone_1'],
+        ['备用电话2', 'backup_phone_2']
+    ]},
+    { cls: 'other-info', icon: 'bi-journal-text', title: '学业扩展', fields: [
+        ['入学形式', 'admission_type'],
+        ['户口性质', 'household_type'],
+        ['初中毕业学校', 'junior_school'],
+        ['初中毕业时间', 'junior_graduation_time'],
+        ['备注', 'remark', 'col-12']
+    ]}
+];
+
+function ddEsc(v) {
+    return String(v === null || v === undefined ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function ddText(v, key) {
+    if (v === null || v === undefined) return '';
+    var s = String(v).trim();
+    if (key === 'enrollment_year' && (s === '0' || s === '')) return '';
+    return s;
+}
+
+function ddRender(data) {
+    var s = data.student || {};
+    var view = Object.assign({}, s);
+    view.process_status = s.is_deleted ? '已处理' : '待处理';
+    view.deleted_mark = s.is_deleted ? '已删除' : '';
+    if (view.dropout_date) view.dropout_date = String(view.dropout_date).slice(0, 10);
+    if (view.process_date) view.process_date = String(view.process_date).slice(0, 10);
+
+    document.getElementById('ddTitleName').textContent = (s.name || '学生档案') + ' · 学生档案';
+    var badge = document.getElementById('ddStatusBadge');
+    badge.textContent = view.process_status;
+    badge.className = 'sdp-badge ms-2 ' + (s.is_deleted ? 'sdp-badge-processed' : 'sdp-badge-pending');
+
+    var html = '';
+    DD_GROUPS.forEach(function (g) {
+        html += '<div class="ro-section ' + g.cls + '"><i class="bi ' + g.icon + ' me-2"></i>' + ddEsc(g.title) + '</div>';
+        html += '<div class="row g-2 mb-1">';
+        g.fields.forEach(function (f) {
+            var val = ddText(view[f[1]], f[1]);
+            html += '<div class="' + (f[2] || 'col-md-4') + '">'
+                + '<div class="ro-item">'
+                + '<div class="ro-label">' + ddEsc(f[0]) + '</div>'
+                + '<div class="ro-value' + (val ? '' : ' empty') + '">' + (val ? ddEsc(val) : '—') + '</div>'
+                + '</div></div>';
+        });
+        html += '</div>';
+    });
+    document.getElementById('ddFields').innerHTML = html;
+
+    var img = document.getElementById('ddPhoto');
+    var ph = document.getElementById('ddPhotoPlaceholder');
+    img.onerror = function () { img.style.display = 'none'; ph.style.display = 'flex'; };
+    if (s.id_card) {
+        img.src = '/api/photos/' + encodeURIComponent(s.id_card) + '?t=' + Date.now();
+        img.style.display = 'block';
+        ph.style.display = 'none';
+    } else {
+        img.removeAttribute('src');
+        img.style.display = 'none';
+        ph.style.display = 'flex';
+    }
+}
+
+function openDropoutDetail(studentId) {
+    var modalEl = document.getElementById('dropoutDetailModal');
+    if (!_ddModal) _ddModal = new bootstrap.Modal(modalEl);
+    document.getElementById('ddLoading').classList.remove('d-none');
+    document.getElementById('ddContent').classList.add('d-none');
+    _ddModal.show();
+
+    fetch(DD_DETAIL_URL.replace(/\/0$/, '/' + studentId), {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+        .then(function (resp) {
+            return resp.json().then(function (d) { return { ok: resp.ok, data: d }; });
+        })
+        .then(function (r) {
+            if (!r.ok || !r.data.success) throw new Error(r.data.message || '加载失败');
+            ddRender(r.data);
+            document.getElementById('ddLoading').classList.add('d-none');
+            document.getElementById('ddContent').classList.remove('d-none');
+        })
+        .catch(function (e) {
+            _ddModal.hide();
+            showToast(e.message || '加载失败，请重试', 'danger');
+        });
 }
 </script>
 {% endblock %}

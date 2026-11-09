@@ -34,6 +34,42 @@ def admin_student_dropout():
                           pagination=result)
 
 
+@bp.route('/api/admin/student-dropout/detail/<int:student_id>')
+def api_student_dropout_detail(student_id):
+    """退学学生只读详情：返回完整档案及退学/处理日期。"""
+    auth_error = _require_admin_json()
+    if auth_error:
+        return auth_error
+
+    conn = models.get_db()
+    row = conn.execute('''
+        SELECT s.*,
+            (SELECT ul.created_at FROM update_logs ul
+             WHERE ul.student_id = s.id AND ul.field_name = 'attendance_status'
+               AND ul.new_value = '退学办结'
+             ORDER BY ul.created_at DESC LIMIT 1) as dropout_date,
+            (SELECT ul.created_at FROM update_logs ul
+             WHERE ul.student_id = s.id AND ul.field_name = 'is_deleted'
+               AND ul.new_value = '1'
+             ORDER BY ul.created_at DESC LIMIT 1) as process_date
+        FROM students s
+        WHERE s.id = ? AND s.attendance_status = '退学办结'
+    ''', (student_id,)).fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({'success': False, 'message': '未找到该退学学生记录'}), 404
+
+    student = dict(row)
+    school_code = student.get('school')
+    student['school_name'] = (
+        models.get_school_type_name(school_code)
+        or (str(school_code) if school_code else '')
+    )
+
+    return jsonify({'success': True, 'student': student})
+
+
 @bp.route('/admin/student-dropout/export')
 @auth.admin_required
 def admin_student_dropout_export():
