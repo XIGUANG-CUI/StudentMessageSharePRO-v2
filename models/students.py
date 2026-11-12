@@ -963,3 +963,230 @@ def get_transfer_pending_students(page=1, per_page=10):
         'pages': max((total + per_page - 1) // per_page, 1)
     }
 
+
+# ============================================================
+# 重点监管学生：学籍非毕业、未删除的外省学生
+# 外省判定（并集）：身份证非 23 开头 或 户籍省（区划匹配）非黑龙江省
+# ============================================================
+_KEY_SUP_ID_OUTSIDE = ("(s.id_card IS NOT NULL AND TRIM(s.id_card) != '' "
+                      "AND s.id_card NOT LIKE '23%')")
+_KEY_SUP_DISTRICT_OUTSIDE = ("(s.district_province_name IS NOT NULL "
+                             "AND TRIM(s.district_province_name) != '' "
+                             "AND s.district_province_name != '黑龙江省')")
+_KEY_SUP_UNION = f"({_KEY_SUP_ID_OUTSIDE} OR {_KEY_SUP_DISTRICT_OUTSIDE})"
+
+
+def _key_supervision_hit_clause(hit_types):
+    """命中类型多选条件：身份证非23 / 户籍非黑龙江 / 两者兼有，三类互斥。
+
+    - id：身份证非23 且 户籍为黑龙江省（单项命中）
+    - district：户籍非黑龙江省 且 身份证为23开头（单项命中）
+    - both：两者同时满足
+    多选时对所选分类取并集。
+    """
+    if not hit_types:
+        return ''
+    if isinstance(hit_types, str):
+        hit_types = [hit_types]
+    selected = [t for t in hit_types if t in ('id', 'district', 'both')]
+    if not selected:
+        return ''
+
+    clauses = []
+    if 'id' in selected:
+        clauses.append(f'({_KEY_SUP_ID_OUTSIDE} AND NOT {_KEY_SUP_DISTRICT_OUTSIDE})')
+    if 'district' in selected:
+        clauses.append(f'({_KEY_SUP_DISTRICT_OUTSIDE} AND NOT {_KEY_SUP_ID_OUTSIDE})')
+    if 'both' in selected:
+        clauses.append(f'({_KEY_SUP_ID_OUTSIDE} AND {_KEY_SUP_DISTRICT_OUTSIDE})')
+    return '(' + ' OR '.join(clauses) + ')'
+
+
+def _build_key_supervision_where(filters):
+    """构建重点监管学生的筛选条件（不含外省判定与命中类型条件）。"""
+    filters = filters or {}
+    where_clauses = ['s.is_deleted = 0', _exclude_graduated_clause('s')]
+    params = []
+
+    if filters.get('enrollment_year'):
+        where_clauses.append('s.enrollment_year = ?')
+        params.append(filters['enrollment_year'])
+    if filters.get('school'):
+        where_clauses.append('s.school = ?')
+        params.append(filters['school'])
+    if filters.get('grade'):
+        where_clauses.append('s.grade = ?')
+        params.append(filters['grade'])
+    if filters.get('admin_class'):
+        where_clauses.append('s.admin_class = ?')
+        params.append(filters['admin_class'])
+    if filters.get('major'):
+        where_clauses.append('s.major = ?')
+        params.append(filters['major'])
+    if filters.get('attendance_status'):
+        where_clauses.append('s.attendance_status = ?')
+        params.append(filters['attendance_status'])
+    if filters.get('search'):
+        term = f"%{filters['search']}%"
+        where_clauses.append('(s.name LIKE ? OR s.student_no LIKE ? OR s.id_card LIKE ?)')
+        params.extend([term, term, term])
+
+    return where_clauses, params
+
+
+def get_key_supervision_students(filters=None, page=1, per_page=20):
+    """重点监管学生列表 + 统计。
+
+    返回 {students, total, page, per_page, pages, stats, missing}
+    stats: supervision_total / id_hits / district_hits / both_hits
+    missing: missing_id / missing_district（仅统计因缺失而无法纳入的学生）
+    """
+    filters = filters or {}
+
+    where_clauses, params = _build_key_supervision_where(filters)
+    base_sql = ' AND '.join(where_clauses)
+
+    # 明细条件：命中类型多选过滤；未指定时取并集
+    list_clauses = list(where_clauses)
+    list_params = list(params)
+    hit_clause = _key_supervision_hit_clause(filters.get('hit_types'))
+    list_clauses.append(hit_clause or _KEY_SUP_UNION)
+    list_sql = ' AND '.join(list_clauses)
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute(f'SELECT COUNT(*) FROM students s WHERE {list_sql}', list_params)
+    total = cursor.fetchone()[0]
+
+    # 统计口径：当前筛选（不含命中类型）下的分布与缺失情况
+    cursor.execute(f'''
+        SELECT
+            SUM(CASE WHEN {_KEY_SUP_UNION} THEN 1 ELSE 0 END) AS supervision_total,
+            SUM(CASE WHEN {_KEY_SUP_ID_OUTSIDE} AND NOT {_KEY_SUP_DISTRICT_OUTSIDE} THEN 1 ELSE 0 END) AS id_hits,
+            SUM(CASE WHEN {_KEY_SUP_DISTRICT_OUTSIDE} AND NOT {_KEY_SUP_ID_OUTSIDE} THEN 1 ELSE 0 END) AS district_hits,
+            SUM(CASE WHEN {_KEY_SUP_ID_OUTSIDE} AND {_KEY_SUP_DISTRICT_OUTSIDE} THEN 1 ELSE 0 END) AS both_hits,
+            SUM(CASE WHEN (s.id_card IS NULL OR TRIM(s.id_card) = '')
+                      AND NOT {_KEY_SUP_DISTRICT_OUTSIDE} THEN 1 ELSE 0 END) AS missing_id,
+            SUM(CASE WHEN (s.district_province_name IS NULL OR TRIM(s.district_province_name) = '')
+                      AND NOT {_KEY_SUP_ID_OUTSIDE} THEN 1 ELSE 0 END) AS missing_district
+        FROM students s
+        WHERE {base_sql}
+    ''', params)
+    row = cursor.fetchone()
+    stats = {key: (row[key] or 0) for key in
+             ('supervision_total', 'id_hits', 'district_hits', 'both_hits')}
+    missing = {key: (row[key] or 0) for key in ('missing_id', 'missing_district')}
+
+    offset = (page - 1) * per_page
+    cursor.execute(f'''
+        SELECT s.id, s.student_no, s.name, s.gender, s.id_card, s.grade,
+               s.admin_class, s.virtual_class, s.major, s.school,
+               s.registration_status, s.attendance_status,
+               s.student_phone, s.parent_phone, s.backup_phone_1, s.backup_phone_2,
+               s.address, s.district_province_name, s.district_city_name,
+               CASE
+                   WHEN {_KEY_SUP_ID_OUTSIDE} AND {_KEY_SUP_DISTRICT_OUTSIDE} THEN 'both'
+                   WHEN {_KEY_SUP_ID_OUTSIDE} THEN 'id'
+                   ELSE 'district'
+               END AS hit_type
+        FROM students s
+        WHERE {list_sql}
+        ORDER BY s.grade DESC, s.admin_class ASC, s.student_no ASC
+        LIMIT ? OFFSET ?
+    ''', list_params + [per_page, offset])
+    students = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+
+    return {
+        'students': students,
+        'total': total,
+        'page': page,
+        'per_page': per_page,
+        'pages': max((total + per_page - 1) // per_page, 1),
+        'stats': stats,
+        'missing': missing,
+    }
+
+
+def get_key_supervision_filter_values(filters=None):
+    """返回重点监管学生集合内的筛选项（年级/班级/专业/校别/在校状态）。
+
+    选项基于 年份 + 关键字 + 命中类型 的基础范围生成；
+    班级按已选年级、专业按已选年级+班级级联。
+    """
+    filters = filters or {}
+    base_filters = {
+        'enrollment_year': filters.get('enrollment_year'),
+        'search': filters.get('search'),
+        'hit_types': filters.get('hit_types'),
+    }
+
+    where_clauses, params = _build_key_supervision_where(base_filters)
+    where_clauses.append(_KEY_SUP_UNION)
+    hit_clause = _key_supervision_hit_clause(base_filters.get('hit_types'))
+    if hit_clause:
+        where_clauses.append(hit_clause)
+    where_sql = ' AND '.join(where_clauses)
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(f'''
+        SELECT DISTINCT s.grade, s.admin_class, s.major, s.school, s.attendance_status
+        FROM students s
+        WHERE {where_sql}
+    ''', params)
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+
+    def _clean(value):
+        return value.strip() if isinstance(value, str) else value
+
+    selected_grade = _clean(filters.get('grade')) or ''
+    selected_class = _clean(filters.get('admin_class')) or ''
+    selected_major = _clean(filters.get('major')) or ''
+    selected_attendance = _clean(filters.get('attendance_status')) or ''
+    selected_school = filters.get('school')
+
+    grades = sorted({_clean(r['grade']) for r in rows if _clean(r['grade'])})
+    schools = sorted({r['school'] for r in rows if r['school'] is not None})
+    classes = sorted({
+        _clean(r['admin_class']) for r in rows
+        if _clean(r['admin_class'])
+        and (not selected_grade or _clean(r['grade']) == selected_grade)
+    })
+    majors = sorted({
+        _clean(r['major']) for r in rows
+        if _clean(r['major'])
+        and (not selected_grade or _clean(r['grade']) == selected_grade)
+        and (not selected_class or _clean(r['admin_class']) == selected_class)
+    })
+    attendance_statuses = sorted({
+        _clean(r['attendance_status']) for r in rows if _clean(r['attendance_status'])
+    })
+
+    # 保留已选值，避免级联后下拉框丢失当前选项
+    if selected_grade and selected_grade not in grades:
+        grades.append(selected_grade)
+        grades.sort()
+    if selected_class and selected_class not in classes:
+        classes.append(selected_class)
+        classes.sort()
+    if selected_major and selected_major not in majors:
+        majors.append(selected_major)
+        majors.sort()
+    if selected_attendance and selected_attendance not in attendance_statuses:
+        attendance_statuses.append(selected_attendance)
+        attendance_statuses.sort()
+    if selected_school is not None and selected_school not in schools:
+        schools.append(selected_school)
+        schools.sort()
+
+    return {
+        'grades': grades,
+        'classes': classes,
+        'majors': majors,
+        'schools': schools,
+        'attendance_statuses': attendance_statuses,
+    }
+

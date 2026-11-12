@@ -1,0 +1,328 @@
+{% extends "base.html" %}
+
+{% block title %}重点监管学生 - 学生数据管理系统{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <h2 class="mb-0"><i class="bi bi-shield-exclamation"></i> 重点监管学生</h2>
+    <span class="text-muted small">
+        学籍非毕业 · 未删除 · 外省学生（身份证非 23 开头 或 户籍非黑龙江省）
+        · 入学年份：{{ current_year if current_year else '全部' }}
+    </span>
+</div>
+
+<style>
+    #ksTableWrap {
+        max-height: 65vh;
+        overflow: auto;
+    }
+    #ksTableWrap table {
+        min-width: 100%;
+    }
+    #ksTableWrap th,
+    #ksTableWrap td {
+        white-space: nowrap;
+    }
+    #ksTableWrap thead th {
+        position: sticky;
+        top: 0;
+        z-index: 3;
+        background-color: #f8f9fa;
+        box-shadow: inset 0 -1px 0 #dee2e6;
+    }
+    #ksTableWrap .sticky-col {
+        position: sticky;
+        z-index: 2;
+        background-color: #fff;
+    }
+    #ksTableWrap thead .sticky-col {
+        z-index: 4;
+        background-color: #f8f9fa;
+    }
+    #ksTableWrap .col-no {
+        left: 0;
+        width: 120px;
+        min-width: 120px;
+        max-width: 120px;
+    }
+    #ksTableWrap .col-name {
+        left: 120px;
+        width: 100px;
+        min-width: 100px;
+        max-width: 100px;
+        box-shadow: inset -1px 0 0 #dee2e6;
+    }
+    #ksTableWrap .table-striped > tbody > tr:nth-child(odd) > td.sticky-col {
+        background-color: #f8f9fa;
+    }
+    #ksTableWrap tbody tr:hover > td.sticky-col {
+        background-color: #eef2f7;
+    }
+    .ks-address {
+        max-width: 240px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .badge-id { background-color: #dc3545; }
+    .badge-district { background-color: #f59e0b; color: #fff; }
+    .badge-both { background-color: #7c3aed; }
+    .ks-stat-label { font-size: 13px; color: #64748b; }
+    .ks-stat-value { font-size: 26px; font-weight: 700; line-height: 1.2; }
+</style>
+
+<div class="row g-3 mb-3">
+    <div class="col-6 col-lg-3">
+        <div class="card border-start border-primary border-4 shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="ks-stat-label">重点监管总数</div>
+                <div class="ks-stat-value text-primary">{{ stats.supervision_total }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card border-start border-danger border-4 shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="ks-stat-label">仅身份证非 23</div>
+                <div class="ks-stat-value text-danger">{{ stats.id_hits }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card border-start border-warning border-4 shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="ks-stat-label">仅户籍非黑龙江省</div>
+                <div class="ks-stat-value text-warning">{{ stats.district_hits }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card border-start border-4 shadow-sm h-100" style="border-left-color:#7c3aed !important;">
+            <div class="card-body py-3">
+                <div class="ks-stat-label">两者兼有</div>
+                <div class="ks-stat-value" style="color:#7c3aed;">{{ stats.both_hits }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if missing.missing_id or missing.missing_district %}
+<div class="alert alert-warning d-flex align-items-start gap-2 py-2">
+    <i class="bi bi-exclamation-triangle-fill mt-1"></i>
+    <div class="small">
+        身份证缺失 <strong>{{ missing.missing_id }}</strong> 人、区划未匹配 <strong>{{ missing.missing_district }}</strong> 人，
+        因无法判定是否为外省，未纳入统计。
+    </div>
+</div>
+{% endif %}
+
+<div class="card mb-3 shadow-sm">
+    <div class="card-body py-3">
+        <form method="GET" id="ksFilterForm">
+            <input type="hidden" name="hit_filtered" value="1">
+            <div class="row g-2 align-items-end">
+                <div class="col-12 col-lg-3">
+                    <label class="form-label small text-muted mb-1" for="ks-search">姓名 / 学号 / 身份证</label>
+                    <input type="text" class="form-control form-control-sm" id="ks-search" name="search"
+                           value="{{ current_filters.get('search', '') }}" placeholder="输入关键字搜索">
+                </div>
+                <div class="col-6 col-lg-2">
+                    <label class="form-label small text-muted mb-1" for="ks-grade">年级</label>
+                    <select class="form-select form-select-sm" id="ks-grade" name="grade">
+                        <option value="">全部</option>
+                        {% for grade in filter_values.grades %}
+                        <option value="{{ grade }}" {{ 'selected' if current_filters.get('grade') == grade else '' }}>{{ grade }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-6 col-lg-2">
+                    <label class="form-label small text-muted mb-1" for="ks-class">行政班级</label>
+                    <select class="form-select form-select-sm" id="ks-class" name="admin_class">
+                        <option value="">全部</option>
+                        {% for cls in filter_values.classes %}
+                        <option value="{{ cls }}" {{ 'selected' if current_filters.get('admin_class') == cls else '' }}>{{ cls }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-6 col-lg-2">
+                    <label class="form-label small text-muted mb-1" for="ks-major">专业</label>
+                    <select class="form-select form-select-sm" id="ks-major" name="major">
+                        <option value="">全部</option>
+                        {% for major in filter_values.majors %}
+                        <option value="{{ major }}" {{ 'selected' if current_filters.get('major') == major else '' }}>{{ major }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-6 col-lg-1">
+                    <label class="form-label small text-muted mb-1" for="ks-school">校别</label>
+                    <select class="form-select form-select-sm" id="ks-school" name="school">
+                        <option value="">全部</option>
+                        {% for st in school_options %}
+                        <option value="{{ st.code }}" {{ 'selected' if current_filters.get('school') == st.code else '' }}>{{ st.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-6 col-lg-2">
+                    <label class="form-label small text-muted mb-1" for="ks-attendance">在校状态</label>
+                    <select class="form-select form-select-sm" id="ks-attendance" name="attendance_status">
+                        <option value="">全部</option>
+                        {% for ast in filter_values.attendance_statuses %}
+                        <option value="{{ ast }}" {{ 'selected' if current_filters.get('attendance_status') == ast else '' }}>{{ ast }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-12">
+                    <label class="form-label small text-muted mb-1 d-block">命中类型（三类互斥，可多选组合）</label>
+                    <div class="d-flex flex-wrap gap-3">
+                        <div class="form-check mb-0">
+                            <input class="form-check-input" type="checkbox" name="hit_types" id="ks-hit-id" value="id"
+                                   {{ 'checked' if 'id' in current_filters.get('hit_types', []) else '' }}>
+                            <label class="form-check-label small" for="ks-hit-id">
+                                <span class="badge badge-id">身份证非23</span>
+                            </label>
+                        </div>
+                        <div class="form-check mb-0">
+                            <input class="form-check-input" type="checkbox" name="hit_types" id="ks-hit-district" value="district"
+                                   {{ 'checked' if 'district' in current_filters.get('hit_types', []) else '' }}>
+                            <label class="form-check-label small" for="ks-hit-district">
+                                <span class="badge badge-district">户籍非黑龙江</span>
+                            </label>
+                        </div>
+                        <div class="form-check mb-0">
+                            <input class="form-check-input" type="checkbox" name="hit_types" id="ks-hit-both" value="both"
+                                   {{ 'checked' if 'both' in current_filters.get('hit_types', []) else '' }}>
+                            <label class="form-check-label small" for="ks-hit-both">
+                                <span class="badge badge-both">两者兼有</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="text-end mt-2">
+                <a href="{{ url_for('admin.admin_key_supervision') }}" class="btn btn-outline-secondary btn-sm me-2">
+                    <i class="bi bi-x-circle"></i> 重置
+                </a>
+                <button type="submit" class="btn btn-primary btn-sm">
+                    <i class="bi bi-search"></i> 查询
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>共查询到 <strong>{{ pagination.total }}</strong> 条记录</span>
+        <a class="btn btn-success btn-sm"
+           href="{{ url_for('admin.admin_key_supervision_export') }}{% if request.query_string %}?{{ request.query_string.decode('utf-8') }}{% endif %}">
+            <i class="bi bi-download"></i> 导出 Excel
+        </a>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive" id="ksTableWrap">
+            <table class="table table-sm table-striped table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th class="sticky-col col-no">学号</th>
+                        <th class="sticky-col col-name">姓名</th>
+                        <th>性别</th>
+                        <th>身份证号</th>
+                        <th>年级</th>
+                        <th>行政班级</th>
+                        <th>虚拟班级</th>
+                        <th>专业</th>
+                        <th>校别</th>
+                        <th>学籍状态</th>
+                        <th>在校状态</th>
+                        <th>学生电话</th>
+                        <th>家长电话</th>
+                        <th>备用电话1</th>
+                        <th>备用电话2</th>
+                        <th>住址</th>
+                        <th>命中原因</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for student in pagination.students %}
+                    <tr>
+                        <td class="sticky-col col-no">{{ student.student_no or '-' }}</td>
+                        <td class="sticky-col col-name">{{ student.name or '-' }}</td>
+                        <td>{{ student.gender or '-' }}</td>
+                        <td>{{ student.id_card or '-' }}</td>
+                        <td>{{ student.grade or '-' }}</td>
+                        <td>{{ student.admin_class or '-' }}</td>
+                        <td>{{ student.virtual_class or '-' }}</td>
+                        <td>{{ student.major or '-' }}</td>
+                        <td>{{ student.school_name or '-' }}</td>
+                        <td>{{ student.registration_status or '-' }}</td>
+                        <td>{{ student.attendance_status or '-' }}</td>
+                        <td>{{ student.student_phone or '-' }}</td>
+                        <td>{{ student.parent_phone or '-' }}</td>
+                        <td>{{ student.backup_phone_1 or '-' }}</td>
+                        <td>{{ student.backup_phone_2 or '-' }}</td>
+                        <td>
+                            <div class="ks-address" title="{{ student.address or '' }}">{{ student.address or '-' }}</div>
+                        </td>
+                        <td>
+                            {% if student.hit_type == 'both' %}
+                            <span class="badge badge-both">两者兼有</span>
+                            {% elif student.hit_type == 'id' %}
+                            <span class="badge badge-id">身份证非23</span>
+                            {% else %}
+                            <span class="badge badge-district">户籍非黑龙江{% if student.district_province_name %}（{{ student.district_province_name }}）{% endif %}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="17" class="text-center text-muted py-4">暂无符合条件的重点监管学生</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% if pagination.pages > 1 %}
+    <div class="card-footer bg-white">
+        {% set args_dict = request.args.to_dict(flat=False) %}
+        {% if 'page' in args_dict %}
+            {% set _ = args_dict.pop('page') %}
+        {% endif %}
+        <nav>
+            <ul class="pagination justify-content-center mb-0">
+                {% if pagination.page > 1 %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('admin.admin_key_supervision', page=pagination.page-1, **args_dict) }}">上一页</a>
+                </li>
+                {% endif %}
+
+                {% for page_num in range(1, pagination.pages + 1) %}
+                    {% if page_num == pagination.page %}
+                    <li class="page-item active">
+                        <span class="page-link">{{ page_num }}</span>
+                    </li>
+                    {% elif page_num <= 3 or page_num > pagination.pages - 3 or (page_num >= pagination.page - 1 and page_num <= pagination.page + 1) %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('admin.admin_key_supervision', page=page_num, **args_dict) }}">{{ page_num }}</a>
+                    </li>
+                    {% elif page_num == 4 or page_num == pagination.pages - 2 %}
+                    <li class="page-item disabled">
+                        <span class="page-link">...</span>
+                    </li>
+                    {% endif %}
+                {% endfor %}
+
+                {% if pagination.page < pagination.pages %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('admin.admin_key_supervision', page=pagination.page+1, **args_dict) }}">下一页</a>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+        <div class="text-center text-muted mt-1">
+            <small>每页 {{ pagination.per_page }} 条</small>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

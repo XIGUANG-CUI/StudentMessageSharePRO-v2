@@ -353,6 +353,165 @@ def admin_students_export_excel():
                      download_name=f'学生信息导出_{timestamp}.xlsx',
                      as_attachment=True)
 
+
+# ========== 重点监管学生 ==========
+def _key_supervision_filters_from_request():
+    """读取重点监管学生页面的筛选参数（不含分页）。"""
+    filters = {}
+    year = _get_current_enrollment_year()
+    if year is not None:
+        filters['enrollment_year'] = year
+
+    search = request.args.get('search', '').strip()
+    if search:
+        filters['search'] = search
+
+    for key in ('grade', 'admin_class', 'major', 'attendance_status'):
+        value = request.args.get(key, '').strip()
+        if value:
+            filters[key] = value
+
+    school = request.args.get('school', '').strip()
+    if school:
+        try:
+            filters['school'] = int(school)
+        except (TypeError, ValueError):
+            pass
+
+    # 命中类型多选：身份证非23 / 户籍非黑龙江 / 两者兼有
+    hit_types = [t for t in request.args.getlist('hit_types')
+                 if t in ('id', 'district', 'both')]
+    if hit_types:
+        filters['hit_types'] = hit_types
+    elif request.args.get('hit_filtered'):
+        # 用户明确取消全部勾选：不做命中类型限制
+        filters['hit_types'] = []
+    else:
+        # 默认仅看身份证维度：身份证非23 + 两者兼有（排除仅户籍非黑龙江）
+        filters['hit_types'] = ['id', 'both']
+
+    return filters
+
+
+@bp.route('/admin/key-supervision')
+@auth.admin_required
+def admin_key_supervision():
+    """重点监管学生：学籍非毕业、未删除的外省学生。"""
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except (TypeError, ValueError):
+        page = 1
+
+    filters = _key_supervision_filters_from_request()
+    result = models.get_key_supervision_students(filters, page=page, per_page=20)
+
+    school_map = models.get_school_type_map()
+    for student in result['students']:
+        student['school_name'] = school_map.get(student.get('school'), '')
+
+    # 筛选项从当前重点监管学生集合动态生成（年份+关键字+命中类型为基础，
+    # 班级按年级、专业按年级+班级级联）
+    filter_values = models.get_key_supervision_filter_values(dict(filters))
+    school_options = [
+        {'code': code, 'name': school_map.get(code, str(code))}
+        for code in filter_values['schools']
+    ]
+    year = filters.get('enrollment_year')
+
+    return render_template(
+        'admin/key_supervision.html',
+        pagination=result,
+        stats=result['stats'],
+        missing=result['missing'],
+        filter_values=filter_values,
+        school_options=school_options,
+        current_filters=filters,
+        current_year=year,
+    )
+
+
+@bp.route('/admin/key-supervision/export')
+@auth.admin_required
+def admin_key_supervision_export():
+    """导出重点监管学生（当前筛选条件，全量）。"""
+    from openpyxl.utils import get_column_letter
+
+    filters = _key_supervision_filters_from_request()
+    result = models.get_key_supervision_students(filters, page=1, per_page=999999)
+    students = result['students']
+    if not students:
+        flash('没有符合条件的学生数据可导出', 'warning')
+        return redirect(url_for('admin.admin_key_supervision'))
+
+    school_map = models.get_school_type_map()
+
+    def hit_label(student):
+        hit_type = student.get('hit_type')
+        if hit_type == 'both':
+            return '两者兼有'
+        if hit_type == 'id':
+            return '身份证非23'
+        province = student.get('district_province_name') or ''
+        return f'户籍非黑龙江（{province}）' if province else '户籍非黑龙江'
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = '重点监管学生'
+
+    headers = ['学号', '姓名', '性别', '身份证号', '年级', '行政班级', '虚拟班级',
+               '专业', '校别', '学籍状态', '在校状态', '学生电话', '家长电话',
+               '备用电话1', '备用电话2', '住址', '命中原因']
+    header_fill = PatternFill('solid', fgColor='1E40AF')
+    header_font = Font(color='FFFFFF', bold=True)
+    header_align = Alignment(horizontal='center', vertical='center')
+    for col_idx, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_align
+
+    for row_idx, student in enumerate(students, 2):
+        values = [
+            student.get('student_no') or '',
+            student.get('name') or '',
+            student.get('gender') or '',
+            student.get('id_card') or '',
+            student.get('grade') or '',
+            student.get('admin_class') or '',
+            student.get('virtual_class') or '',
+            student.get('major') or '',
+            school_map.get(student.get('school'), ''),
+            student.get('registration_status') or '',
+            student.get('attendance_status') or '',
+            student.get('student_phone') or '',
+            student.get('parent_phone') or '',
+            student.get('backup_phone_1') or '',
+            student.get('backup_phone_2') or '',
+            student.get('address') or '',
+            hit_label(student),
+        ]
+        for col_idx, value in enumerate(values, 1):
+            ws.cell(row=row_idx, column=col_idx, value=value)
+
+    widths = [14, 10, 6, 20, 10, 14, 14, 16, 14, 10, 10, 14, 14, 14, 14, 32, 22]
+    for idx, width in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(idx)].width = width
+    ws.freeze_panes = 'A2'
+    ws.auto_filter.ref = ws.dimensions
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        download_name=f'重点监管学生_{timestamp}.xlsx',
+        as_attachment=True
+    )
+
+
 def _build_form_student():
     """从 request.form 提取学生表单数据，构造模板渲染用的 dict"""
     return {

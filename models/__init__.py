@@ -49,7 +49,9 @@ from models.students import (
     get_students,
     get_dropout_students,
     get_dropout_students_all,
-    get_transfer_pending_students
+    get_transfer_pending_students,
+    get_key_supervision_students,
+    get_key_supervision_filter_values
 )
 
 from models.lifecycle import (
@@ -220,6 +222,8 @@ __all__ = [
     'get_dropout_students',
     'get_dropout_students_all',
     'get_transfer_pending_students',
+    'get_key_supervision_students',
+    'get_key_supervision_filter_values',
     'get_graduated_students',
     'get_graduated_students_all',
     'get_graduated_list_grades',
