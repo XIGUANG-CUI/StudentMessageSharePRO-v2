@@ -158,6 +158,39 @@ def api_year_select():
         return jsonify({'success': True, 'redirect': url_for('.admin_dashboard')})
     return jsonify({'success': False, 'message': '请选择年份'}), 400
 
+@bp.route('/api/year/toggle', methods=['POST'])
+def api_year_toggle():
+    """在「全部年份」与上次选中的年份之间切换（控制台左上角年份按钮）。"""
+    auth_error = _require_admin_json()
+    if auth_error:
+        return auth_error
+
+    current = session.get('enrollment_year')
+    if current is not None:
+        # 当前为具体年份 → 记录该年份后切到「全部年份」
+        try:
+            session['enrollment_year_last'] = int(current)
+        except (TypeError, ValueError):
+            pass
+        session.pop('enrollment_year', None)
+    else:
+        # 当前为「全部年份」→ 恢复到上次选中的年份，缺省用当前自然年
+        restore = session.get('enrollment_year_last')
+        try:
+            restore = int(restore)
+        except (TypeError, ValueError):
+            restore = datetime.now().year
+        session['enrollment_year'] = restore
+
+    session.permanent = True
+    year = session.get('enrollment_year')
+    return jsonify({
+        'success': True,
+        'year': year,
+        'label': f'{year}年' if year else '全部年份',
+    })
+
+
 @bp.route('/api/year/create', methods=['POST'])
 def api_year_create():
     """年份创建相关接口。"""
@@ -1410,12 +1443,21 @@ def admin_users():
             new_password = utils.generate_random_password()
             password_hash = auth.hash_password(new_password)
             models.update_user(user_id, password_hash=password_hash)
-            flash(f'密码已重置: {new_password}', 'success')
+            user = models.get_user_by_id(user_id) or {}
+            # 新密码通过 session 传递到重定向后的页面，用常驻弹窗展示并支持复制
+            session['reset_password_result'] = {
+                'username': user.get('username') or '',
+                'display_name': user.get('display_name') or '',
+                'password': new_password,
+            }
+            flash('密码已重置，新密码已在弹窗中显示', 'success')
         
         return redirect(url_for('.admin_users'))
     
     users = models.get_all_users()
+    reset_credential = session.pop('reset_password_result', None)
     return render_template('admin/users.html', users=users,
+                           reset_credential=reset_credential,
                            all_student_fields=config.ALL_STUDENT_FIELDS + config.PERMISSION_EXTRA_FIELDS)
 
 @bp.route('/admin/dicts')

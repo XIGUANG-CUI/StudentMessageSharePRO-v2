@@ -83,7 +83,41 @@
         font-size: .85rem; color: var(--gq-gray-500); margin-left: .5rem;
     }
     .gq-count strong { color: var(--gq-primary); }
-</style>
+    .gq-pagination-bar {
+        display: none; align-items: center; justify-content: space-between;
+        gap: .75rem; flex-wrap: wrap; padding: .55rem 1.25rem;
+        border-top: 1px solid var(--gq-gray-100);
+    }
+    .gq-pagination-bar.show { display: flex; }
+    .gq-page-info { font-size: .8rem; color: var(--gq-gray-500); }
+    .gq-pagination-bar .pagination { margin-bottom: 0; }
+    .gq-pagination-bar .page-link {
+        color: var(--gq-primary-dark); border-color: var(--gq-gray-200);
+        padding: .25rem .6rem; font-size: .8rem;
+    }
+    .gq-pagination-bar .page-item.active .page-link {
+        background: var(--gq-primary); border-color: var(--gq-primary); color: #fff;
+    }
+    .gq-pagination-bar .page-item.disabled .page-link {
+        color: var(--gq-gray-300); background: var(--gq-gray-50);
+    }
+    .gq-btn-view {
+        display: inline-flex; align-items: center; gap: .25rem;
+        padding: .2rem .6rem; border-radius: 8px;
+        border: 1px solid var(--gq-primary); background: var(--gq-primary-light);
+        color: var(--gq-primary-dark); font-size: .75rem; font-weight: 600;
+        cursor: pointer; transition: all .15s ease; white-space: nowrap;
+    }
+    .gq-btn-view:hover { background: var(--gq-primary); color: #fff; }
+    .gq-detail-label { font-size: .72rem; color: var(--gq-gray-500); margin-bottom: .15rem; }
+    .gq-detail-value { font-size: .84rem; color: var(--gq-gray-900); word-break: break-all; }
+    .gq-detail-value.empty { color: var(--gq-gray-300); }
+    .gq-detail-section {
+        font-size: .78rem; font-weight: 700; color: var(--gq-primary-dark);
+        background: var(--gq-primary-light); padding: .35rem .6rem;
+        border-radius: 8px; margin: .75rem 0 .5rem;
+    }
+    .gq-detail-section:first-child { margin-top: 0; }</style>
 {% endblock %}
 {% block content %}
 <div class="gq-header">
@@ -161,12 +195,17 @@
                     <th>性别</th>
                     <th>联系电话</th>
                     <th>备注</th>
+                    {% if session.get('role') == 'admin' %}<th style="width:90px;">操作</th>{% endif %}
                 </tr>
             </thead>
             <tbody id="gqTableBody">
-                <tr><td colspan="13" class="text-center text-muted py-4">点击"查询"按钮获取毕业生数据</td></tr>
+                <tr><td colspan="{{ 14 if session.get('role') == 'admin' else 13 }}" class="text-center text-muted py-4">点击"查询"按钮获取毕业生数据</td></tr>
             </tbody>
         </table>
+    </div>
+    <div class="gq-pagination-bar" id="gqPaginationBar">
+        <span class="gq-page-info" id="gqPageInfo"></span>
+        <nav><ul class="pagination pagination-sm mb-0" id="gqPagination"></ul></nav>
     </div>
 </div>
 
@@ -191,16 +230,71 @@
         </div>
     </div>
 </div>
+
+<!-- 毕业生只读档案弹窗（仅管理员可使用） -->
+<div class="modal fade" id="gqDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-3" style="background: linear-gradient(135deg, #0d9488, #14b8a6); color: #fff;">
+                <h5 class="modal-title fs-6">
+                    <i class="bi bi-person-vcard me-1"></i><span id="gqDetailTitle">学生档案</span>
+                    <span class="gq-badge-graduated ms-2" style="background: rgba(255,255,255,.22); color: #fff;">已毕业</span>
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body p-3">
+                <div id="gqDetailLoading" class="text-center py-5">
+                    <div class="spinner-border" style="color: var(--gq-primary);" role="status"></div>
+                    <div class="text-muted mt-2" style="font-size: .8125rem;">加载学生档案中...</div>
+                </div>
+                <div id="gqDetailContent" class="d-none">
+                    <div class="row g-3">
+                        <div class="col-lg-9" id="gqDetailFields"></div>
+                        <div class="col-lg-3">
+                            <div class="sticky-top" style="top: 10px;">
+                                <div class="gq-card p-2 mb-3">
+                                    <div class="fw-semibold text-secondary mb-2 small">
+                                        <i class="bi bi-camera me-1"></i>身份证照片
+                                    </div>
+                                    <div class="d-flex justify-content-center">
+                                        <img id="gqDetailPhoto" src="" alt="学生照片"
+                                             style="display: none; max-width: 100%; max-height: 220px; object-fit: contain; border-radius: 8px;">
+                                        <div id="gqDetailPhotoPlaceholder"
+                                             class="text-muted flex-column align-items-center justify-content-center bg-light rounded"
+                                             style="width: 100%; height: 180px;">
+                                            <i class="bi bi-person-bounding-box fs-3"></i>
+                                            <small>暂无照片</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button type="button" class="btn btn-secondary btn-sm w-100" data-bs-dismiss="modal">
+                                    <i class="bi bi-x-circle"></i> 关闭
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
 (function() {
     // 学校类别名称统一由 base.html 注入的 schoolName(code) 解析
+    // 「查看」功能仅管理员可用，普通用户不渲染该列
+    var IS_ADMIN = {{ 'true' if session.get('role') == 'admin' else 'false' }};
 
     // 上次查询返回的列配置（用于重置时设置 colspan）
-    var _lastColumnCount = 13;
+    var _lastColumnCount = 13 + (IS_ADMIN ? 1 : 0);
+    // 上次查询返回的列定义（分页重渲染时复用）
+    var _lastColumns = [];
     // 上次查询结果（供派遣详情弹窗复用）
     var _lastStudents = [];
+    // 分页状态
+    var GQ_PAGE_SIZE = 20;
+    var _currentPage = 1;
     // 派遣明细（批次/机构/日期等）是否可见：仅管理员
     var _dispatchDetailVisible = false;
 
@@ -312,8 +406,10 @@
         columns.forEach(function(col) {
             html += '<th>' + col.label + '</th>';
         });
+        if (IS_ADMIN) html += '<th style="width:90px;">操作</th>';
         headRow.innerHTML = html;
-        _lastColumnCount = columns.length;
+        _lastColumnCount = columns.length + (IS_ADMIN ? 1 : 0);
+        _lastColumns = columns;
     }
 
     // 根据列配置渲染单个学生行
@@ -322,9 +418,69 @@
         columns.forEach(function(col) {
             html += '<td>' + renderCellValue(student, col) + '</td>';
         });
+        if (IS_ADMIN) {
+            html += '<td><button type="button" class="gq-btn-view" onclick="openGraduationDetail(' + Number(student.id) + ')">' +
+                '<i class="bi bi-eye"></i> 查看</button></td>';
+        }
         html += '</tr>';
         return html;
     }
+
+    // 渲染当前页数据
+    function renderCurrentPage() {
+        var tbody = document.getElementById('gqTableBody');
+        var total = _lastStudents.length;
+        if (!total) {
+            tbody.innerHTML = '<tr><td colspan="' + _lastColumnCount + '" class="text-center text-muted py-4">无匹配的毕业生记录</td></tr>';
+            renderPagination(0, 0);
+            return;
+        }
+        var pages = Math.ceil(total / GQ_PAGE_SIZE);
+        if (_currentPage > pages) _currentPage = pages;
+        var start = (_currentPage - 1) * GQ_PAGE_SIZE;
+        tbody.innerHTML = _lastStudents.slice(start, start + GQ_PAGE_SIZE).map(function(s) {
+            return renderStudentRow(s, _lastColumns);
+        }).join('');
+        renderPagination(total, pages);
+    }
+
+    // 渲染分页控件（首页/末页/当前页 ±1 常显，中间用省略号折叠）
+    function renderPagination(total, pages) {
+        var bar = document.getElementById('gqPaginationBar');
+        var list = document.getElementById('gqPagination');
+        if (pages <= 1) {
+            bar.classList.remove('show');
+            list.innerHTML = '';
+            return;
+        }
+
+        var html = '';
+        if (_currentPage > 1) {
+            html += '<li class="page-item"><a class="page-link" href="javascript:void(0)" onclick="goGqPage(' + (_currentPage - 1) + ')">上一页</a></li>';
+        }
+        for (var p = 1; p <= pages; p++) {
+            if (p === _currentPage) {
+                html += '<li class="page-item active"><span class="page-link">' + p + '</span></li>';
+            } else if (p <= 3 || p > pages - 3 || (p >= _currentPage - 1 && p <= _currentPage + 1)) {
+                html += '<li class="page-item"><a class="page-link" href="javascript:void(0)" onclick="goGqPage(' + p + ')">' + p + '</a></li>';
+            } else if (p === 4 || p === pages - 2) {
+                html += '<li class="page-item disabled"><span class="page-link">…</span></li>';
+            }
+        }
+        if (_currentPage < pages) {
+            html += '<li class="page-item"><a class="page-link" href="javascript:void(0)" onclick="goGqPage(' + (_currentPage + 1) + ')">下一页</a></li>';
+        }
+        list.innerHTML = html;
+        document.getElementById('gqPageInfo').textContent =
+            '第 ' + _currentPage + ' / ' + pages + ' 页 · 共 ' + total + ' 条';
+        bar.classList.add('show');
+    }
+
+    window.goGqPage = function(page) {
+        _currentPage = page;
+        renderCurrentPage();
+        document.getElementById('gqTableWrap').scrollTop = 0;
+    };
 
     function renderCellValue(s, col) {
         switch (col.key) {
@@ -411,15 +567,11 @@
                 buildTableHead(columns);
                 _lastStudents = data.students || [];
                 _dispatchDetailVisible = !!data.dispatch_detail_visible;
-                if (!_lastStudents.length) {
-                    tbody.innerHTML = '<tr><td colspan="' + _lastColumnCount + '" class="text-center text-muted py-4">无匹配的毕业生记录</td></tr>';
-                    return;
-                }
-                tbody.innerHTML = _lastStudents.map(function(s) {
-                    return renderStudentRow(s, columns);
-                }).join('');
+                _currentPage = 1;
+                renderCurrentPage();
             })
             .catch(function() {
+                renderPagination(0, 0);
                 tbody.innerHTML = '<tr><td colspan="' + _lastColumnCount + '" class="text-center text-danger py-4">查询失败，请重试</td></tr>';
             });
     };
@@ -458,20 +610,166 @@
         bootstrap.Modal.getOrCreateInstance(document.getElementById('gqDispatchModal')).show();
     }
 
+    // ===== 毕业生只读档案（仅管理员渲染入口） =====
+    var GQ_DETAIL_GROUPS = [
+        { icon: 'bi-person-vcard', title: '身份信息', fields: [
+            ['学生姓名', 'name'],
+            ['性别', 'gender'],
+            ['民族', 'ethnicity'],
+            ['出生日期', 'birth_date'],
+            ['身份证号', 'id_card'],
+            ['签发机关', 'issue_authority'],
+            ['有效期·始', 'valid_start'],
+            ['有效期·止', 'valid_end'],
+            ['住址', 'address', 'col-12']
+        ]},
+        { icon: 'bi-mortarboard', title: '学籍信息', fields: [
+            ['学号', 'student_no'],
+            ['国网学籍号', 'national_no'],
+            ['年级', 'grade'],
+            ['入学年份', 'enrollment_year'],
+            ['学校类别', 'school'],
+            ['专业', 'major'],
+            ['专业方向', 'major_direction'],
+            ['行政班级', 'admin_class'],
+            ['虚拟班级', 'virtual_class'],
+            ['学籍状态', 'registration_status'],
+            ['在校状态', 'attendance_status']
+        ]},
+        { icon: 'bi-people-fill', title: '家长信息', fields: [
+            ['家长姓名', 'parent_name'],
+            ['家长关系', 'parent_relation'],
+            ['家长身份证号', 'parent_id_card'],
+            ['家长电话', 'parent_phone']
+        ]},
+        { icon: 'bi-telephone', title: '联系方式', fields: [
+            ['学生电话', 'student_phone'],
+            ['备用电话1', 'backup_phone_1'],
+            ['备用电话2', 'backup_phone_2']
+        ]},
+        { icon: 'bi-journal-text', title: '学业扩展', fields: [
+            ['入学形式', 'admission_type'],
+            ['户口性质', 'household_type'],
+            ['初中毕业学校', 'junior_school'],
+            ['初中毕业时间', 'junior_graduation_time'],
+            ['备注', 'remark', 'col-12']
+        ]},
+        { icon: 'bi-send-check', title: '档案派遣信息', fields: [
+            ['派遣状态', 'dispatch_status'],
+            ['派遣批次', 'batch_no'],
+            ['派遣单号', 'dispatch_no'],
+            ['接收机构', 'agency_name'],
+            ['机构地址', 'agency_address', 'col-md-8'],
+            ['机构电话', 'agency_phone'],
+            ['匹配方式', 'dispatch_match_status'],
+            ['派遣日期', 'dispatch_date'],
+            ['退档日期', 'returned_at'],
+            ['经办人', 'dispatch_operator'],
+            ['备注', 'dispatch_remark', 'col-12']
+        ]}
+    ];
+
+    var _gqDetailModal = null;
+
+    function renderGqDetail(s) {
+        document.getElementById('gqDetailTitle').textContent = (s.name || '学生档案') + ' · 学生档案';
+
+        var html = '';
+        GQ_DETAIL_GROUPS.forEach(function(g) {
+            html += '<div class="gq-detail-section"><i class="bi ' + g.icon + ' me-1"></i>' + g.title + '</div>';
+            html += '<div class="row g-2">';
+            g.fields.forEach(function(f) {
+                var val = f[1] === 'school' ? schoolName(s.school) : s[f[1]];
+                if (val === null || val === undefined) val = '';
+                val = String(val).trim();
+                // 派遣状态未生成时给出默认文案
+                if (!val && f[1] === 'dispatch_status') val = '未生成';
+                html += '<div class="' + (f[2] || 'col-md-4') + '">'
+                    + '<div class="gq-detail-label">' + f[0] + '</div>'
+                    + '<div class="gq-detail-value' + (val ? '' : ' empty') + '">' + (val ? esc(val) : '—') + '</div>'
+                    + '</div>';
+            });
+            html += '</div>';
+        });
+        document.getElementById('gqDetailFields').innerHTML = html;
+
+        var img = document.getElementById('gqDetailPhoto');
+        var ph = document.getElementById('gqDetailPhotoPlaceholder');
+        img.onerror = function() { img.style.display = 'none'; ph.style.display = 'flex'; };
+        if (s.id_card) {
+            // 毕业生可能属于往届，照片存放在其入学年份目录下，需显式指定 year
+            var photoUrl = '/api/photos/' + encodeURIComponent(s.id_card);
+            if (s.enrollment_year) {
+                photoUrl += '?year=' + encodeURIComponent(s.enrollment_year);
+            }
+            img.src = photoUrl + (photoUrl.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
+            img.style.display = 'block';
+            ph.style.display = 'none';
+        } else {
+            img.removeAttribute('src');
+            img.style.display = 'none';
+            ph.style.display = 'flex';
+        }
+    }
+
+    window.openGraduationDetail = function(studentId) {
+        var modalEl = document.getElementById('gqDetailModal');
+        if (!_gqDetailModal) _gqDetailModal = new bootstrap.Modal(modalEl);
+        document.getElementById('gqDetailLoading').classList.remove('d-none');
+        document.getElementById('gqDetailContent').classList.add('d-none');
+        _gqDetailModal.show();
+
+        fetch('/api/admin/student/' + studentId, {
+            headers: {'X-Requested-With': 'XMLHttpRequest'}
+        })
+            .then(function(resp) {
+                return resp.json().then(function(d) { return {ok: resp.ok, data: d}; });
+            })
+            .then(function(r) {
+                if (!r.ok || !r.data || r.data.error) {
+                    throw new Error((r.data && (r.data.error || r.data.message)) || '加载失败');
+                }
+                // 派遣信息来自毕业生查询结果（管理员才返回），合并到档案数据中展示
+                var row = null;
+                for (var i = 0; i < _lastStudents.length; i++) {
+                    if (String(_lastStudents[i].id) === String(studentId)) { row = _lastStudents[i]; break; }
+                }
+                if (row) {
+                    ['dispatch_status', 'batch_no', 'dispatch_no', 'agency_name', 'agency_address',
+                     'agency_phone', 'dispatch_match_status', 'dispatch_date', 'returned_at',
+                     'dispatch_operator', 'dispatch_remark'].forEach(function(k) {
+                        if (row[k] !== undefined) r.data[k] = row[k];
+                    });
+                }
+                renderGqDetail(r.data);
+                document.getElementById('gqDetailLoading').classList.add('d-none');
+                document.getElementById('gqDetailContent').classList.remove('d-none');
+            })
+            .catch(function(e) {
+                _gqDetailModal.hide();
+                showToast(e.message || '加载失败，请重试', 'danger');
+            });
+    };
+
     window.resetQuery = function() {
         document.getElementById('gqSchool').value = '';
         document.getElementById('gqGrade').value = '';
         document.getElementById('gqClass').value = '';
         document.getElementById('gqName').value = '';
         _lastStudents = [];
+        _lastColumns = [];
+        _currentPage = 1;
         _dispatchDetailVisible = false;
+        renderPagination(0, 0);
         loadGradeOptions('');
         var clsSel = document.getElementById('gqClass');
         clsSel.innerHTML = '<option value="">全部班级</option>';
         clsSel.disabled = true;
-        document.getElementById('gqTableHead').innerHTML = '<th>姓名</th><th>学号</th><th>学籍号</th><th>身份证号</th><th>班级</th><th>年级</th><th>专业</th><th>学校类别</th><th>学籍状态</th><th>在校状态</th><th>性别</th><th>联系电话</th><th>备注</th>';
-        _lastColumnCount = 13;
-        document.getElementById('gqTableBody').innerHTML = '<tr><td colspan="13" class="text-center text-muted py-4">点击"查询"按钮获取毕业生数据</td></tr>';
+        var headHtml = '<th>姓名</th><th>学号</th><th>学籍号</th><th>身份证号</th><th>班级</th><th>年级</th><th>专业</th><th>学校类别</th><th>学籍状态</th><th>在校状态</th><th>性别</th><th>联系电话</th><th>备注</th>';
+        if (IS_ADMIN) headHtml += '<th style="width:90px;">操作</th>';
+        document.getElementById('gqTableHead').innerHTML = headHtml;
+        _lastColumnCount = 13 + (IS_ADMIN ? 1 : 0);
+        document.getElementById('gqTableBody').innerHTML = '<tr><td colspan="' + _lastColumnCount + '" class="text-center text-muted py-4">点击"查询"按钮获取毕业生数据</td></tr>';
         document.getElementById('gqResultCount').textContent = '0';
     };
 

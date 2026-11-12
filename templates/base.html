@@ -23,7 +23,13 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
                     {% if session.role == 'admin' %}
-                    {% if is_student_list_page %}
+                    {% if is_dashboard_page %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="yearToggleBtn" title="点击切换：全部年份 / 当前年份">
+                            <i class="bi bi-calendar-check"></i> <span id="yearToggleLabel">{{ enrollment_year_label }}</span>
+                        </a>
+                    </li>
+                    {% elif is_student_list_page %}
                     <li class="nav-item">
                         <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#yearSelectModal" title="切换入学年份" style="cursor:pointer">
                             <i class="bi bi-calendar-check"></i> {{ enrollment_year_label }}
@@ -456,6 +462,37 @@
                 btn.disabled = false;
                 btn.innerHTML = '<i class="bi bi-check"></i> 确认创建';
             });
+        });
+    })();
+    </script>
+    <script>
+    /* 控制台左上角年份按钮：点击在「全部年份」与上次选中的年份之间切换 */
+    (function() {
+        var btn = document.getElementById('yearToggleBtn');
+        if (!btn) return;
+        var labelEl = document.getElementById('yearToggleLabel');
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            if (btn.getAttribute('data-busy') === '1') return;
+            btn.setAttribute('data-busy', '1');
+            var origin = labelEl ? labelEl.textContent : '';
+            if (labelEl) labelEl.textContent = '切换中...';
+            fetch('{{ url_for('admin.api_year_toggle') }}', { method: 'POST' })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        window.location.reload();
+                        return;
+                    }
+                    showToast(data.message || '切换年份失败', 'danger');
+                    if (labelEl) labelEl.textContent = origin;
+                    btn.setAttribute('data-busy', '0');
+                })
+                .catch(function() {
+                    showToast('切换年份失败，请重试', 'danger');
+                    if (labelEl) labelEl.textContent = origin;
+                    btn.setAttribute('data-busy', '0');
+                });
         });
     })();
     </script>

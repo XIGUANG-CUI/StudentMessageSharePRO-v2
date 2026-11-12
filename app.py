@@ -291,7 +291,8 @@ def inject_current_enrollment_year():
         'enrollment_year_label': f'{year}年' if year else '全部年份',
         'existing_years': years,
         'show_year_modal': show_year_modal,
-        'is_student_list_page': request.endpoint == 'admin.admin_students'
+        'is_student_list_page': request.endpoint == 'admin.admin_students',
+        'is_dashboard_page': request.endpoint == 'admin.admin_dashboard'
     }
 
 @app.route('/')

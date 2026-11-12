@@ -903,6 +903,42 @@
   </div>
 </div>
 
+{% if reset_credential %}
+<!-- 重置密码结果模态窗（常驻，需手动关闭） -->
+<div class="modal fade um-modal" id="resetPasswordModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-key me-2"></i>密码重置成功</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2" style="font-size:0.875rem;color:var(--bp-text-muted);">
+          已为用户 <strong style="color:var(--bp-text);">{{ reset_credential.username }}</strong>{% if reset_credential.display_name %}（{{ reset_credential.display_name }}）{% endif %} 生成新密码，请立即复制并妥善保管：
+        </p>
+        <div class="input-group">
+          <input type="text" class="form-control" id="resetPasswordValue" value="{{ reset_credential.password }}" readonly
+                 style="font-family:ui-monospace,Consolas,monospace;font-weight:700;font-size:1rem;letter-spacing:0.05em;background:#f8fafc;">
+          <button class="btn text-white" type="button" id="resetPasswordCopyBtn"
+                  style="background:linear-gradient(135deg,#4f46e5,#6366f1);border:none;font-weight:600;min-width:110px;">
+            <i class="bi bi-clipboard"></i> 复制密码
+          </button>
+        </div>
+        <div id="resetPasswordCopyHint" class="mt-2" style="font-size:0.78rem;color:#10b981;display:none;">
+          <i class="bi bi-check-circle-fill"></i> 密码已复制到剪贴板
+        </div>
+        <div class="mt-3 p-2 rounded" style="background:#fef3c7;color:#92400e;font-size:0.75rem;">
+          <i class="bi bi-exclamation-triangle-fill"></i> 关闭本窗口后将无法再次查看该密码
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">关闭</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <form id="actionForm" method="POST" style="display:none;">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <input type="hidden" name="action" id="formAction">
@@ -1200,6 +1236,54 @@
 
   window.resetPassword = resetPassword;
 
+  /* ── 重置密码结果弹窗：常驻展示 + 复制到剪贴板 ── */
+  function copyResetPassword(isAuto) {
+    var input = document.getElementById('resetPasswordValue');
+    var hint = document.getElementById('resetPasswordCopyHint');
+    if (!input) return;
+
+    function onSuccess() {
+      if (hint) hint.style.display = '';
+      var btn = document.getElementById('resetPasswordCopyBtn');
+      if (btn) btn.innerHTML = '<i class="bi bi-check-lg"></i> 已复制';
+    }
+
+    function legacyCopy() {
+      var ok = false;
+      input.removeAttribute('readonly');
+      input.select();
+      input.setSelectionRange(0, input.value.length);
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      input.setAttribute('readonly', 'readonly');
+      if (window.getSelection) { window.getSelection().removeAllRanges(); }
+      if (ok) {
+        onSuccess();
+      } else if (!isAuto && typeof showToast === 'function') {
+        showToast('复制失败，请手动选择密码复制', 'warning');
+      }
+    }
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(input.value).then(onSuccess).catch(legacyCopy);
+    } else {
+      legacyCopy();
+    }
+  }
+
+  function initResetPasswordModal() {
+    var modalEl = document.getElementById('resetPasswordModal');
+    if (!modalEl) return;
+
+    var copyBtn = document.getElementById('resetPasswordCopyBtn');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', function() { copyResetPassword(false); });
+    }
+
+    new bootstrap.Modal(modalEl, { backdrop: 'static', keyboard: false }).show();
+    /* 弹窗展示后尝试自动复制（浏览器限制剪贴板时由按钮兜底） */
+    setTimeout(function() { copyResetPassword(true); }, 400);
+  }
+
   var allFields = {{ all_student_fields | tojson }};
 
   function initFieldCheckboxes() {
@@ -1414,6 +1498,7 @@
     initFieldCheckboxes();
     initGradeCheckboxes();
     initRoleTabs();
+    initResetPasswordModal();
 
     document.getElementById('addUserModal').addEventListener('shown.bs.modal', function() {
       updateFieldsVisible('add');

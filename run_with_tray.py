@@ -269,33 +269,124 @@ def exit_app(icon, item):
     os._exit(0)
 
 
+def copy_to_clipboard(text):
+    """写入 Windows 系统剪贴板。不用 Tk 剪贴板，避免窗口销毁后粘贴内容丢失。"""
+    try:
+        CF_UNICODETEXT = 13
+        GMEM_MOVEABLE = 0x0002
+        kernel32 = ctypes.windll.kernel32
+        user32 = ctypes.windll.user32
+        kernel32.GlobalAlloc.restype = ctypes.c_void_p
+        kernel32.GlobalAlloc.argtypes = [ctypes.c_uint, ctypes.c_size_t]
+        kernel32.GlobalLock.restype = ctypes.c_void_p
+        kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+        kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+        kernel32.GlobalFree.argtypes = [ctypes.c_void_p]
+        user32.SetClipboardData.restype = ctypes.c_void_p
+        user32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
+
+        data = text.encode('utf-16-le') + b'\x00\x00'
+        handle = kernel32.GlobalAlloc(GMEM_MOVEABLE, len(data))
+        if not handle:
+            return False
+        ptr = kernel32.GlobalLock(handle)
+        if not ptr:
+            kernel32.GlobalFree(handle)
+            return False
+        ctypes.memmove(ptr, data, len(data))
+        kernel32.GlobalUnlock(handle)
+        if not user32.OpenClipboard(None):
+            kernel32.GlobalFree(handle)
+            return False
+        try:
+            user32.EmptyClipboard()
+            return bool(user32.SetClipboardData(CF_UNICODETEXT, handle))
+        finally:
+            user32.CloseClipboard()
+    except Exception as e:
+        logger.debug("写入剪贴板失败: %s", e, exc_info=True)
+        return False
+
+
 def show_start_message():
-    """启动完成后弹出 tkinter 提示窗口。"""
+    """启动完成后弹出提示窗口，访问地址支持鼠标点击复制到剪贴板。"""
     try:
         local_ip = get_lan_ip()
+        local_url = f'http://127.0.0.1:{PORT}'
+        lan_url = f'http://{local_ip}:{PORT}/login'
+        db_path = os.path.join(BASE_DIR, 'data', 'student.db')
+
         root = tk.Tk()
         root.withdraw()
         root.attributes('-toolwindow', True)
         root.attributes('-alpha', 0.0)
 
-        msg = (
-            f"学生数据管理系统已运行！\n\n"
-            f"本地访问: http://127.0.0.1:{PORT}\n"
-            f"局域网访问: http://{local_ip}:{PORT}/login\n"
-            f"数据库路径: {os.path.join(BASE_DIR, 'data', 'student.db')}"
-        )
+        dlg = tk.Toplevel(root)
+        dlg.title("启动成功")
+        dlg.resizable(False, False)
+        dlg.attributes('-toolwindow', True)
+        dlg.attributes('-topmost', True)
+
+        font_base = ('Microsoft YaHei UI', 10)
+        font_small = ('Microsoft YaHei UI', 9)
+
+        body = tk.Frame(dlg, padx=20, pady=16)
+        body.pack(fill='both', expand=True)
+
+        tk.Label(body, text="学生数据管理系统已运行！",
+                 font=('Microsoft YaHei UI', 12, 'bold'), anchor='w').pack(fill='x', pady=(0, 10))
+
+        status_var = tk.StringVar(value="")
+
+        def copy_text(text):
+            """点击地址后写入系统剪贴板并给出提示。"""
+            if copy_to_clipboard(text):
+                status_var.set(f"已复制：{text}")
+            else:
+                status_var.set("复制失败，请手动选中内容复制")
+
+        def add_copy_row(label_text, url, link_font=('Microsoft YaHei UI', 10, 'underline'), link_fg='#0d6efd'):
+            """添加一行「说明 + 可点击复制的值」。"""
+            row = tk.Frame(body)
+            row.pack(fill='x', pady=3)
+            tk.Label(row, text=label_text, font=font_base, anchor='w').pack(side='left')
+            link = tk.Label(row, text=url, fg=link_fg, cursor='hand2', font=link_font)
+            link.pack(side='left')
+            link.bind('<Button-1>', lambda _e, u=url: copy_text(u))
+
+        tk.Label(body, text=f"本地访问：{local_url}", font=font_base, anchor='w').pack(fill='x', pady=3)
+        add_copy_row("局域网访问：", lan_url)
+
+        tk.Label(body, text="点击蓝色局域网地址或红色密码即可复制到剪贴板",
+                 fg='#6c757d', font=font_small, anchor='w').pack(fill='x', pady=(2, 8))
+
+        tk.Label(body, text=f"数据库路径：{db_path}", fg='#6c757d', font=font_small,
+                 anchor='w', justify='left', wraplength=460).pack(fill='x')
 
         if _admin_first_password:
-            msg += (
-                f"\n\n━━━━━━━━━━━━━━━━━━━━\n"
-                f"首次启动，管理员账号：\n"
-                f"用户名: admin\n"
-                f"密码: {_admin_first_password}\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"请妥善保管，登录后可在用户管理中修改。"
-            )
+            tk.Frame(body, height=1, bg='#dee2e6').pack(fill='x', pady=10)
+            tk.Label(body, text="首次启动，管理员账号：", font=font_base, anchor='w').pack(fill='x')
+            tk.Label(body, text="用户名：admin", font=font_base, anchor='w').pack(fill='x')
+            add_copy_row("密码：", _admin_first_password,
+                         link_font=('Consolas', 10, 'bold', 'underline'), link_fg='#b02a37')
+            tk.Label(body, text="请妥善保管，登录后可在用户管理中修改。",
+                     fg='#6c757d', font=font_small, anchor='w').pack(fill='x')
 
-        messagebox.showinfo("启动成功", msg)
+        tk.Label(body, textvariable=status_var, fg='#198754',
+                 font=font_small, anchor='w').pack(fill='x', pady=(10, 0))
+        tk.Button(body, text="确定", width=10, command=dlg.destroy).pack(pady=(10, 0))
+
+        dlg.update_idletasks()
+        width, height = dlg.winfo_reqwidth(), dlg.winfo_reqheight()
+        x = (dlg.winfo_screenwidth() - width) // 2
+        y = (dlg.winfo_screenheight() - height) // 3
+        dlg.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+        dlg.bind('<Escape>', lambda _e: dlg.destroy())
+        dlg.bind('<Return>', lambda _e: dlg.destroy())
+        dlg.protocol("WM_DELETE_WINDOW", dlg.destroy)
+        dlg.focus_force()
+        dlg.wait_window()
+
         root.destroy()
         webbrowser.open(f'http://127.0.0.1:{PORT}/login')
     except Exception as e:

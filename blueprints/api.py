@@ -393,7 +393,9 @@ def api_photo_by_id_card(id_card):
                 return _send(photo_path, ext)
         return None
 
-    year = _get_current_enrollment_year()
+    # 可传入 year 指定照片所属入学年份（如毕业生查询等跨年份场景），
+    # 未传时沿用 session 当前选中的年份
+    year = request.args.get('year', type=int) or _get_current_enrollment_year()
 
     if year:
         result = _search_in_dir(os.path.join(photos_dir, str(year)))
