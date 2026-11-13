@@ -592,9 +592,9 @@ def api_insurance_intern_list():
         except (TypeError, ValueError):
             page = 1
         try:
-            page_size = int(request.args.get('page_size', 30))
+            page_size = int(request.args.get('page_size', 20))
         except (TypeError, ValueError):
-            page_size = 30
+            page_size = 20
         page_size = max(1, min(page_size, 200))
         pages = max(1, (total + page_size - 1) // page_size)
         page = min(page, pages)
@@ -726,18 +726,43 @@ def _first_step(conn, student_id):
 
 @bp.route('/api/insurance/first/list')
 def api_insurance_first_list():
-    """首保页列表：按页签状态过滤，返回各页签计数。"""
+    """首保页列表：按页签状态过滤，返回各页签计数。
+
+    「已完成」页签支持分页（固定每页 20 条）；其他页签保持全量返回。
+    """
     err = _require_roles_json('admin', 'finance_chief', 'insurance_officer')
     if err:
         return err
 
     filters = _pool_filters()
+    tab = (request.args.get('status') or '').strip()
     conn = models.get_db()
     items = insurance_domain.query_first_stage(
         conn, statuses=_first_tab_statuses(), **filters)
     summary = insurance_domain.first_stage_counts(conn, **filters)
-    return jsonify({'success': True, 'total': len(items), 'items': items,
-                    'summary': summary})
+
+    total = len(items)
+    page = 1
+    page_size = total
+    pages = 1
+    if tab == 'done':
+        try:
+            page = max(1, int(request.args.get('page', 1)))
+        except (TypeError, ValueError):
+            page = 1
+        try:
+            page_size = int(request.args.get('page_size', 20))
+        except (TypeError, ValueError):
+            page_size = 20
+        page_size = max(1, min(page_size, 200))
+        pages = max(1, (total + page_size - 1) // page_size)
+        page = min(page, pages)
+        start = (page - 1) * page_size
+        items = items[start:start + page_size]
+
+    return jsonify({'success': True, 'total': total, 'items': items,
+                    'summary': summary,
+                    'page': page, 'page_size': page_size, 'pages': pages})
 
 
 @bp.route('/api/insurance/first/approve', methods=['POST'])

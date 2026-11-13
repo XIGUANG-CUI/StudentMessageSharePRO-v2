@@ -25,13 +25,8 @@
                  border-radius: 6px; color: #fff; font-size: 0.85rem; }
     .iin-toast.success { background: #198754; }
     .iin-toast.error { background: #dc3545; }
-    .iin-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-                 padding: 8px 12px; background: #f8f9fa; border: 1px solid #dee2e6;
-                 border-top: none; border-radius: 0 0 8px 8px; font-size: 0.8rem; }
-    .iin-pager .pagination { margin: 0; }
-    .iin-pager .page-link { padding: 2px 9px; font-size: 0.78rem; }
-    .iin-pager-info { color: #6c757d; }
-    .iin-pager-size select { font-size: 0.78rem; padding: 2px 6px; }
+    .iin-pager { margin-top: 8px; }
+    .iin-pager .pagination { margin-bottom: 2px; }
 </style>
 {% endblock %}
 {% block content %}
@@ -91,16 +86,12 @@
 </div>
 
 <div class="iin-pager d-none" id="iinPager">
-    <span class="iin-pager-info" id="iinPagerInfo"></span>
-    <nav><ul class="pagination pagination-sm mb-0" id="iinPagerList"></ul></nav>
-    <span class="iin-pager-size ms-auto">每页
-        <select class="form-select form-select-sm d-inline-block" id="iinPagerSize" style="width:auto">
-            <option value="10">10</option>
-            <option value="30" selected>30</option>
-            <option value="50">50</option>
-            <option value="100">100</option>
-        </select> 条
-    </span>
+    <nav>
+        <ul class="pagination justify-content-center" id="iinPagerList"></ul>
+    </nav>
+    <div class="text-center text-muted mt-1">
+        <small>每页 20 条</small>
+    </div>
 </div>
 {% endblock %}
 {% block scripts %}
@@ -109,7 +100,8 @@
     var items = [];
     var selected = {};
     var currentTab = 'pending';
-    var pager = { page: 1, page_size: 30, pages: 1, total: 0 };
+    var PAGE_SIZE = 20;
+    var pager = { page: 1, pages: 1 };
 
     var schoolMap = {};
     {% for st in school_types %}schoolMap[{{ st.code|tojson }}] = {{ st.name|tojson }};{% endfor %}
@@ -139,7 +131,7 @@
         };
         if (currentTab === 'done') {
             map.page = pager.page;
-            map.page_size = pager.page_size;
+            map.page_size = PAGE_SIZE;
         }
         var parts = [];
         Object.keys(map).forEach(function (key) {
@@ -151,43 +143,34 @@
     function renderPager() {
         var box = $('iinPager');
         var list = $('iinPagerList');
-        var info = $('iinPagerInfo');
         if (currentTab !== 'done' || pager.pages <= 1) {
             box.classList.add('d-none');
             list.innerHTML = '';
-            info.textContent = '';
             return;
         }
         box.classList.remove('d-none');
-        info.textContent = '共 ' + pager.total + ' 条，第 ' + pager.page + ' / ' + pager.pages + ' 页';
 
         var cur = pager.page;
         var total = pager.pages;
-        var start = (cur - 1) * pager.page_size + 1;
-        var end = Math.min(cur * pager.page_size, pager.total);
-
         var html = '';
-        // 上一页
-        html += '<li class="page-item ' + (cur <= 1 ? 'disabled' : '') + '"><a class="page-link" href="#" data-p="' + (cur - 1) + '">‹</a></li>';
-        // 页码：当前页前后各 1 个
-        var window = [];
-        for (var i = Math.max(1, cur - 1); i <= Math.min(total, cur + 1); i++) { window.push(i); }
-        if (window[0] > 1) {
-            html += '<li class="page-item"><a class="page-link" href="#" data-p="1">1</a></li>';
-            if (window[0] > 2) { html += '<li class="page-item disabled"><span class="page-link">…</span></li>'; }
+
+        if (cur > 1) {
+            html += '<li class="page-item"><a class="page-link" href="#" data-p="' + (cur - 1) + '">上一页</a></li>';
         }
-        window.forEach(function (p) {
-            html += '<li class="page-item ' + (p === cur ? 'active' : '') + '"><a class="page-link" href="#" data-p="' + p + '">' + p + '</a></li>';
-        });
-        if (window[window.length - 1] < total) {
-            if (window[window.length - 1] < total - 1) { html += '<li class="page-item disabled"><span class="page-link">…</span></li>'; }
-            html += '<li class="page-item"><a class="page-link" href="#" data-p="' + total + '">' + total + '</a></li>';
+        for (var p = 1; p <= total; p++) {
+            if (p === cur) {
+                html += '<li class="page-item active"><span class="page-link">' + p + '</span></li>';
+            } else if (p <= 3 || p > total - 3 || (p >= cur - 1 && p <= cur + 1)) {
+                html += '<li class="page-item"><a class="page-link" href="#" data-p="' + p + '">' + p + '</a></li>';
+            } else if (p === 4 || p === total - 2) {
+                html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+            }
         }
-        // 下一页
-        html += '<li class="page-item ' + (cur >= total ? 'disabled' : '') + '"><a class="page-link" href="#" data-p="' + (cur + 1) + '">›</a></li>';
+        if (cur < total) {
+            html += '<li class="page-item"><a class="page-link" href="#" data-p="' + (cur + 1) + '">下一页</a></li>';
+        }
         list.innerHTML = html;
 
-        // 页码点击
         list.querySelectorAll('a.page-link').forEach(function (a) {
             a.addEventListener('click', function (e) {
                 e.preventDefault();
@@ -262,9 +245,7 @@
                 if (!data.success) { toast(data.message || '加载失败', 'error'); return; }
                 items = data.items || [];
                 if (data.page !== undefined) { pager.page = data.page; }
-                if (data.page_size !== undefined) { pager.page_size = data.page_size; }
                 if (data.pages !== undefined) { pager.pages = data.pages; }
-                if (data.total !== undefined) { pager.total = data.total; }
                 var summary = data.summary || {};
                 $('iinPendingCount').textContent =
                     (summary.pending_approve || 0) + (summary.paid || 0) + (summary.approved || 0);
@@ -308,12 +289,6 @@
         $('iinSearch').value = '';
         ['iinSchool', 'iinGrade', 'iinClass'].forEach(function (id) { $(id).value = ''; });
         selected = {};
-        pager.page = 1;
-        load();
-    });
-
-    $('iinPagerSize').addEventListener('change', function () {
-        pager.page_size = Number(this.value) || 30;
         pager.page = 1;
         load();
     });

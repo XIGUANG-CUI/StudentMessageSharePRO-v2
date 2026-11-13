@@ -30,6 +30,8 @@
     .if-toast.error { background: #dc3545; }
     .modal-if .modal-header { background: #6f42c1; color: #fff; border-radius: 5px 5px 0 0; }
     .modal-if .modal-header .btn-close { filter: invert(1); }
+    .if-pager { margin-top: 8px; }
+    .if-pager .pagination { margin-bottom: 2px; }
 </style>
 {% endblock %}
 {% block content %}
@@ -115,6 +117,15 @@
     </table>
 </div>
 
+<div class="if-pager d-none" id="ifPager">
+    <nav>
+        <ul class="pagination justify-content-center" id="ifPagerList"></ul>
+    </nav>
+    <div class="text-center text-muted mt-1">
+        <small>每页 20 条</small>
+    </div>
+</div>
+
 <div class="modal fade modal-if" id="ifPolicyModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -150,6 +161,8 @@
     var selected = {};
     var currentStatus = 'pending';
     var policyTargets = null;   // 弹窗目标：null=使用勾选行，数组=单行操作
+    var PAGE_SIZE = 20;
+    var pager = { page: 1, pages: 1 };
 
     var schoolMap = {};
     {% for st in school_types %}schoolMap[{{ st.code|tojson }}] = {{ st.name|tojson }};{% endfor %}
@@ -231,7 +244,53 @@
             if (f[key]) { parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(f[key])); }
         });
         if (currentStatus) { parts.push('status=' + encodeURIComponent(currentStatus)); }
+        if (currentStatus === 'done') {
+            parts.push('page=' + pager.page);
+            parts.push('page_size=' + PAGE_SIZE);
+        }
         return parts.join('&');
+    }
+
+    function renderPager() {
+        var box = $('ifPager');
+        var list = $('ifPagerList');
+        if (currentStatus !== 'done' || pager.pages <= 1) {
+            box.classList.add('d-none');
+            list.innerHTML = '';
+            return;
+        }
+        box.classList.remove('d-none');
+
+        var cur = pager.page;
+        var total = pager.pages;
+        var html = '';
+
+        if (cur > 1) {
+            html += '<li class="page-item"><a class="page-link" href="#" data-p="' + (cur - 1) + '">上一页</a></li>';
+        }
+        for (var p = 1; p <= total; p++) {
+            if (p === cur) {
+                html += '<li class="page-item active"><span class="page-link">' + p + '</span></li>';
+            } else if (p <= 3 || p > total - 3 || (p >= cur - 1 && p <= cur + 1)) {
+                html += '<li class="page-item"><a class="page-link" href="#" data-p="' + p + '">' + p + '</a></li>';
+            } else if (p === 4 || p === total - 2) {
+                html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+            }
+        }
+        if (cur < total) {
+            html += '<li class="page-item"><a class="page-link" href="#" data-p="' + (cur + 1) + '">下一页</a></li>';
+        }
+        list.innerHTML = html;
+
+        list.querySelectorAll('a.page-link').forEach(function (a) {
+            a.addEventListener('click', function (e) {
+                e.preventDefault();
+                var tgt = Number(a.getAttribute('data-p'));
+                if (!tgt || tgt === cur || tgt < 1 || tgt > total) { return; }
+                pager.page = tgt;
+                load();
+            });
+        });
     }
 
     function updateSummary(summary) {
@@ -283,11 +342,14 @@
             .then(function (data) {
                 if (!data.success) { toast(data.message || '加载失败', 'error'); return; }
                 items = data.items || [];
+                if (data.page !== undefined) { pager.page = data.page; }
+                if (data.pages !== undefined) { pager.pages = data.pages; }
                 updateSummary(data.summary);
                 var visible = {};
                 items.forEach(function (s) { if (selected[s.id]) { visible[s.id] = true; } });
                 selected = visible;
                 render();
+                renderPager();
                 updateActionBar();
             })
             .catch(function () { toast('加载失败', 'error'); });
@@ -314,19 +376,21 @@
         btn.classList.add('active');
         currentStatus = btn.getAttribute('data-status');
         selected = {};
+        pager.page = 1;
         load();
     });
 
     $('ifSearch').addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') { selected = {}; load(); }
+        if (e.key === 'Enter') { selected = {}; pager.page = 1; load(); }
     });
     ['ifSchool', 'ifGrade', 'ifClass', 'ifMajor'].forEach(function (id) {
-        $(id).addEventListener('change', function () { selected = {}; load(); });
+        $(id).addEventListener('change', function () { selected = {}; pager.page = 1; load(); });
     });
     $('ifReset').addEventListener('click', function () {
         $('ifSearch').value = '';
         ['ifSchool', 'ifGrade', 'ifClass', 'ifMajor'].forEach(function (id) { $(id).value = ''; });
         selected = {};
+        pager.page = 1;
         load();
     });
 
