@@ -1433,7 +1433,7 @@ def revert_student(conn, student_id, operator=''):
     return rec
 
 
-def search_student_last_records(conn, search, limit=50):
+def search_student_last_records(conn, search, limit=50, offset=0):
     """撤销中心按学生查询：匹配学生 + 其最近一条保险记录。"""
     term = (search or '').strip()
     if not term:
@@ -1452,10 +1452,27 @@ def search_student_last_records(conn, search, limit=50):
            WHERE COALESCE(s.is_deleted, 0) = 0
              AND (s.name LIKE ? OR s.student_no LIKE ?
                   OR s.id_card LIKE ? OR s.name_pinyin LIKE ?)
-           ORDER BY s.name LIMIT ?''',
-        (like, like, like, like, max(1, min(int(limit), 200)))
+           ORDER BY s.name LIMIT ? OFFSET ?''',
+        (like, like, like, like, max(1, min(int(limit), 200)), max(0, int(offset)))
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def count_student_last_records(conn, search):
+    """撤销中心按学生查询的总数（与 search_student_last_records 同口径）。"""
+    term = (search or '').strip()
+    if not term:
+        return 0
+    like = f'%{term}%'
+    row = conn.execute(
+        '''SELECT COUNT(*) FROM students s
+           WHERE COALESCE(s.is_deleted, 0) = 0
+             AND (s.name LIKE ? OR s.student_no LIKE ?
+                  OR s.id_card LIKE ? OR s.name_pinyin LIKE ?)
+             AND EXISTS (SELECT 1 FROM insurance_records r WHERE r.student_id = s.id)''',
+        (like, like, like, like)
+    ).fetchone()
+    return row[0] if row else 0
 
 
 def _create_intern_record(conn, student, operator='', current_year=None,
@@ -2619,11 +2636,11 @@ def query_insurance_records(conn, insurance_type=None, status=None,
     return items
 
 
-def list_export_batches(conn, limit=100):
+def list_export_batches(conn, limit=100, offset=0):
     """导出批次列表（撤销中心）。"""
     rows = conn.execute(
-        'SELECT * FROM insurance_export_batches ORDER BY created_at DESC LIMIT ?',
-        (limit,)
+        'SELECT * FROM insurance_export_batches ORDER BY created_at DESC LIMIT ? OFFSET ?',
+        (limit, max(0, int(offset)))
     ).fetchall()
     items = []
     for row in rows:
@@ -2636,7 +2653,13 @@ def list_export_batches(conn, limit=100):
     return items
 
 
-def list_operation_logs(conn, limit=200, action='', search=''):
+def count_export_batches(conn):
+    """导出批次总数（撤销中心分页用）。"""
+    row = conn.execute('SELECT COUNT(*) FROM insurance_export_batches').fetchone()
+    return row[0] if row else 0
+
+
+def list_operation_logs(conn, limit=200, action='', search='', offset=0):
     """操作日志列表（撤销中心）。"""
     sql = '''SELECT l.*, s.name AS student_name, s.student_no
              FROM insurance_operation_logs l
@@ -2650,6 +2673,25 @@ def list_operation_logs(conn, limit=200, action='', search=''):
         like = f'%{search}%'
         sql += ' AND (s.name LIKE ? OR s.student_no LIKE ? OR s.id_card LIKE ?)'
         params.extend([like, like, like])
-    sql += ' ORDER BY l.created_at DESC, l.id DESC LIMIT ?'
+    sql += ' ORDER BY l.created_at DESC, l.id DESC LIMIT ? OFFSET ?'
     params.append(max(1, min(int(limit), 1000)))
+    params.append(max(0, int(offset)))
     return [dict(row) for row in conn.execute(sql, params).fetchall()]
+
+
+def count_operation_logs(conn, action='', search=''):
+    """操作日志总数（撤销中心分页用，与 list_operation_logs 同口径）。"""
+    sql = '''SELECT COUNT(*)
+             FROM insurance_operation_logs l
+             LEFT JOIN students s ON s.id = l.student_id
+             WHERE 1 = 1'''
+    params = []
+    if action:
+        sql += ' AND l.action = ?'
+        params.append(action)
+    if search:
+        like = f'%{search}%'
+        sql += ' AND (s.name LIKE ? OR s.student_no LIKE ? OR s.id_card LIKE ?)'
+        params.extend([like, like, like])
+    row = conn.execute(sql, params).fetchone()
+    return row[0] if row else 0

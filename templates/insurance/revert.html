@@ -25,6 +25,8 @@
                  border-radius: 6px; color: #fff; font-size: 0.85rem; }
     .irv-toast.success { background: #198754; }
     .irv-toast.error { background: #dc3545; }
+    .irv-pager { margin-top: 8px; }
+    .irv-pager .pagination { margin-bottom: 2px; }
 </style>
 {% endblock %}
 {% block content %}
@@ -79,6 +81,15 @@
         </tbody>
     </table>
 </div>
+
+<div class="irv-pager d-none" id="irvPager">
+    <nav>
+        <ul class="pagination justify-content-center" id="irvPagerList"></ul>
+    </nav>
+    <div class="text-center text-muted mt-1">
+        <small>每页 20 条</small>
+    </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -87,6 +98,8 @@
     var logs = [];
     var students = [];
     var currentTab = 'students';
+    var PAGE_SIZE = 20;
+    var pager = { page: 1, pages: 1 };
 
     var ACTION_LABELS = {
         create: '建档', approve: '审批通过', reject: '不办理', pay: '缴费',
@@ -210,33 +223,92 @@
         else { renderLogs(); }
     }
 
+    function applyPager(data) {
+        if (data.page !== undefined) { pager.page = data.page; }
+        if (data.pages !== undefined) { pager.pages = data.pages; }
+    }
+
+    function renderPager() {
+        var box = $('irvPager');
+        var list = $('irvPagerList');
+        if (pager.pages <= 1) {
+            box.classList.add('d-none');
+            list.innerHTML = '';
+            return;
+        }
+        box.classList.remove('d-none');
+
+        var cur = pager.page;
+        var total = pager.pages;
+        var html = '';
+
+        if (cur > 1) {
+            html += '<li class="page-item"><a class="page-link" href="#" data-p="' + (cur - 1) + '">上一页</a></li>';
+        }
+        for (var p = 1; p <= total; p++) {
+            if (p === cur) {
+                html += '<li class="page-item active"><span class="page-link">' + p + '</span></li>';
+            } else if (p <= 3 || p > total - 3 || (p >= cur - 1 && p <= cur + 1)) {
+                html += '<li class="page-item"><a class="page-link" href="#" data-p="' + p + '">' + p + '</a></li>';
+            } else if (p === 4 || p === total - 2) {
+                html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+            }
+        }
+        if (cur < total) {
+            html += '<li class="page-item"><a class="page-link" href="#" data-p="' + (cur + 1) + '">下一页</a></li>';
+        }
+        list.innerHTML = html;
+
+        list.querySelectorAll('a.page-link').forEach(function (a) {
+            a.addEventListener('click', function (e) {
+                e.preventDefault();
+                var tgt = Number(a.getAttribute('data-p'));
+                if (!tgt || tgt === cur || tgt < 1 || tgt > total) { return; }
+                pager.page = tgt;
+                reloadCurrent();
+            });
+        });
+    }
+
+    function reloadCurrent() {
+        if (currentTab === 'students') { loadStudents(); }
+        else if (currentTab === 'batches') { loadBatches(); }
+        else { loadLogs(); }
+    }
+
     function loadStudents() {
         var keyword = $('irvStudentSearch').value.trim();
         if (!keyword) {
             students = [];
+            pager.page = 1;
+            pager.pages = 1;
             $('irvStudentCount').textContent = 0;
             renderStudents();
+            renderPager();
             return;
         }
-        fetch('/api/insurance/revert/students?search=' + encodeURIComponent(keyword))
+        fetch('/api/insurance/revert/students?search=' + encodeURIComponent(keyword)
+              + '&page=' + pager.page + '&page_size=' + PAGE_SIZE)
             .then(function (r) { return r.json(); })
             .then(function (data) {
                 if (!data.success) { toast(data.message || '加载失败', 'error'); return; }
                 students = data.items || [];
-                $('irvStudentCount').textContent = students.length;
-                if (currentTab === 'students') { render(); }
+                applyPager(data);
+                $('irvStudentCount').textContent = data.total || 0;
+                if (currentTab === 'students') { render(); renderPager(); }
             })
             .catch(function () { toast('加载失败', 'error'); });
     }
 
     function loadBatches() {
-        fetch('/api/insurance/revert/batches?limit=100')
+        fetch('/api/insurance/revert/batches?page=' + pager.page + '&page_size=' + PAGE_SIZE)
             .then(function (r) { return r.json(); })
             .then(function (data) {
                 if (!data.success) { toast(data.message || '加载失败', 'error'); return; }
                 batches = data.items || [];
-                $('irvBatchCount').textContent = batches.length;
-                if (currentTab === 'batches') { render(); }
+                applyPager(data);
+                $('irvBatchCount').textContent = data.total || 0;
+                if (currentTab === 'batches') { render(); renderPager(); }
             })
             .catch(function () { toast('加载失败', 'error'); });
     }
@@ -244,7 +316,9 @@
     function logQuery() {
         var map = {
             search: $('irvLogSearch').value.trim(),
-            action: $('irvLogAction').value
+            action: $('irvLogAction').value,
+            page: pager.page,
+            page_size: PAGE_SIZE
         };
         var parts = [];
         Object.keys(map).forEach(function (key) {
@@ -259,8 +333,9 @@
             .then(function (data) {
                 if (!data.success) { toast(data.message || '加载失败', 'error'); return; }
                 logs = data.items || [];
-                $('irvLogCount').textContent = logs.length;
-                if (currentTab === 'logs') { render(); }
+                applyPager(data);
+                $('irvLogCount').textContent = data.total || 0;
+                if (currentTab === 'logs') { render(); renderPager(); }
             })
             .catch(function () { toast('加载失败', 'error'); });
     }
@@ -270,11 +345,15 @@
             document.querySelectorAll('.irv-tab').forEach(function (t) { t.classList.remove('active'); });
             tab.classList.add('active');
             currentTab = tab.getAttribute('data-tab');
+            pager.page = 1;
             $('irvStudentToolbar').style.display = currentTab === 'students' ? '' : 'none';
             $('irvLogToolbar').style.display = currentTab === 'logs' ? '' : 'none';
+            pager.pages = 1;
             render();
+            renderPager();
             if (currentTab === 'logs') { loadLogs(); }
             if (currentTab === 'students') { loadStudents(); }
+            if (currentTab === 'batches') { loadBatches(); }
         });
     });
 
@@ -324,18 +403,19 @@
     });
 
     $('irvLogSearch').addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') { loadLogs(); }
+        if (e.key === 'Enter') { pager.page = 1; loadLogs(); }
     });
-    $('irvLogAction').addEventListener('change', loadLogs);
+    $('irvLogAction').addEventListener('change', function () { pager.page = 1; loadLogs(); });
     $('irvLogReset').addEventListener('click', function () {
         $('irvLogSearch').value = '';
         $('irvLogAction').value = '';
+        pager.page = 1;
         loadLogs();
     });
 
-    $('irvStudentSearchBtn').addEventListener('click', loadStudents);
+    $('irvStudentSearchBtn').addEventListener('click', function () { pager.page = 1; loadStudents(); });
     $('irvStudentSearch').addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') { loadStudents(); }
+        if (e.key === 'Enter') { pager.page = 1; loadStudents(); }
     });
 
     renderStudents();

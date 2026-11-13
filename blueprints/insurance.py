@@ -1450,18 +1450,33 @@ def insurance_revert():
     return render_template('insurance/revert.html')
 
 
+def _revert_page_args(total):
+    """撤销中心三个列表的公共分页参数：解析 page/page_size 并换算 pages/offset。"""
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = int(request.args.get('page_size', 20))
+    except (TypeError, ValueError):
+        page_size = 20
+    page_size = max(1, min(page_size, 200))
+    pages = max(1, (total + page_size - 1) // page_size)
+    page = min(page, pages)
+    return page, page_size, pages, (page - 1) * page_size
+
+
 @bp.route('/api/insurance/revert/batches')
 def api_insurance_revert_batches():
     err = _require_admin_json()
     if err:
         return err
-    try:
-        limit = int(request.args.get('limit', 100))
-    except (TypeError, ValueError):
-        limit = 100
-    items = insurance_domain.list_export_batches(models.get_db(),
-                                                 limit=max(1, min(limit, 500)))
-    return jsonify({'success': True, 'total': len(items), 'items': items})
+    conn = models.get_db()
+    total = insurance_domain.count_export_batches(conn)
+    page, page_size, pages, offset = _revert_page_args(total)
+    items = insurance_domain.list_export_batches(conn, limit=page_size, offset=offset)
+    return jsonify({'success': True, 'total': total, 'items': items,
+                    'page': page, 'page_size': page_size, 'pages': pages})
 
 
 @bp.route('/api/insurance/revert/batch', methods=['POST'])
@@ -1495,8 +1510,13 @@ def api_insurance_revert_students():
     if err:
         return err
     search = (request.args.get('search') or '').strip()
-    items = insurance_domain.search_student_last_records(models.get_db(), search)
-    return jsonify({'success': True, 'total': len(items), 'items': items})
+    conn = models.get_db()
+    total = insurance_domain.count_student_last_records(conn, search)
+    page, page_size, pages, offset = _revert_page_args(total)
+    items = insurance_domain.search_student_last_records(
+        conn, search, limit=page_size, offset=offset)
+    return jsonify({'success': True, 'total': total, 'items': items,
+                    'page': page, 'page_size': page_size, 'pages': pages})
 
 
 @bp.route('/api/insurance/revert/student', methods=['POST'])
@@ -1537,15 +1557,15 @@ def api_insurance_revert_logs():
     err = _require_admin_json()
     if err:
         return err
-    try:
-        limit = int(request.args.get('limit', 200))
-    except (TypeError, ValueError):
-        limit = 200
     action = (request.args.get('action') or '').strip()
     search = (request.args.get('search') or '').strip()
+    conn = models.get_db()
+    total = insurance_domain.count_operation_logs(conn, action=action, search=search)
+    page, page_size, pages, offset = _revert_page_args(total)
     items = insurance_domain.list_operation_logs(
-        models.get_db(), limit=limit, action=action, search=search)
-    return jsonify({'success': True, 'total': len(items), 'items': items})
+        conn, limit=page_size, action=action, search=search, offset=offset)
+    return jsonify({'success': True, 'total': total, 'items': items,
+                    'page': page, 'page_size': page_size, 'pages': pages})
 
 
 def _pay_date_year(pd):
