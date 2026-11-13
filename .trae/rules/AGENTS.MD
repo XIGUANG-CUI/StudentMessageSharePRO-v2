@@ -2,12 +2,12 @@
 
 ## 项目概述
 
-这是一个基于 **Flask + SQLite + Bootstrap 5** 的学生数据管理系统（StudentMessageSharePRO），支持多学校类别（默认中职/技工，可在字典管理中动态新增）的学生信息管理、Excel 批量导入/更新、多维度查询统计、手机端出勤点名、保险管理、毕业/实习管理、退学处理、模板导出引擎，以及基于角色的多层级权限管理。
+这是一个基于 **Flask + SQLite + Bootstrap 5** 的学生数据管理系统（StudentMessageSharePRO-v2），支持多学校类别（默认中职/技工，可在字典管理中动态新增）的学生信息管理、Excel 批量导入/更新、多维度查询统计、手机端出勤点名、区划匹配、毕业生档案派遣、重点监管、保险管理、毕业/实习管理、退学处理、模板导出引擎（含预览），以及基于角色的多层级权限管理。
 
-- **技术栈**：Python 3.10+ / Flask 3.0 / Bootstrap 5.3 / SQLite (WAL模式) / Chart.js / openpyxl / qrcode[pil] / python-docx
+- **技术栈**：Python 3.10+ / Flask 3.x / Bootstrap 5.3 / SQLite (WAL模式) / Chart.js / openpyxl / python-docx / qrcode[pil] / docx-preview + jszip（本地 vendor）
 - **启动方式**：`python run_with_tray.py`（带系统托盘图标，**推荐**）或 `python app.py`
 - **默认端口**：`5001`
-- **项目根目录**：`StudentMessageSharePRO`
+- **项目根目录**：`StudentMessageSharePRO-v2`
 
 ---
 
@@ -19,85 +19,80 @@
 | 2026-06-27 | 细节增强：字段赋值规则/路由鉴权列/代码位置引用/工具函数签名/业务规则状态机 | AI Agent 细节补充 |
 | 2026-09-10 | 新增公开班级花名册页；新增公开页面口令校验机制（PUBLIC_ACCESS_KEY + 限流 scope 隔离），控制台按钮改为带口令链接 ⭐ |
 | 2026-10-23 | 新增学校类别字典化：`school_types` 表 + 服务层 + 字典页「学校类别」页签；学生/查询/统计/毕业/导出引擎/用户权限/保险页面动态化；停用语义与删除保护；导入校验白名单动态化 ⭐ | AI Agent 细节补充 |
+| 2026-11-08 | 保险模块 v3 重构：新增 `insurance_records` 等 5 张表与 `models/insurance.py`，页面由「登记/审批/待办」改为「催缴/首保/续保/推送/办结/记录查询/撤销中心/初始化导入」8 页；业务改为批次计划 + 五类业务池驱动 ⭐ | AI Agent 全量同步 |
+| 2026-11-13 | 同步近期 15 项功能：重点监管学生、档案派遣查询、毕业生查询分页与档案详情、家长关系/备用电话、年级与在校状态调整、导出预览（Excel 网格 + Word 版式）、年级×专业交叉统计提示、多维查询固定表头首列、年份范围 2000-9999、保险各页分页与批次导入撤销 ⭐ | AI Agent 全量同步 |
 
 ---
 
 ## 项目结构
 
 ```
-StudentMessageSharePRO/
-├── app.py                     # Flask 主应用（路由、业务逻辑、安全中间件）
-├── auth.py                    # 认证模块（登录/7种权限装饰器/字段/学校/年级权限/敏感数据脱敏）
-├── config.py                  # 全局配置（数据库路径、端口、字段映射、备份/导出参数、安全配置）⭐更新
-├── models.py                  # 数据模型层（SQLite CRUD、建表、索引、毕业/实习/退学/导出引擎表操作）
-├── utils.py                   # 工具函数（身份证解析与校验、电话验证、Excel模板、过滤解析）
-├── pinyin_utils.py            # 中文姓名→拼音转换（26671字映射、27复姓、49异体字）⭐新增
-├── run_with_tray.py           # Windows 托盘启动器（pystray，含打开/重启/退出）
+StudentMessageSharePRO-v2/
+├── app.py                     # 应用入口：注册 12 个蓝图、context_processor、安全中间件
+├── auth.py                    # 认证与权限（7 种装饰器、字段/学校/年级过滤、敏感数据脱敏）
+├── config.py                  # 全局配置（FIELD_MAPPING 50 项、InsuranceStatus 保险枚举、备份/导出参数）
+├── utils.py                   # 工具函数（身份证解析校验、电话验证、Excel 模板、过滤解析、局域网 IP）
+├── pinyin_utils.py            # 中文姓名→拼音（26671 字映射、27 复姓、49 异体字）
+├── run_with_tray.py           # Windows 托盘启动器（import 前即初始化 RotatingFileHandler 日志）
 ├── run_with_tray.spec         # PyInstaller 打包配置
-├── requirements.txt           # Python 依赖
-├── version.txt                # 版本信息文件（for PyInstaller）
-├── backfill_pinyin.py         # 拼音存量回填脚本（--force/--dry-run）⭐新增
-├── backfill_birth_date.py     # 出生日期回填脚本
-├── _test_confirm.py           # 测试工具
-├── data/
-│   ├── student.db             # SQLite 数据库（自动创建）
-│   ├── card_reader_config.json# 身份证读卡器 WebSocket 配置
-│   ├── templates/             # 模板导出引擎的上传模板存储 ⭐新增
-│   └── exports/               # 模板导出引擎的结果文件存储 ⭐新增
-├── databackup/                # 数据库备份目录（AB 轮换）⭐更新
-│   ├── student_A.db           # 备份 A 文件
-│   ├── student_B.db           # 备份 B 文件
-│   ├── backup_rotation.txt    # 轮换记录
-│   ├── backup_config.json     # 备份间隔配置 ⭐新增
-│   └── backup_log.txt         # 备份日志
+├── blueprints/                # 路由层（12 个蓝图）
+│   ├── admin.py               # 学生列表/新增编辑/批量新增更新/重点监管/照片导出
+│   ├── api.py                 # 字典、学校类别、年份、身份证/手机号校验等通用 API
+│   ├── archive.py             # 毕业生档案派遣（工作台/批次/转递单/派遣查询/人才机构/转递单配置）
+│   ├── backup.py              # 备份状态、间隔调整
+│   ├── district_match.py      # 区划匹配（单条/批量/批次记录/历史映射/数据包）
+│   ├── export.py              # 模板导出引擎（含 Excel 网格与 Word 版式预览）
+│   ├── insurance.py           # 保险 8 页面 + 保险 API（池/列表/流转/导入/撤销）
+│   ├── leave_cancel.py        # 销假处理 + 手机端二维码 + 出勤明细导出
+│   ├── lifecycle.py           # 毕业/实习处理、退学、学籍异动（含年级与在校状态调整）
+│   ├── mobile.py              # 手机端出勤点名
+│   ├── public.py              # 公开公示页（口令 + IP 限流）
+│   └── user.py                # 多维查询 / 统计面板
+├── models/                    # 数据层（SQL、事务、迁移）
+│   ├── db.py                  # 连接/建表/ALTER 迁移/PRAGMA（init_db 内调用保险 v3 迁移）
+│   ├── students.py            # 学生 CRUD、筛选、重点监管查询
+│   ├── insurance.py           # 保险记录模型（INSURANCE_V3_DDL、计划引擎、五类池、状态流转、导入/撤销）
+│   ├── archive.py             # 档案派遣（人才机构、批次、转递单、派遣查询）
+│   ├── district.py            # 区划匹配批次/结果/历史映射/数据包
+│   ├── lifecycle.py           # 毕业/实习批量处理
+│   ├── attendance.py          # 出勤记录（身份证号唯一约束）
+│   ├── export_template.py     # 模板/映射方案/导出历史
+│   ├── school_types.py / dicts.py / users.py / logs.py / stats.py
 ├── services/
-│   ├── __init__.py            # 服务模块初始化
-│   ├── card_reader.py         # 身份证读卡器服务（ctypes DLL / 华视 SDK）
-│   └── backup_service.py      # 数据库备份服务（AB轮换+SQLite原生API+定时备份+间隔动态调整+日志清理）
-├── sdk/                       # 华视身份证读卡器 SDK DLL（termb.dll, sdtapi.dll, WltRS.dll, DLL_File.dll）
-├── static/
-│   ├── css/style.css          # 自定义样式（Toast、确认弹窗、打印CSS）
-│   ├── js/
-│   │   ├── main.js            # 前端公共JS（Toast、showConfirm、safeJSON、validatePhone、CSRF自动注入）
-│   │   └── card_reader.js     # 浏览器端 WebSocket 身份证读卡器
-│   └── photos/                # 照片目录（运行时用户数据目录）
+│   ├── card_reader.py         # 身份证读卡（ctypes DLL / 华视 SDK）
+│   ├── backup_service.py      # AB 轮换 + 定时备份 + 日志清理
+│   ├── import_service.py      # 批量导入后台线程
+│   ├── insurance_service.py   # 保险 Excel 解析、批次导入、模板生成、主管标记归一化
+│   └── district_match/        # 区划匹配引擎（address_parser/engine1/engine2/decider/pack/runner/exporter）
+├── static/js/
+│   ├── main.js                # Toast/确认弹窗/safeJSON/validatePhone/CSRF 注入
+│   ├── insurance_status.js    # 保险状态常量镜像（保险各页共用）
+│   ├── insurance_common.js    # 保险批量选择组件
+│   ├── district_match.js      # 区划匹配前端
+│   └── card_reader.js         # WebSocket 读卡
+├── static/vendor/             # docx-preview.min.js / jszip.min.js（Word 预览，本地依赖）
 ├── templates/
-│   ├── base.html              # 母版页（导航栏、flash JSON注入、CSRF Token注入、保险导航菜单）
-│   ├── login.html             # 桌面端登录页
-│   ├── _field_help.html       # 字段帮助组件
-│   ├── admin/                 # 管理员端模板
-│   │   ├── dashboard.html     # 控制台/仪表盘（统计卡片+图表+分布表+打印+备份管理面板+更新在校状态按钮）
-│   │   ├── year_selector.html # 入学年份选择页
-│   │   ├── students.html      # 学生列表（含新增/编辑弹窗、身份证读卡、datalist字典联动、17列表格）
-│   │   ├── student_form.html  # 添加/编辑学生独立表单
-│   │   ├── student_change.html# 学籍异动快速处理 + 转学待办表 + 实习处理面板 ⭐更新
-│   │   ├── student_dropout.html# 退学学生处理（退学办结列表 + 导出Excel + 软删除标记 + 日期筛选）
-│   │   ├── import.html        # 批量导入（上传→预览→导入进度）
-│   │   ├── batch_update.html  # 批量更新（上传→预览→更新进度）
-│   │   ├── leave_cancel.html  # 销假处理（搜索→缺勤列表→一键销假+二维码+导出Excel）
-│   │   ├── users.html         # 用户管理（CRUD、状态切换、密码重置）
-│   │   ├── dicts.html         # 字典管理（添加/导入/导出/筛选/删除）
-│   │   ├── export_engine.html # 模板驱动数据导出引擎 ⭐新增
-│   │   ├── graduation.html    # 毕业管理（毕业处理/撤销毕业/预览弹窗搜索）⭐新增
-│   │   ├── graduation_query.html # 毕业生查询页（学校/年级/班级/姓名筛选联动+CSV导出）⭐新增
-│   │   └── insurance_query.html  # 保险综合查询页 ⭐新增
-│   ├── user/                  # 普通用户端模板
-│   │   ├── query.html         # 多维查询（含班级对照表+打印）
-│   │   └── stats.html         # 统计面板（图表+分布表+打印）
-│   ├── mobile/                # 手机端出勤点名模板（独立UI）
-│   │   ├── login.html         # 手机端登录页
-│   │   ├── grades.html        # 年级选择页
-│   │   ├── classes.html       # 班级列表页（含完成状态标记）
-│   │   └── attendance.html    # 学生出勤点名页（滑动开关+批量提交）
-│   ├── insurance/             # 保险管理模板 ⭐新增
-│   │   ├── register.html      # 保险缴费登记（财务人员/财务主管）
-│   │   ├── approve.html       # 保险审批（财务主管）
-│   │   ├── todo.html          # 保险待办（保险员）
-│   │   └── init.html          # 保险初始化导入（管理员）
-│   └── public/                # 公开页面（免登录，统一需口令 k）
-│       ├── pending_leave.html # 待销假公示页
-│       └── roster.html        # 班级花名册公示页 ⭐新增
-└── uploads/                   # 上传文件临时目录
+│   ├── base.html              # 母版页（导航、flash JSON、CSRF、学校类别注入）
+│   ├── admin/                 # dashboard/students/import/batch_update/student_change/student_dropout/
+│   │                          # graduation/graduation_query/key_supervision/export_engine/users/dicts/
+│   │                          # year_selector/insurance_query
+│   ├── archive/               # dispatch / agencies / settings / query
+│   ├── insurance/             # collection / first / renewal / push / intern / records / revert / init
+│   ├── user/                  # query（固定表头首列）/ stats
+│   ├── mobile/                # login / grades / classes / attendance
+│   └── public/                # pending_leave / roster
+├── tests/                     # pytest：保险领域/池/首保/续保/办结/导入v2/迁移/撤销、区划、重点监管、路由、工具
+├── scripts/                   # backfill_pinyin / backfill_birth_date / build_district_pack / seed_packaged_dict / 基准脚本
+├── docs/                      # 区划匹配设计与移植文档、学校类别升级方案、Linux 部署改造文档
+├── data/
+│   ├── student.db             # 主库（23 张表，students 55 列）
+│   ├── district.db            # 区划数据库
+│   ├── district_pack.tsv.gz   # 打包区划数据包 + sha256
+│   ├── templates/ exports/    # 导出模板与结果
+│   └── secret.key / public_access.key / card_reader_config.json
+├── databackup/                # AB 轮换备份、backup_config.json、backup_log.txt
+├── archive_templates/         # 档案转递单 Word 模板
+└── sdk/                       # 华视读卡器 DLL 与打包说明
 ```
 
 ---
@@ -144,6 +139,9 @@ StudentMessageSharePRO/
 | 多维查询 `/user/query` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 统计面板 `/user/stats` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 毕业生查询 `/admin/graduation/query` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 毕业生档案详情 `/api/admin/student/<id>`（分页前端切片；详情弹窗仅 admin） | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| 重点监管学生 `/admin/key-supervision`、`/admin/key-supervision/export` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| 档案派遣查询 `/admin/archive/query`、`/api/archive/search` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | 公开待处理销假 `/public/pending-leave`、`/api/public/pending-leave`（免登录 + 口令 k + IP 限流） | 所有人（无需登录） | — | — | — | — | — |
 | 公开班级花名册 `/public/roster`、`/api/public/roster`（免登录 + 口令 k + IP 限流）⭐新增 | 所有人（无需登录） | — | — | — | — | — |
 
@@ -166,7 +164,7 @@ StudentMessageSharePRO/
 
 ## 数据库表结构
 
-### students（学生表）⚠️ 全量 40 字段
+### students（学生表）⚠️ 当前 55 列（`FIELD_MAPPING` 50 项）
 
 | 字段 | 类型 | 业务含义 | 赋值规则 / 格式约束 |
 |---|---|---|---|
@@ -185,6 +183,9 @@ StudentMessageSharePRO/
 | parent_name | TEXT | 家长姓名 | 自由文本 |
 | parent_id_card | TEXT | 家长身份证号 | 18位格式 |
 | parent_phone | TEXT | 家长电话 | `validate_phone()` 校验：`1\d{10}` + 号段库白名单，空格和连字符自动去除 |
+| parent_relation | TEXT DEFAULT '' | 家长关系 | 自由文本 + 字典 `dict_parent_relation` 联想（如 父亲/母亲），导入导出映射已支持 ⭐新增 |
+| backup_phone_1 | TEXT DEFAULT '' | 备用电话 1 | 选填，同手机号校验规则，纳入脱敏名单 ⭐新增 |
+| backup_phone_2 | TEXT DEFAULT '' | 备用电话 2 | 选填，同手机号校验规则，纳入脱敏名单 ⭐新增 |
 | student_phone | TEXT | 学生电话 | 同 `parent_phone` 校验规则 |
 | grade | TEXT | 年级 | 如 `2023级`，新增时自动推导（初中毕业时间→session年份），转学生自动-1 |
 | enrollment_year | INTEGER | 入学年份 | 新增时从 session `enrollment_year` 写入，编辑不可变，非admin被过滤 |
@@ -206,15 +207,15 @@ StudentMessageSharePRO/
 | created_at | TIMESTAMP | 创建时间 | 自动写入 |
 | updated_at | TIMESTAMP | 更新时间 | 每次更新自动刷新 |
 | name_pinyin | TEXT | 姓名拼音 | 如 `ShanYaoPang`，由 `pinyin_utils.name_to_pinyin()` 在5处触发点自动生成 ⭐新增 |
-| student_insurance_no | TEXT | 学平险保单号 | 保险缴费登记时填写 ⭐新增 |
-| student_insurance_pay_date | TEXT | 学平险缴费日期 | `YYYY-MM-DD` ⭐新增 |
-| student_insurance_expiry | TEXT | 学平险到期时间 | `YYYY-MM-DD` ⭐新增 |
-| insurance_premium | TEXT | 学平险保费金额 | 初始化导入默认 `'静默'`，缴费登记可修改 ⭐新增 |
-| internship_insurance_pay_date | TEXT | 实习险缴费日期 | `YYYY-MM-DD` ⭐新增 |
-| supervisor_flag | TEXT | 主管标记 | 见下方状态机规则 ⭐新增 |
-| declaration_date | TEXT | 申报日期 | 办结时自动填入当前日期 `YYYY-MM-DD` ⭐新增 |
-| insurance_update_date | TEXT | 保单更新日期 | 办结时自动填入当前日期 `YYYY-MM-DD` ⭐新增 |
-| tuition_status | TEXT | 学费总体情况 | 枚举：`已缴清`/`部分欠费`/`未缴`/`免学费` ⭐新增 |
+| student_insurance_no | TEXT | 学平险保单号 | ⚠️ v3 起由 `insurance_records` 单向投影（`sync_student_snapshot`），不再直接写入 |
+| student_insurance_pay_date | TEXT | 学平险缴费日期 | ⚠️ 同上，投影字段；占位值 `'新生默认首保'` 表示系统外已首保 |
+| student_insurance_expiry | TEXT | 学平险到期时间 | ⚠️ 同上，投影字段 |
+| insurance_premium | TEXT | 学平险保费金额 | ⚠️ 同上；历史值 `'静默'` 在迁移时转为空 |
+| internship_insurance_pay_date | TEXT | 实习险缴费日期 | ⚠️ 同上，投影字段 |
+| supervisor_flag | TEXT | 主管标记 | ⚠️ 同上；由记录状态映射后同步，见「保险模块状态机」 |
+| declaration_date | TEXT | 申报日期 | ⚠️ 同上，投影字段 |
+| insurance_update_date | TEXT | 保单更新日期 | ⚠️ 同上，投影字段 |
+| tuition_status | TEXT | 学费总体情况 | 枚举：`已缴清`/`部分欠费`/`未缴`/`免学费` |
 
 ### dicts（字典表）
 
@@ -324,6 +325,59 @@ StudentMessageSharePRO/
 | created_by | TEXT | 操作人 display_name |
 | created_at | TIMESTAMP | 导出时间 |
 
+### insurance_records（保险记录表）⭐v3 核心
+
+| 字段 | 类型 | 业务含义 |
+|---|---|---|
+| id | INTEGER PK | 自增主键 |
+| student_id / id_card | INTEGER / TEXT | 关联学生 |
+| school_year | TEXT | 保险学年，`YYYY-(YYYY+1)`，如 `2026-2027` |
+| batch_no | INTEGER | 批次号（1=首保学平险，2=续保学平险，3=实习就业险；转学/推迟生会顺延） |
+| insurance_type | TEXT | `xueping`（学平险） / `intern`（实习就业险） |
+| status | TEXT | `pending_approve`/`pending_renewal`/`approved`/`exported`/`pending_pay`/`paid`/`done`/`exempt` |
+| pay_date / premium | TEXT | 缴费日期 / 保费（历史 `'静默'` 已清空） |
+| policy_no / expiry_date | TEXT | 保单号 / 到期时间（实习险不放保单号） |
+| export_batch_id / exported_at | TEXT | 导出批次与导出时间 |
+| approved_at / approved_by / pushed_at / completed_at | TEXT | 各环节时间与操作人 |
+| remark | TEXT | `renewal`（续保进入）/`exempt_renewal`/`push_intern` 等来源标记 |
+
+- 唯一约束：`UNIQUE(student_id, batch_no, insurance_type)`；4 个索引（学生/状态/批次/导出批次）
+- 终态：`done` / `exempt`；每次流转后 `sync_student_snapshot()` 投影回 students 的 6 个旧保险字段
+
+### insurance_export_batches / insurance_operation_logs / insurance_import_batches / insurance_import_entries ⭐v3 新增
+
+| 表 | 关键字段 | 用途 |
+|---|---|---|
+| insurance_export_batches | id(uuid hex)、action(first/renewal/intern)、batch_no、insurance_type、school_year、student_count、record_ids(JSON)、file_name、created_by、reversed_at | 参保数据导出批次，支持整批撤销 |
+| insurance_operation_logs | record_id、student_id、action、from_status、to_status、payload(JSON)、export_batch_id、operator | 全部保险操作留痕（撤销中心查询） |
+| insurance_import_batches | id、file_name、operator、total_rows、ok_rows、reversed_at | 初始化导入批次 |
+| insurance_import_entries | batch_id、record_id、student_id、action(created/updated)、before_json、after_json | 导入逐条快照，用于「撤销本次导入」精确还原 |
+
+### 区划匹配表
+
+| 表 | 所在库 | 关键字段 | 用途 |
+|---|---|---|---|
+| dm_district_code | `data/district.db` | district_code PK、district_name、admin_level、parent_code、province_code、city_code | 全国行政区划只读字典，三个索引（名称/父级/级别） |
+| dm_match_batch | student.db | batch_no UNIQUE、source、total、status、stats_json、source_headers、created_by、is_deleted | 匹配批次 |
+| dm_match_result | student.db | batch_id、student_id、id_card、address、省/市/县代码与名称、match_status、engine1_detail、engine2_detail、decision_path、raw_row | 逐条匹配结果 |
+| dm_history_mapping | student.db | old_code、new_code、old_name、new_name、change_type、change_date、remark | 历史区划变更映射（内置 16 条种子） |
+
+### 档案派遣表
+
+| 表 | 关键字段 | 用途 |
+|---|---|---|
+| talent_agency | agency_no UNIQUE、county_code UNIQUE、county_name、level、agency_name、address、phone、matchable、status | 人才机构字典（一县一机构） |
+| archive_settings | school PK、school_name、handler、handler_phone、receipt_address、receipt_postal | 各校转递单落款与收件配置 |
+| archive_dispatch | batch_no、dispatch_no、student_id、student_no、id_card、graduate_year、school、grade、admin_class、county_code/name、match_level/status/reason、agency_*（快照）、school_name/handler/handler_phone/receipt_*（快照）、archive_volume、employer_*、dispatch_status、dispatch_date、operator、remark、is_deleted | 派遣记录；`UNIQUE(student_id) WHERE is_deleted=0` 保证一生一条有效派遣 |
+
+### 其他基础表
+
+| 表 | 用途 |
+|---|---|
+| sync_timestamp | 数据同步时间（仅 admin 操作触发） |
+| attendance_dates | 点名日期汇总（present/absent 计数，供出勤率快速查询） |
+| schema_version | 数据库结构版本（保险 v3 迁移后写入 `SCHEMA_VERSION=3`） |
+
 ---
 
 ## 路由一览
@@ -392,17 +446,26 @@ StudentMessageSharePRO/
 | `/admin/export-engine` | GET | 🛡️admin装饰器 | 模板导出引擎页面（含备份管理面板） | 3步骤：上传模板→映射→导出 |
 | `/admin/graduation` | GET | 🛡️admin装饰器 | 毕业管理（毕业处理/撤销毕业/预览搜索） | 年级选择→班级/学生预览→确认处理 |
 | `/admin/graduation/export` | GET | 🛡️admin装饰器 | 导出毕业学生列表 Excel | `openpyxl` |
-| `/admin/graduation/query` | GET | 🛡️login装饰器 | 毕业生查询页 | 学校/年级/班级/姓名联动筛选 |
+| `/admin/graduation/query` | GET | 🛡️login装饰器 | 毕业生查询页（前端分页 20 条 + 档案详情弹窗） | 学校/年级/班级/姓名联动筛选 |
+| `/admin/key-supervision` | GET | 🛡️admin装饰器 | 重点监管学生名单（外省生源） | 4 统计卡 + 命中类型多选 + 17 列 + 分页 20 |
+| `/admin/key-supervision/export` | GET | 🛡️admin装饰器 | 导出重点监管名单 Excel | 17 列含命中原因，冻结首行 + 自动筛选 |
+| `/admin/archive/query` | GET | 🛡️admin装饰器 | 派遣查询页（跨县单人检索） | 13 列 + 4 统计卡 + 跳转派遣工作台 |
 
-### 保险模块页面路由 ⭐新增
+### 保险模块页面路由 ⭐v3 重构
 
 | 路由 | 方法 | 鉴权 | 说明 | 前端交互 |
 |---|---|---|---|---|
-| `/insurance/register` | GET | 🛡️finance装饰器 | 保险缴费登记页 | 学年树形数据 + 单条登记弹窗 + 批量登记 |
-| `/insurance/approve` | GET | 🛡️finance_chief装饰器 | 保险审批页 | 学年树形数据 + 单条审批 + 批量审批 |
-| `/insurance/todo` | GET | 🛡️insurance_officer装饰器 | 保险待办页 | 学年树形数据 + 批量办结 + 导出 |
-| `/insurance/init` | GET/POST | 🛡️admin装饰器 | 保险初始化导入（上传Excel → 进度轮询） | daemon线程异步导入 |
-| `/insurance/init/template` | GET | 🛡️admin装饰器 | 下载保险初始化模板（含已有数据） | 含现有学生数据的模板 |
+| `/insurance/init` | GET/POST | 🛡️admin装饰器 | 初始化导入（上传→试算预览→后台导入→撤销本次导入） | daemon 线程 + 进度弹窗 + 失败清单 CSV |
+| `/insurance/init/template` | GET | 🛡️admin装饰器 | 下载导入模板（按「学生×计划批次」展开并预填现值） | openpyxl 生成 9 列 |
+| `/insurance/first` | GET | 🛡️保险角色装饰器 | 新生首保 | 5 页签（待办理/待导出/待补保单/已完成/不办理）+ 批量操作 |
+| `/insurance/renewal` | GET | 🛡️保险角色装饰器 | 学平险续保 | 到期预览横幅 + 待续保/已进入参保 + 到期前 15/30/60/90 天 |
+| `/insurance/collection` | GET | 🛡️finance装饰器 | 保费催缴 | 待缴费/已缴费（分页 20）+ 批量录入缴费 + 分险种导出 |
+| `/insurance/push` | GET | 🛡️保险角色装饰器 | 就业险推送 | 推送至续保/推送至实习险/放弃实习险 |
+| `/insurance/intern` | GET | 🛡️保险角色装饰器 | 就业险办结 | 待办结/已办结（分页 20）+ 审批通过 + 导出办结 |
+| `/insurance/records` | GET | 🛡️保险角色装饰器 | 保险记录查询（15 列，每页 100） | 「显示历史批次」开关 + 险种/状态筛选 |
+| `/insurance/revert` | GET | 🛡️admin装饰器 | 撤销中心 | 按学生撤销 / 导出批次 / 操作日志（均分页 20） |
+| `/insurance/query` | GET | 🛡️login装饰器 | 保单查询（只读） | 搜索 + 身份证脱敏 + 到期徽章 |
+| `/insurance/register`、`/insurance/approve`、`/insurance/todo` | GET | — | ⚠️ 旧入口，仅 302 重定向到对应新页面 | 无 |
 
 ### API 路由 — 学生/班级/字典
 
@@ -422,7 +485,8 @@ StudentMessageSharePRO/
 | `/api/students/check_id_card` | GET | 🛡️JSON | 身份证校验+查重 | fetch + 实时校验防抖 |
 | `/api/students/search-quick` | GET | 🛡️JSON | 快速搜索（姓名/拼音/身份证后4位/精确） | fetch → 下拉列表 |
 | `/api/students/class-options` | GET | 🛡️JSON | 获取所有行政班级选项 | fetch → 下拉框 |
-| `/api/students/change-record` | POST | 🛡️JSON | 学籍异动（班级变更/专业变更/退学办结） | fetch → showConfirm → POST |
+| `/api/students/change-record` | POST | 🛡️JSON | 学籍异动（班级变更/专业变更/年级与在校状态调整/退学办结） | fetch → showConfirm → POST |
+| `/api/admin/student-dropout/detail/<id>` | GET | 🛡️JSON | 退学学生只读详情（6 组档案 + 退学日期/处理日期/软删除标记） | fetch → 只读弹窗 |
 | `/api/transfer-pending/students` | GET | 🛡️JSON | 转学待办表数据（分页） | fetch → 表格 |
 | `/api/students/check-student-no` | GET | 🛡️JSON | 学号重复校验（三条校验：非空→6位→未被占用） | fetch + 实时验证 |
 | `/api/transfer-pending/process` | POST | 🛡️JSON | 处理转学（写入学号+注册状态→正式学籍） | fetch POST |
@@ -471,7 +535,8 @@ StudentMessageSharePRO/
 | `/api/admin/graduation/process` | POST | 🛡️admin装饰器 | 批量毕业（`BEGIN IMMEDIATE` 事务，≤500人，备注备份） | showConfirm → fetch POST |
 | `/api/admin/graduation/undo` | POST | 🛡️admin装饰器 | 批量撤销毕业（正则从备注解析恢复） | showConfirm → fetch POST |
 | `/api/admin/graduation/filters` | GET | 🛡️login装饰器 | 毕业生筛选联动（学校→年级→班级级联） | fetch → 级联下拉 |
-| `/api/admin/graduation/query` | GET | 🛡️login装饰器 | 毕业生查询（含权限过滤+字段脱敏，≤500条） | fetch → 动态列渲染 |
+| `/api/admin/graduation/query` | GET | 🛡️login装饰器 | 毕业生查询（含权限过滤+字段脱敏，≤500条；前端每页 20 条切片） | fetch → 动态列渲染 + 「查看」档案详情弹窗 |
+| `/api/archive/search` | GET | 🛡️admin装饰器 | 派遣查询（关键字/校别/年级，LEFT JOIN archive_dispatch，≤500条） | fetch → 13 列 + 统计卡 |
 
 ### API 路由 — 实习处理 ⭐新增
 
@@ -485,23 +550,41 @@ StudentMessageSharePRO/
 | `/api/admin/internship/processed/grades` | GET | 🛡️admin装饰器 | 获取已处理年级列表 | fetch |
 | `/api/admin/internship/processed/<grade>` | GET | 🛡️admin装饰器 | 获取已处理学生列表 | fetch |
 
-### API 路由 — 保险模块 ⭐新增
+### API 路由 — 保险模块 ⭐v3 重构
 
 | 路由 | 方法 | 鉴权 | 说明 | 前端交互 |
 |---|---|---|---|---|
-| `/api/insurance/query` | GET | 🛡️login装饰器 | 保险综合查询（多维度筛选） | fetch |
-| `/api/insurance/students` | GET | 🛡️finance装饰器 | 分页查询学生列表 | fetch → 分页表格 |
-| `/api/insurance/register-tree` | GET | 🛡️finance装饰器 | 缴费登记页学年树形结构 | fetch → 树形导航 |
-| `/api/insurance/register-single` | POST | 🛡️finance装饰器 | 单条登记（仅更新有值字段） | fetch POST |
-| `/api/insurance/register-batch` | POST | 🛡️finance装饰器 | 批量登记 | fetch POST |
-| `/api/insurance/approve-tree` | GET | 🛡️finance_chief装饰器 | 审批页树形 | fetch → 树形导航 |
-| `/api/insurance/approve-single` | POST | 🛡️finance_chief装饰器 | 单条审批（修改 `supervisor_flag`） | showConfirm → fetch POST |
-| `/api/insurance/approve-summary` | GET | 🛡️finance_chief装饰器 | 审批汇总统计 | fetch → 统计卡片 |
-| `/api/insurance/approve` | POST | 🛡️finance_chief装饰器 | 批量审批/否决 | showConfirm → fetch POST |
-| `/api/insurance/todo/export` | GET | 🛡️insurance_officer装饰器 | 待办导出 Excel | 浏览器下载 |
-| `/api/insurance/todo-tree` | GET | 🛡️insurance_officer装饰器 | 待办页树形 | fetch → 树形导航 |
-| `/api/insurance/complete` | POST | 🛡️insurance_officer装饰器 | 批量办结（自动填入 `declaration_date` + `insurance_update_date`） | showConfirm → fetch POST |
-| `/api/insurance/init-progress/<id>` | GET | 🛡️admin装饰器 | 初始化导入进度轮询 | fetch 轮询 → 进度条 |
+| `/api/insurance/pools/summary` | GET | 🛡️保险角色 | 五类业务池人数汇总（首保/续保/催缴/推送/办结） | fetch → 导航角标 |
+| `/api/insurance/pools/first` | GET | 🛡️保险角色 | 新生首保池（全量，不分页） | fetch |
+| `/api/insurance/pools/renewal` | GET | 🛡️保险角色 | 续保池（含 `window_days`、`summary`、`next_expiry`） | fetch |
+| `/api/insurance/pools/collection` | GET | 🛡️保险角色 | 催缴池 | fetch |
+| `/api/insurance/pools/push` | GET | 🛡️保险角色 | 就业险推送池 | fetch |
+| `/api/insurance/pools/intern` | GET | 🛡️保险角色 | 就业险办结池 | fetch |
+| `/api/insurance/first/list` | GET | 🛡️保险角色 | 首保列表（`page`/`page_size=20`，仅「已完成」页签生效） | fetch → 分页表格 |
+| `/api/insurance/renewal/list` | GET | 🛡️保险角色 | 续保列表（全量 + summary + next_expiry） | fetch |
+| `/api/insurance/collection/list` | GET | 🛡️finance装饰器 | 催缴列表（`page`/`page_size=20`，仅「已缴费」页签） | fetch |
+| `/api/insurance/intern/list` | GET | 🛡️保险角色 | 办结列表（`page`，仅「已办结」页签） | fetch |
+| `/api/insurance/records/list` | GET | 🛡️保险角色 | 记录查询（`page`/`page_size=100`，`latest_only` 默认 true） | fetch |
+| `/api/insurance/approve` | POST | 🛡️保险角色 | 审批：`action=approve/internship/reject` | showConfirm → fetch POST |
+| `/api/insurance/reject` | POST | 🛡️保险角色 | 本年度不办理（首保） | fetch POST |
+| `/api/insurance/record/payment` | POST | 🛡️finance装饰器 | 登记缴费（只写 pay_date/premium，不改状态） | fetch POST |
+| `/api/insurance/fill-policy` | POST | 🛡️保险角色 | 补录保单（`exported`→`done`，实习险拒绝） | fetch POST |
+| `/api/insurance/export/first`、`/renewal`、`/intern` | POST | 🛡️保险角色 | 导出参保数据（首批/续保→`exported`；实习→`done`） | 浏览器下载 + 批次记录 |
+| `/api/insurance/renewal/start` | POST | 🛡️保险角色 | 进入参保流程（建 `approved` 记录，remark=`renewal`） | fetch POST |
+| `/api/insurance/renewal/exempt` | POST | 🛡️保险角色 | 放弃本期（该批次 `exempt`） | fetch POST |
+| `/api/insurance/renewal/push-intern` | POST | 🛡️保险角色 | 提前推送就业险（学平险 `exempt` + 建实习记录） | fetch POST |
+| `/api/insurance/push/to-renewal` / `/to-intern` | POST | 🛡️保险角色 | 推送至续保 / 推送至实习险 | fetch POST |
+| `/api/insurance/intern/exempt` | POST | 🛡️保险角色 | 放弃实习险（全部保险业务终了） | fetch POST |
+| `/api/insurance/init-preview` | POST | 🛡️admin装饰器 | 上传 Excel 试算预览（前 20 行，9 列模板） | fetch + FormData |
+| `/api/insurance/init-progress/<id>` | GET | 🛡️admin装饰器 | 导入进度轮询（进度字典含 batch_distribution/normalized/records_created 等） | fetch 轮询 |
+| `/api/insurance/init/revert/<batch_id>` | POST | 🛡️admin装饰器 | 撤销本次导入（删 created、按 before_json 还原 updated） | showConfirm → fetch POST |
+| `/api/insurance/revert/students` | GET | 🛡️admin装饰器 | 撤销中心—学生搜索 | fetch |
+| `/api/insurance/revert/student` | POST | 🛡️admin装饰器 | 按学生撤销最近一条记录（并还原提前推送的学平险） | showConfirm → fetch POST |
+| `/api/insurance/revert/batches` | GET | 🛡️admin装饰器 | 导出批次列表 | fetch |
+| `/api/insurance/revert/batch` | POST | 🛡️admin装饰器 | 整批撤销导出（`exported`→`approved`，批次 `reversed_at`） | showConfirm → fetch POST |
+| `/api/insurance/revert/logs` | GET | 🛡️admin装饰器 | 操作日志查询（按 action 过滤，分页 20） | fetch |
+| `/api/insurance/query` | GET | 🛡️login装饰器 | 保单查询（脱敏 + 到期徽章，≤200 条） | fetch |
+| `/api/insurance/students`、`/register-*`、`/approve-tree`、`/todo-tree` | GET/POST | 🛡️角色 | ⚠️ v3 遗留兼容接口，新代码不应再调用 | — |
 
 ### API 路由 — 模板导出引擎 ⭐新增
 
@@ -515,7 +598,9 @@ StudentMessageSharePRO/
 | `/api/export/mappings/<template_id>` | GET | 🛡️JSON | 获取模板的所有映射方案 | fetch → 方案列表 |
 | `/api/export/mapping/<id>` | DELETE | 🛡️JSON | 删除映射方案 | fetch DELETE |
 | `/api/export/update-filter` | POST | 🛡️JSON | 更新导出筛选条件（存入session） | fetch POST |
-| `/api/export/preview` | POST | 🛡️JSON | 预览填充结果（前5条） | fetch → 预览弹窗 |
+| `/api/export/preview` | POST | 🛡️JSON | 旧版预览（仅前 5 条 `preview_rows` JSON） | fetch → 预览弹窗 |
+| `/api/export/preview-render` | POST | 🛡️JSON | 新版预览：Excel 生成真实文件并解析为网格、Word 转 `*_preview.docx` 渲染（`limit` 1-5，默认 3） | fetch → 网格/文档预览 |
+| `/api/export/preview-file/<token>` | GET | 🛡️JSON | 下载预览源文件（`inline=1` 内联，token 内存存储、TTL 1 小时） | 浏览器下载/内嵌 |
 | `/api/export/execute` | POST | 🛡️JSON | 同步导出（<10000行），保存导出历史 | fetch → 下载 |
 | `/api/export/execute-async` | POST | 🛡️JSON | 异步导出（当前501未实现） | fetch POST |
 | `/api/export/task-status/<task_id>` | GET | 无 | 查询异步任务进度 | fetch |
@@ -548,8 +633,8 @@ StudentMessageSharePRO/
 | `filter_student_data(data)` | auth.py:192 | `filter_student_data(data: dict) → dict` | 根据 `fields_visible` 白名单过滤字段，未包含的字段返回 `***` |
 | `mask_sensitive_data(value, field)` | auth.py:213 | `mask_sensitive_data(value, field) → str` | 非admin角色身份证中间4位置换为 `****`，手机号中间4位置换 |
 | `get_visible_fields()` | auth.py:175 | `get_visible_fields() → list` | 从session解析 `fields_visible` |
-| `_require_admin_json()` | app.py:376 | `_require_admin_json() → Response|None` | JSON 401/403，绝不302重定向 |
-| `_require_login_json()` | app.py:399 | `_require_login_json() → Response|None` | JSON 401 未登录 |
+| `_require_admin_json()` | auth.py | `_require_admin_json() → Response|None` | JSON 401/403，绝不302重定向 |
+| `_require_login_json()` | auth.py | `_require_login_json() → Response|None` | JSON 401 未登录 |
 | `_is_insurance_role()` | auth.py:148 | `_is_insurance_role() → bool` | 保险角色（finance_chief/staff/officer）返回True |
 
 ---
@@ -557,20 +642,20 @@ StudentMessageSharePRO/
 ## 安全防护体系 ⭐更新
 
 ### 暴力破解防护
-- **位置**：`app.py:291-333` `POST /login`
+- **位置**：`app.py` 登录路由 `POST /login`
 - 登录失败记录存储于全局 `login_attempts` 字典（`{ip: [(timestamp, ...)]}`）
 - 60秒滑动窗口内最多5次尝试，超出后返回 `429 Too Many Requests`
 - 成功登录后清除该IP记录
 
 ### CSRF 防护
-- **位置**：`app.py:46-84` `_csrf_protect()`
+- **位置**：`app.py` `_csrf_protect()`
 - Token生成：`secrets.token_hex(32)`，每次请求更新
 - 豁免：`/login`、`/mobile/login`、GET/HEAD/OPTIONS 请求
 - 前端注入：`main.js` 在所有 fetch 和表单中自动附加 `X-CSRF-Token` header
 - 校验失败返回 403 `CSRF token 验证失败`
 
 ### 安全响应头
-- **位置**：`app.py:128-146` `@app.after_request`
+- **位置**：`app.py` `@app.after_request`
 - `X-Content-Type-Options: nosniff`
 - `X-Frame-Options: SAMEORIGIN`
 - `Referrer-Policy: strict-origin-when-cross-origin`
@@ -589,7 +674,7 @@ StudentMessageSharePRO/
 | 手机号 | `utils.py:181` `validate_phone()` | `^1\d{10}$` + 200+号段库白名单 |
 | 文件上传 | `utils.py:208` `allowed_file()` | 扩展名 `{xlsx, xls, csv}` + `config.MAX_CONTENT_LENGTH=10MB` |
 | 年龄 | `utils.py:703` `parse_filters_from_request()` | `0 ≤ min_age ≤ 120`，`0 ≤ max_age ≤ 120` |
-| 学号 | `app.py:2525` `/api/transfer-pending/process` | `^\d{6}$` |
+| 学号 | `blueprints/lifecycle.py` `/api/transfer-pending/process` | `^\d{6}$` |
 | 年份 | `blueprints/admin.py:169` `api_year_create()` | `2000 ≤ year ≤ 9999` |
 
 ### 会话安全
@@ -626,7 +711,7 @@ StudentMessageSharePRO/
 - **逻辑**：动态创建Bootstrap Modal，用户点击"确认"resolve true，"取消"resolve false，支持键盘ESC取消
 
 ### 3. 异步导入/更新
-- **位置**：`app.py:941-1085`（导入）、`app.py:1214-1438`（批量更新）
+- **位置**：`blueprints/admin.py`（导入、批量更新）
 - **逻辑**：上传文件 → 解析验证 → 前端通过 `fetch` 调用 `confirm` 端点 → 后端启动 `threading.Thread(daemon=True)` → 返回 `progress_id` → 前端500ms轮询 `progress/<id>` → 返回进度JSON（`{current, total, success, error, status}`）
 - **线程内每50条 `conn.commit()` 一次**
 
@@ -645,34 +730,34 @@ StudentMessageSharePRO/
 - **唯一约束**：`(id_card, attendance_date)`
 
 ### 7. 销假处理
-- **位置**：`app.py:1534-1815` → `templates/admin/leave_cancel.html`
+- **位置**：`blueprints/leave_cancel.py` → `templates/admin/leave_cancel.html`
 - **逻辑**：搜索（学号/身份证/姓名/拼音/身份证部分匹配）→ 缺勤列表渲染（淡红底高亮）→ 一键销假 `models.batch_upsert_attendance([{id_card, attendance_date, status:'出勤'}])` → `models.update_sync_timestamp()`
 - **5个API端点**：`search-absences` / `search-realtime` / `search` / `confirm` / `export-attendance`
 
 ### 8. 手机端二维码生成
-- **位置**：`app.py` `/admin/api/mobile-qr` + `/admin/api/mobile-url`
+- **位置**：`blueprints/leave_cancel.py` `/admin/api/mobile-qr` + `/admin/api/mobile-url`
 - **逻辑**：`qrcode[pil]>=7.4` 生成 PNG，URL 通过 `utils.get_lan_ip()` 三层检测回退（socket.connect → hostname解析 → '127.0.0.1'）
 
 ### 9. 导出出勤明细对照表
-- **位置**：`app.py` `/admin/leave-cancel/export-attendance`
+- **位置**：`blueprints/leave_cancel.py` `/admin/leave-cancel/export-attendance`
 - **逻辑**：`models.get_attendance_pivot_data(start_date, end_date)` 透视查询返回 `{dates: [], students: [], records: {id_card: {date: status}}}` → `openpyxl` 固定列（学号/姓名/身份证/校别/入学年）+日期列透视 → 状态着色（出勤翠绿、缺勤淡红）
 
 ### 10. 更新在校状态强化
-- **位置**：`models.py:2607` `update_attendance_status_from_latest_attendance()`
+- **位置**：`models/attendance.py` `update_attendance_status_from_latest_attendance()`
 - **逻辑**：遍历当天出勤记录，**仅** `attendance_status IN ('在校', '待销假')` 时写入最新状态（出勤→在校，缺勤→待销假），跳过托管/非在校/退学办结
 - **返回值**：`{date, updated, present, absent, skipped, total_skipped, message}`
 
 ### 11. 按入学年份分组
-- **位置**：`app.py:492-550` 年份选择相关路由 + `auth.py:76` session初始化
+- **位置**：`blueprints/api.py` 年份选择相关路由 + `auth.py:76` session初始化
 - **逻辑**：`enrollment_year` 与 `grade` 独立字段，session中存 `enrollment_year`，admin通过年份选择页切换，非admin不可见，`_exclude_graduated_clause()` 等共享过滤函数统一排除毕业学生
 
 ### 12. 批量更新自动新增（Upsert）
-- **位置**：`app.py:1214-1438` + `utils.py:512` `validate_batch_update_data()`
+- **位置**：`blueprints/admin.py` + `utils.py` `validate_batch_update_data()`
 - **逻辑**：四态判定：`pending`（匹配成功有待更新字段）、`no_change`（匹配但无变更）、`new_record`（未匹配自动新增）、`not_found`（未匹配且非新增）
 - 后台线程中使用 `models.create_student_with_conn(conn, data)` 创建新记录
 
 ### 13. JSON API 鉴权模式（防 302 重定向泄漏）
-- **位置**：`app.py:376-415`
+- **位置**：`auth.py`
 - **逻辑**：`_require_admin_json()` 检查session → 返回 JSON `{error, code: 401/403}` → 前端 `safeJSON(response)` 检测 `Content-Type: application/json`，非JSON直接报错不解析，防止HTML泄漏到 `response.json()`
 
 ### 14. 数据库备份服务
@@ -685,51 +770,78 @@ StudentMessageSharePRO/
 ### 15. 中文姓名→拼音自动生成
 - **位置**：`pinyin_utils.py:21` `name_to_pinyin(name)` → 5处触发点
 - **5处触发点**：
-  1. `app.py:748` `POST /admin/students/add`（弹窗新增）
-  2. `app.py:763` `POST /admin/student_form.html`（表单新增）
-  3. `app.py:1012` `do_import()` 中的导入
-  4. `app.py:1303` `do_batch_update()` 中的自动新增
-  5. `app.py:801` `POST /admin/students/edit/<id>`（编辑保存）
+  1. `blueprints/admin.py` `POST /admin/students/add`（弹窗新增）
+  2. `blueprints/admin.py` `POST /admin/student_form.html`（表单新增）
+  3. `blueprints/admin.py` `do_import()` 中的导入
+  4. `blueprints/admin.py` `do_batch_update()` 中的自动新增
+  5. `blueprints/admin.py` `POST /admin/students/edit/<id>`（编辑保存）
 - **算法**：26671汉字→拼音映射+27个复姓优先匹配（如单于→ShanYu, 欧阳→OuYang）+49个异体字/繁体转换
 - **存量回填**：`backfill_pinyin.py --dry-run`（预览）/ `--force`（强制重写）
 
 ### 16. 毕业管理
-- **位置**：`models.py:1238` `process_graduation()` / `models.py:1292` `undo_graduation()`
+- **位置**：`models/lifecycle.py` `process_graduation()` / `undo_graduation()`
 - **处理逻辑**：`BEGIN IMMEDIATE` 事务 → `UPDATE students SET registration_status='毕业', attendance_status='非在校', remark=old_remark+' [毕业处理前：学籍=X，在校=Y]'` → 事务内直接写 `update_logs`
 - **撤销逻辑**：`re.search(r'\[毕业处理前：学籍=(.+?)，在校=(.+?)\]', remark)` 解析备份 → 恢复原状态 → 删除备份标记
-- **共享过滤**：`models.py:12` `_exclude_graduated_clause(alias)` 返回 `AND {alias}.registration_status != '毕业'`，已应用到20+查询函数中
+- **共享过滤**：`models/students.py` `_exclude_graduated_clause(alias)` 返回 `AND {alias}.registration_status != '毕业'`，已应用到20+查询函数中
 
 ### 17. 实习处理
-- **位置**：`models.py:1416` `process_internship()` / `models.py:1468` `undo_internship()`
+- **位置**：`models/lifecycle.py` `process_internship()` / `undo_internship()`
 - **处理逻辑**：`UPDATE students SET attendance_status='非在校', remark=old_remark+' [实习处理：原始在校状态=XXX]'`
 - **撤销逻辑**：`re.search(r'\[实习处理：原始在校状态=(.+?)\]', remark)` 解析恢复
 - **排除条件**：`remark NOT LIKE '%[实习处理：%'`
 
-### 18. 保险模块
-- **位置**：`app.py:4140-4624`（页面路由）+ `app.py:2798-4795`（API路由）
-- **4阶段业务流程**：初始化导入 → 缴费登记 → 审批 → 办结
-- **仅更新有值字段**：保险update逻辑中仅当新值非空时才写入，不覆盖已有空值
-- **`declaration_date` + `insurance_update_date`**：办结时自动填入 `datetime.now().strftime('%Y-%m-%d')`
-- **保险角色全量视图**：`auth.py:148` `_is_insurance_role()` 使 `apply_permission_filters()` 返回空dict
+### 18. 保险模块（v3：记录 + 批次计划 + 五类业务池）
+- **位置**：`blueprints/insurance.py`（8 页面 + API）、`models/insurance.py`（DDL/计划引擎/池/流转/导入/撤销）、`services/insurance_service.py`（Excel 解析与导入）
+- **数据模型**：`insurance_records` 一行 = 某生某批次某险种；唯一键 `(student_id, batch_no, insurance_type)`；终态 `done`/`exempt`
+- **批次计划 `build_plan()`**：普通生 1 学平 → 2 学平 → 3 实习；转学生首保批次 = offset+1，之后直接实习（跳过续保）；推迟生按 `DEFERRED_PLAN` 增加学平学年；`school_year` 统一 `YYYY-(YYYY+1)`
+- **五类业务池**：first / renewal / collection / push / intern，统一 `_pool_student_conditions()`（排除软删除、毕业、托管）
+- **状态流转**：`approve` → approved；`record_payment` 只写缴费不改状态；`export` → exported（实习直接 done）；`fill_policy` → done（实习拒绝）；`renewal/start` 建 approved；`exempt_*` → exempt；每次流转写 `insurance_operation_logs` 并由 `sync_student_snapshot()` 投影回 students 旧字段
+- **保险角色全量视图**：`auth.py` `_is_insurance_role()` 使 `apply_permission_filters()` 返回空 dict
 
 ### 19. 模板驱动数据导出引擎
-- **位置**：`app.py:4921-5282` + `templates/admin/export_engine.html`
-- **流程**：上传模板(`.xlsx/.docx`) → 解析 `${xxx}` 占位符 → 配置字段映射方案 → 预览前5条 → 执行导出
+- **位置**：`blueprints/export.py` + `templates/admin/export_engine.html` + `static/vendor/docx-preview.min.js`
+- **流程**：上传模板(`.xlsx/.docx`) → 解析 `${xxx}` 占位符 → 配置字段映射方案 → 预览 → 执行导出
 - **智能匹配**：占位符名称与 `FIELD_MAPPING` 键名模糊匹配自动建议
-- **字段白名单**：仅允许 `config.ALL_STUDENT_FIELDS` 中定义的字段（40个），防止占位符注入
+- **字段白名单**：仅允许 `config.ALL_STUDENT_FIELDS` 中定义的字段（50 个），防止占位符注入
 - **数据源**：从 `students` 表读取，复用 `get_students()` + 筛选条件
 - **上限**：单次导出 ≤ `config.EXPORT_MAX_ROWS=10000`
 
 ### 20. 退学学生处理
-- **位置**：`models.py:1014` `get_dropout_students()` + `templates/admin/student_dropout.html`
+- **位置**：`models/students.py` `get_dropout_students()` + `blueprints/admin.py` + `templates/admin/student_dropout.html`
 - **逻辑**：仅显示 `attendance_status='退学办结'` 学生，子查询提取 `dropout_date`（从 `update_logs` 的 `attendance_status→退学办结` 时间）和 `process_date`（`is_deleted→1` 时间）
 - **Excel导出**：待处理行黄色底，已处理行绿色底
 - **筛选**：支持 `date_from` / `date_to` 日期范围
 
 ### 21. 转学待办
-- **位置**：`models.py:1582` `get_transfer_pending_students()` + `templates/admin/student_change.html`
+- **位置**：`models/students.py` `get_transfer_pending_students()` + `templates/admin/student_change.html`
 - **查询条件**：`admission_type='转学生' AND registration_status='未注册' AND is_deleted=0`
-- **学号校验**：3段校验 — ① 前端JS实时 `input` 事件 `^\d{6}$` → ② 提交时 `showConfirm()` 前置拦截 → ③ 后端 `app.py:2525` `re.match(r'^\d{6}$')` + 重复校验
+- **学号校验**：3段校验 — ① 前端JS实时 `input` 事件 `^\d{6}$` → ② 提交时 `showConfirm()` 前置拦截 → ③ 后端 `blueprints/admin.py` `re.match(r'^\d{6}$')` + 重复校验
+
+### 22. 保险初始化导入（批次精确 upsert + 快照撤销）⭐v3
+- **位置**：`services/insurance_service.py`（`_prepare_values`/`_apply_row`/`normalize_supervisor_flag`）+ `models/insurance.py`（`import_batch`/`revert_import_batch`）
+- **模板 9 列**：身份证号、保险学年、批次号、险种、学平险保单号、学平险缴费日期、学平险到期时间、实习险缴费日期、主管标记
+- **upsert 键**：身份证匹配学生 + 「批次号 + 险种」定位 `insurance_records`；越界批次、险种不符、学平/实习列混填 → 整行拒绝
+- **空值语义**：留空 = 不修改；`-`/`清空`/`null` 等 `CLEAR_TOKENS` = 清空字段
+- **原样回导**：`/insurance/init/template` 按「学生 × 计划内批次」展开并预填库内现值
+- **撤销**：`insurance_import_entries` 存 `before_json`/`after_json`；撤销时 created 记录删除、updated 按快照还原，批次写 `reversed_at`，重复撤销返回 400
+
+### 23. 导出预览（Excel 网格 / Word 版式）⭐新增
+- **位置**：`blueprints/export.py`（`/api/export/preview-render`、`/api/export/preview-file/<token>`）+ `templates/admin/export_engine.html` + `static/vendor/docx-preview.min.js`
+- **Excel**：调用与正式导出相同的 `_export_xlsx` 生成真实文件 → `_build_xlsx_preview` 解析为 sheets JSON（值/字体/填充/边框/对齐/合并/列宽行高/冻结）→ 前端建 `.ee-xgrid` 网格，上限 300 行 × 60 列
+- **Word**：python-docx 生成 `*_preview.docx`，`_promote_textboxes_xml` 把 `w:txbxContent` 文本框提升为单格表格（解决 docx-preview 不渲染文本框）→ 前端 `docx.renderAsync` 渲染
+- **临时文件**：存 `data/exports`，token 保存在内存 `_PREVIEW_FILES`，TTL `config.EXPORT_TEMP_FILE_TTL_SECONDS=3600`
+
+### 24. 重点监管学生 ⭐新增
+- **位置**：`models/students.py` `get_key_supervision_students()` + `blueprints/admin.py` + `templates/admin/key_supervision.html`
+- **判定**：`is_deleted=0` + 学籍非毕业 + 外省生源；id 命中 = 身份证非 `23` 开头且户籍为黑龙江，district 命中 = 户籍非黑龙江且身份证 `23` 开头，both = 两者兼有；`hit_types` 默认 `['id','both']`
+- **输出**：17 列（含命中原因）、4 张统计卡、分页 20、Excel 导出（冻结首行 + 自动筛选）
+- **边界**：身份证缺失或区划未匹配不计入统计，页面顶部单独告警
+
+### 25. 年级 / 在校状态调整 ⭐新增
+- **位置**：`blueprints/lifecycle.py` `POST /api/students/change-record`（`action='grade_status_change'`）+ `templates/admin/student_change.html`
+- **校验**：`new_grade` 需 `^\d{4}$`；`new_attendance_status` 必须属于 `config.ATTENDANCE_STATUS`
+- **写入**：仅更新 `grade` / `attendance_status`，不改班级、专业与异动信息；逐字段写 `update_logs`
+- **专业方向**：班级/专业变更可携带 `new_major_direction`，`clear_major_direction` 对应 UI 选项「清空专业方向（留空）」（`__clear__`）
 
 ---
 
@@ -750,8 +862,10 @@ StudentMessageSharePRO/
 | REGISTRATION_STATUS | `['正式学籍', '未注册']` | 学籍状态枚举 | config.py:82 |
 | ATTENDANCE_STATUS | `['在校','非在校','托管','待销假','退学办结']` | 在校状态枚举 | config.py:84 |
 | TUITION_STATUS | `['已缴清','部分欠费','未缴','免学费']` | 学费状态枚举 | config.py:145 |
-| INSURANCE_SUPERVISOR_FLAGS | `['按计划办理学平险', '不参保']` | 财务主管可选的审批标记 | config.py:147 |
-| FIELD_MAPPING | `{中文名: db字段}` | 40字段映射表 | config.py:100-141 |
+| INSURANCE_SUPERVISOR_FLAGS ⭐v3 | 6 个标准标记（由 `InsuranceStatus` 派生） | 财务主管/导入可写入的主管标记全集 | config.py:280 |
+| InsuranceStatus ⭐v3 | 枚举 + `done_xueping(y)`/`done_intern(y)`/`parse_flag_year()` | 保险状态单一事实来源，`EXTERNAL_PAY_MARKER='新生默认首保'` | config.py:233-284 |
+| CURRENT_SCHOOL_YEAR ⭐v3 | `datetime.now().year` | 保险学年基准（办结标记年份来源） | config.py:230 |
+| FIELD_MAPPING | `{中文名: db字段}` | 50 字段映射表 | config.py:100-141 |
 
 ### 备份配置
 
@@ -774,7 +888,9 @@ StudentMessageSharePRO/
 
 ---
 
-## models.py 关键函数
+## models/ 关键函数
+
+> 数据层已按领域拆分为 `models/` 包：`db.py`（连接/建表/迁移）、`students.py`、`insurance.py`、`archive.py`、`district.py`、`lifecycle.py`、`attendance.py`、`export_template.py`、`school_types.py`、`dicts.py`、`users.py`、`logs.py`、`stats.py`。下表为通用/学生域函数，保险域见 `models/insurance.py`（`build_plan`/`query_*_pool`/`approve`/`record_payment`/`fill_policy`/`export_records`/`start_renewal`/`push_to_intern`/`import_batch`/`revert_import_batch`/`sync_student_snapshot`）。
 
 | 函数 | 签名 | 返回值 | 说明 |
 |---|---|---|---|
@@ -827,8 +943,8 @@ StudentMessageSharePRO/
 | `generate_random_password(length=12)` | `length: int → str` | 随机密码 | 字母+数字+特殊字符 |
 | `allowed_file(filename)` | `filename: str → bool` | True/False | 扩展名在 `ALLOWED_EXTENSIONS` 中 |
 | `generate_unique_filename(original_filename)` | `filename: str → str` | `'YYYYmmdd_HHMMSS_random8.ext'` | 时间戳+随机串防重名 |
-| `create_import_template()` | `→ openpyxl.Workbook` | Workbook对象 | 29列导入模板含2条示例数据 |
-| `create_batch_update_template(students, attendance_date)` | `students: list, attendance_date: str → Workbook` | Workbook对象 | 29列+今日出勤含已有数据 |
+| `create_import_template()` | `→ openpyxl.Workbook` | Workbook对象 | 32列导入模板含2条示例数据（含家长关系/备用电话） |
+| `create_batch_update_template(students, attendance_date)` | `students: list, attendance_date: str → Workbook` | Workbook对象 | 32列+今日出勤含已有数据 |
 | `parse_import_file(file_path)` | `file_path: str → (list[dict], error: str or None)` | 数据+错误 | 读取Excel第一行作为headers |
 | `parse_batch_update_file(file_path)` | `file_path: str → (list[dict], error)` | 数据+错误 | 同上 |
 | `validate_import_data(data)` | `data: list[dict] → list[dict]` | 校验结果列表 | 每行含 `{valid, errors, data}` |
@@ -850,23 +966,33 @@ StudentMessageSharePRO/
 
 ## 业务规则 ⭐新增
 
-### 保险模块 supervisor_flag 状态机
+### 保险模块状态机（v3：记录状态 + 主管标记投影）
 
 ```
-初始化导入（admin）
-  └→ supervisor_flag = ''（空，待定）
-       ├→ 财务主管审批："按计划办理学平险"
-       │     └→ 保险员办结 → supervisor_flag = '{year}学平险办结'
-       ├→ 财务主管审批："不参保"
-       │     └→ 不再进入待办流程
-       └→ 未审批 → 保持 『空』
+批次计划 build_plan（按 grade 推算，普通生 1学平→2学平→3实习；转学生首保=offset+1 后直接实习）
+
+insurance_records.status：
+  pending_approve ──approve──→ approved ──export──→ exported ──fill_policy──→ done
+        │                         │                    │
+        │                         └──export(intern)──→ done
+        ├──reject/exempt_*──→ exempt
+        └──push_to_renewal──→ pending_renewal ──renewal/start──→ approved
+
+五类业务池（均由记录状态 + 批次计划推导，非直接读 supervisor_flag）：
+  first       → 首保批次待审批/无记录
+  renewal     → 学平险已终态、无实习记录、计划存在后续学平批次
+  collection  → 已审批未缴费（首保批次排除）
+  push        → 学平险全部终态、无实习记录、已达实习批次
+  intern      → 实习记录 ∈ pending_approve/paid/approved
 ```
 
 **规则**：
-- `supervisor_flag` 初始值由管理员Excel导入时写入，可选 `''` / `'按计划办理学平险'` / `'不参保'`
-- 财务主管审批页面仅显示 `supervisor_flag IN ('', '按计划办理学平险', '不参保')` 的记录
-- 办结时自动设置 `supervisor_flag = f'{当前年份}学平险办结'`（学平险）或 `f'{当前年份}实习就业险办结'`（实习险）
-- `declaration_date` 和 `insurance_update_date` 在办结时自动填入当天日期
+- `supervisor_flag` 由 `sync_student_snapshot()` 从记录投影：终态 `done` → `YYYY年度学平险办结`/`YYYY年度实习就业险办结`；`exempt` → `不参保`；`approved` → `按计划办理学平险`/`按计划办理实习就业险`；初始 → 空
+- 办结年份取批次学年（`grade + batch − 1` 或 `CURRENT_SCHOOL_YEAR`），不是操作当天年份
+- `declaration_date`、`insurance_update_date` 由快照同步，不再单独手写
+- 游离写入 `supervisor_flag` 仅允许初始化导入；其余路径必须经记录流转
+- 所有流转写 `insurance_operation_logs`（action/from_status/to_status/payload/operator）
+- 实习就业险无保单号：`fill_policy` 拒绝 intern，`export(intern)` 直接置 `done`
 
 ### 毕业管理状态流转
 
@@ -1025,16 +1151,16 @@ StudentMessageSharePRO/
 39. ⚠️ 2025-06 **转学待办表**：学号6位数字三段校验+实时重复校验+自动填充 —— 原因：学号准确性
 40. ⚠️ 2025-06 **学生列表删除按钮验证**：仅退学办结状态可删 —— 原因：防止误删在籍学生
 41. ⚠️ 2025-06 **中文姓名→拼音自动生成**：5处触发点+backfill脚本 —— 原因：姓名拼音用于搜索和导出
-42. ⚠️ 2025-06 **保险模块 — 数据库字段**：9个保险字段+1个学费字段 —— 原因：保险业务需求
-43. ⚠️ 2025-06 **保险模块 — 新增角色**：finance_chief/finance_staff/insurance_officer —— 原因：保险业务流程三权分立
-44. ⚠️ 2025-06 **保险模块 — 4个页面**：缴费登记/审批/待办/初始化导入 —— 原因：4阶段业务流程
-45. ⚠️ 2025-06 **保险模块 — 业务流程**：4阶段状态机（初始化→登记→审批→办结） —— 原因：业务闭环
-46. ⚠️ 2025-06 **保险模块 — 导航增强**：admin下拉菜单+保险角色独立导航 —— 原因：不同角色导航路径
-47. ⚠️ 2025-06 **保险模块 — 办结标记统一**：`{year}学平险办结`/`{year}实习就业险办结` —— 原因：防止数据混乱+可追溯年份
-48. ⚠️ 2025-06 **保险初始化导入 — 模板含已有数据** —— 原因：便于批量更新
-49. ⚠️ 2025-06 **保险初始化导入 — 进度弹窗**：daemon线程+模态进度条 —— 原因：大数据量导入体验
-50. ⚠️ 2025-06 **保险初始化导入 — 空行静默跳过** —— 原因：容忍模板格式问题
-51. ⚠️ 2025-06 **保险模块 — 仅更新有值字段**：不覆盖不删除 —— 原因：防止误清空已有数据
+42. ⚠️ 2026-11 **保险模块 v3 — 数据模型**：`insurance_records` 等 5 张表，students 的 9 个保险字段改为单向投影 —— 原因：多批次历史可追溯，状态单一事实来源
+43. ⚠️ 2026-11 **保险角色**：finance_chief / finance_staff / insurance_officer + `_is_insurance_role()` 全校视图 —— 原因：保险业务三权分立
+44. ⚠️ 2026-11 **保险页面 v3 — 8 页**：催缴/首保/续保/推送/办结/记录查询/撤销中心/初始化导入；旧 register/approve/todo 仅 302 —— 原因：按业务池拆分，职责清晰
+45. ⚠️ 2026-11 **保险业务流 v3**：`build_plan()` 批次计划 + 五类业务池驱动，不再按 supervisor_flag 捞人 —— 原因：消除漏字即消失的隐性 bug
+46. ⚠️ 2026-11 **保险导航**：保险管理下拉 9 项，按角色过滤，页面顶部显示各池人数 —— 原因：角色路径统一
+47. ⚠️ 2026-11 **办结标记统一**：`YYYY年度学平险办结` / `YYYY年度实习就业险办结`（4 位年，取自批次学年）—— 原因：跨年补办不误标
+48. ⚠️ 2026-11 **保险初始化导入 — 9 列模板 + 精确 upsert**：身份证 + 批次号 + 险种定位记录 —— 原因：只改目标批次，不误伤其他学年
+49. ⚠️ 2026-11 **保险导入 — 快照撤销**：`insurance_import_entries` 存 before/after JSON，支持整批回滚，重复撤销 400 —— 原因：导入可逆
+50. ⚠️ 2026-11 **保险导入 — 整行拒绝规则**：批次越界 / 险种与批次不符 / 学平险与实习列混填 —— 原因：防止脏数据落库
+51. ⚠️ 2026-11 **保险导入 — 空值语义**：「留空=不修改」，`-`／`清空`／`null` 才清空 —— 原因：替代旧「全量覆盖」，避免误清空
 52. ⚠️ 2025-06 **毕业管理 — 毕业处理+毕业生查询**：事务+备注备份+正则撤销 —— 原因：可逆操作+数据可追溯
 53. ⚠️ 2025-06 **共享过滤函数** `_exclude_graduated_clause`/`_non_graduated_where`：已应用到20+核心查询 —— 原因：避免遗漏过滤
 54. ⚠️ 2025-06 **模板驱动数据导出引擎**：筛选→模板→映射→预览→导出，字段白名单防注入 —— 原因：通用化导出能力
@@ -1058,3 +1184,15 @@ StudentMessageSharePRO/
 72. ⚠️ 2026-09 **花名册仅公开三字段**：姓名/学籍状态/行政班级，排除毕业+退学办结+软删除+未分班，且不复用 `_non_graduated_where()`（该函数不含退学办结条件）—— 原因：数据最小化 + 过滤口径一致
 73. ⚠️ 2026-09 **公开页卡片必须带文字**：学籍状态徽章同时用文字与颜色区分，不得仅靠颜色 —— 原因：信息可达性
 74. ⚠️ 2026-09 **模板改动需重启服务**：`debug=False` 且未开 `TEMPLATES_AUTO_RELOAD`，Jinja 模板缓存不会热更新 —— 原因：避免改动后误以为未生效
+75. ⚠️ 2026-11 **重点监管判定双线索**：id 命中（身份证非 23 且户籍黑龙江）/ district 命中（户籍非黑龙江且身份证 23）/ both；`hit_types` 默认 `['id','both']` —— 原因：外省生源识别口径按业务确认
+76. ⚠️ 2026-11 **重点监管统计口径**：身份证缺失、区划未匹配不计入 4 张统计卡，页面顶部单独告警 —— 原因：分母清晰，避免漏管误解
+77. ⚠️ 2026-11 **派遣查询与工作台分工**：`/admin/archive/query` 只读单人检索（跨县、未生成也显示）；办理仍走派遣工作台 —— 原因：查询与操作解耦
+78. ⚠️ 2026-11 **毕业生查询分页为前端切片**：`GQ_PAGE_SIZE=20`，服务端仍 ≤500 条；档案详情弹窗仅 admin，派遣明细字段按字段权限收敛 —— 原因：避免改动服务端协议
+79. ⚠️ 2026-11 **导出预览双引擎**：Excel 走后端真实生成 + 网格解析（≤300×60）；Word 走 docx-preview + 文本框提升为表格；token TTL 1 小时 —— 原因：所见即所得且不留长期临时文件
+80. ⚠️ 2026-11 **年级×专业交叉提示**：`get_stats()` 按 `GROUP BY grade, major` 附加 `majors[]` / `grades[]`，前端自写 `createGroupedTooltip`（>12 行分 2 栏、>30 行分 3 栏）—— 原因：图表默认 tooltip 无法展示明细
+81. ⚠️ 2026-11 **多维查询固定表头首列**：纯 CSS sticky，容器 `max-height:65vh`，表头 `z-index:3`、首两列 `z-index:2`（表头 4）—— 原因：大表格横向对照不丢姓名学号
+82. ⚠️ 2026-11 **可创建年份范围 2000-9999**：`base.html`、`year_selector.html` 的 `min/max` 与 `api_year_create` 后端校验同步 —— 原因：支持历史与远期学年
+83. ⚠️ 2026-11 **家长关系/备用电话**：`parent_relation`、`backup_phone_1/2` 纳入 `FIELD_MAPPING`、脱敏名单与 `validate_phone()` 校验 —— 原因：联系方式完整性
+84. ⚠️ 2026-11 **年级/在校状态调整**：`action='grade_status_change'` 只改 `grade`/`attendance_status`，逐字段写 `update_logs` —— 原因：修正数据但不触碰班级与异动信息
+85. ⚠️ 2026-11 **托盘启动早期日志**：`run_with_tray.py` 在 import config/app 之前调用 `setup_logging()`（5MB×5、utf-8、werkzeug=WARNING）—— 原因：捕获启动阶段异常
+86. ⚠️ 2026-11 **保险分页口径**：首保/催缴/办结/撤销中心 `page_size=20`（仅终态页签生效），记录查询 `page_size=100`（上限 200），池接口全量不分页 —— 原因：业务池需要一次性统计人数

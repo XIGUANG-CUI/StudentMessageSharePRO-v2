@@ -1,5 +1,7 @@
 # 区划匹配功能接入 StudentMessageSharePRO —— 移植与集成手册
 
+> **归档说明**：本文档为 2026-10 区划匹配功能的一次性移植手册（区划模块已于当期完成接入与验证），仅用于追溯，内容不再更新。现行开发规范请以 [`.trae/rules/AGENTS.MD`](../.trae/rules/AGENTS.MD) 为准。
+
 > **目标系统**：StudentMessageSharePRO（Flask 3.0 / SQLite WAL / Windows 单机 / 校园内网 / PyInstaller 单文件）。
 > **依据**：《集成交接说明.md》（下称“交接说明”）与当前 `district_matcher` 仓库源码。
 > **读者**：负责实施接入的开发人员 / AI Agent。

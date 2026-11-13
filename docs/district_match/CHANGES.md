@@ -1,5 +1,7 @@
 # CHANGES.md — 区划匹配模块接入变更说明
 
+> **归档说明**：本文档为 2026-10 区划匹配模块的一次性接入记录，仅用于追溯当时的补丁内容与验证过程，内容不再更新。现行开发规范请以 [`.trae/rules/AGENTS.MD`](../../.trae/rules/AGENTS.MD) 为准。
+
 - 基准仓库：`StudentMessageSharePRO-v2`
 - 基准 commit：`89f330c0ee7845702eb6f0d720b5f3e950d5154b`（2026-10-23）
 - 补丁文件：`patches/district_match_89f330c.patch`（`git apply --check` 已通过；不含 `docs/PORTING_GUIDE.md`，不含二进制数据包）

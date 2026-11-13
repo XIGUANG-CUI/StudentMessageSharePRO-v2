@@ -1,5 +1,7 @@
 # INTEGRATION_POINTS.md — 接入点清单与 diff
 
+> **归档说明**：本文档为 2026-10 区划匹配模块的一次性接入点清单，仅用于追溯，内容不再更新。现行开发规范请以 [`.trae/rules/AGENTS.MD`](../../.trae/rules/AGENTS.MD) 为准。
+
 基准：`StudentMessageSharePRO-v2 @ 89f330c0ee7845702eb6f0d720b5f3e950d5154b`（2026-10-23）
 完整补丁：[patch 目录] `patches/district_match_89f330c.patch`（可直接 `git apply`，已 `--check` 通过）
 增量补丁：`patches/district_match_89f330c_fix1.patch`（`run_with_tray.spec` + 四份说明，基于「89f330c + 主补丁」）

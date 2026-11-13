@@ -1,5 +1,7 @@
 # IMPLEMENTATION_NOTES —— 与 PORTING_GUIDE 的偏差记录
 
+> **归档说明**：本文档为 2026-10 区划匹配模块的一次性实现偏差记录，仅用于追溯，内容不再更新。现行开发规范请以 [`.trae/rules/AGENTS.MD`](../../.trae/rules/AGENTS.MD) 为准。
+
 - 基准仓库：`StudentMessageSharePRO-v2` @ `89f330c0ee7845702eb6f0d720b5f3e950d5154b`
 - 主补丁：`patches/district_match_89f330c.patch`（**28 文件，+4097 / -12** = 新增 20 个文件 + 新增 `data/district_pack.tsv.sha256` 1 个 + 修改 7 个；不含二进制数据包）
 - 增量补丁：`patches/district_match_89f330c_fix1.patch`（**5 文件**：`run_with_tray.spec` + 本目录四份说明），基于「89f330c + 主补丁」工作树生成
