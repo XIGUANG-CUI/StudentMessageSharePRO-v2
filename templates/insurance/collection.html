@@ -30,6 +30,8 @@
     .icl-toast.error { background: #dc3545; }
     .modal-icl .modal-header { background: #0d6efd; color: #fff; border-radius: 5px 5px 0 0; }
     .modal-icl .modal-header .btn-close { filter: invert(1); }
+    .icl-pager { margin-top: 8px; }
+    .icl-pager .pagination { margin-bottom: 2px; }
 </style>
 {% endblock %}
 {% block content %}
@@ -94,6 +96,15 @@
         </tbody>
     </table>
 </div>
+
+<div class="icl-pager d-none" id="iclPager">
+    <nav>
+        <ul class="pagination justify-content-center" id="iclPagerList"></ul>
+    </nav>
+    <div class="text-center text-muted mt-1">
+        <small>每页 20 条</small>
+    </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -101,6 +112,8 @@
     var items = [];
     var selected = {};
     var currentTab = 'pending';
+    var PAGE_SIZE = 20;
+    var pager = { page: 1, pages: 1 };
 
     var schoolMap = {};
     {% for st in school_types %}schoolMap[{{ st.code|tojson }}] = {{ st.name|tojson }};{% endfor %}
@@ -155,7 +168,53 @@
         Object.keys(map).forEach(function (key) {
             if (map[key]) { parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(map[key])); }
         });
+        if (currentTab === 'paid') {
+            parts.push('page=' + pager.page);
+            parts.push('page_size=' + PAGE_SIZE);
+        }
         return parts.join('&');
+    }
+
+    function renderPager() {
+        var box = $('iclPager');
+        var list = $('iclPagerList');
+        if (currentTab !== 'paid' || pager.pages <= 1) {
+            box.classList.add('d-none');
+            list.innerHTML = '';
+            return;
+        }
+        box.classList.remove('d-none');
+
+        var cur = pager.page;
+        var total = pager.pages;
+        var html = '';
+
+        if (cur > 1) {
+            html += '<li class="page-item"><a class="page-link" href="#" data-p="' + (cur - 1) + '">上一页</a></li>';
+        }
+        for (var p = 1; p <= total; p++) {
+            if (p === cur) {
+                html += '<li class="page-item active"><span class="page-link">' + p + '</span></li>';
+            } else if (p <= 3 || p > total - 3 || (p >= cur - 1 && p <= cur + 1)) {
+                html += '<li class="page-item"><a class="page-link" href="#" data-p="' + p + '">' + p + '</a></li>';
+            } else if (p === 4 || p === total - 2) {
+                html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+            }
+        }
+        if (cur < total) {
+            html += '<li class="page-item"><a class="page-link" href="#" data-p="' + (cur + 1) + '">下一页</a></li>';
+        }
+        list.innerHTML = html;
+
+        list.querySelectorAll('a.page-link').forEach(function (a) {
+            a.addEventListener('click', function (e) {
+                e.preventDefault();
+                var tgt = Number(a.getAttribute('data-p'));
+                if (!tgt || tgt === cur || tgt < 1 || tgt > total) { return; }
+                pager.page = tgt;
+                load();
+            });
+        });
     }
 
     function rowHTML(s) {
@@ -249,11 +308,14 @@
             .then(function (data) {
                 if (!data.success) { toast(data.message || '加载失败', 'error'); return; }
                 items = data.items || [];
+                if (data.page !== undefined) { pager.page = data.page; }
+                if (data.pages !== undefined) { pager.pages = data.pages; }
                 updateCounts(data.summary);
                 var keep = {};
                 items.forEach(function (s) { if (selected[s.record_id]) { keep[s.record_id] = true; } });
                 selected = keep;
                 render();
+                renderPager();
             })
             .catch(function () { toast('加载失败', 'error'); });
     }
@@ -272,6 +334,7 @@
             tab.classList.add('active');
             currentTab = tab.getAttribute('data-tab');
             selected = {};
+            pager.page = 1;
             $('iclPayBar').classList.toggle('d-none', currentTab !== 'pending');
             $('iclType').style.display = currentTab === 'paid' ? '' : 'none';
             load();
@@ -279,15 +342,16 @@
     });
 
     $('iclSearch').addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') { selected = {}; load(); }
+        if (e.key === 'Enter') { selected = {}; pager.page = 1; load(); }
     });
     ['iclSchool', 'iclGrade', 'iclClass', 'iclType'].forEach(function (id) {
-        $(id).addEventListener('change', function () { selected = {}; load(); });
+        $(id).addEventListener('change', function () { selected = {}; pager.page = 1; load(); });
     });
     $('iclReset').addEventListener('click', function () {
         $('iclSearch').value = '';
         ['iclSchool', 'iclGrade', 'iclClass', 'iclType'].forEach(function (id) { $(id).value = ''; });
         selected = {};
+        pager.page = 1;
         load();
     });
 

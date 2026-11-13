@@ -1257,8 +1257,30 @@ def api_insurance_collection_list():
     conn = models.get_db()
     items = insurance_domain.query_collection_stage(
         conn, paid=(tab == 'paid'), insurance_types=types, **_pool_filters())
-    return jsonify({'success': True, 'total': len(items), 'items': items,
-                    'summary': _collection_counts(conn)})
+
+    # 「已缴费」页签支持分页（固定每页 20 条）；待缴费页签保持全量
+    total = len(items)
+    page = 1
+    page_size = total
+    pages = 1
+    if tab == 'paid':
+        try:
+            page = max(1, int(request.args.get('page', 1)))
+        except (TypeError, ValueError):
+            page = 1
+        try:
+            page_size = int(request.args.get('page_size', 20))
+        except (TypeError, ValueError):
+            page_size = 20
+        page_size = max(1, min(page_size, 200))
+        pages = max(1, (total + page_size - 1) // page_size)
+        page = min(page, pages)
+        start = (page - 1) * page_size
+        items = items[start:start + page_size]
+
+    return jsonify({'success': True, 'total': total, 'items': items,
+                    'summary': _collection_counts(conn),
+                    'page': page, 'page_size': page_size, 'pages': pages})
 
 
 @bp.route('/api/insurance/collection/export')
