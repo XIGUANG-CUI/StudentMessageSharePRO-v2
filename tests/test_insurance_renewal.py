@@ -586,6 +586,153 @@ class TestRenewalCollectionRoutes:
 
 
 # ============================================================
+# next_expiry banner 单元测试（池内 + 兜底 + 全空）
+# ============================================================
+class TestRenewalNextExpiryBanner(TestRenewalCollectionRoutes):
+    """续保页顶部 banner：距离下一批保险到期还有多少天。"""
+
+    def test_next_expiry_in_pool(self, client, db_conn):
+        """池内有学生时，next_expiry 直接从 items 取 days_left 最小的。"""
+        self._clean(db_conn)
+        # 两个同期生，最早到期的是 A：2026-11-15
+        sid_a = self._student(db_conn, '最早到期')
+        self._record(db_conn, sid_a, S.DONE, batch_no=1, expiry_date='2026-11-15')
+        sid_b = self._student(db_conn, '较晚到期')
+        self._record(db_conn, sid_b, S.DONE, batch_no=1, expiry_date='2026-11-25')
+        self._login(client)
+        try:
+            data = client.get(
+                '/api/insurance/renewal/list?today=2026-11-01'
+            ).get_json()
+            assert data['success'] is True
+            assert data['total'] == 2
+            assert data['next_expiry'] is not None
+            ne = data['next_expiry']
+            assert ne['in_pool'] is True
+            assert ne['expiry_date'] == '2026-11-15'
+            assert ne['days_left'] == 14       # 2026-11-15 - 2026-11-01
+            assert ne['affected_count'] == 1
+        finally:
+            self._logout(client)
+            self._clean(db_conn)
+
+    def test_next_expiry_fallback_when_pool_empty(self, client, db_conn):
+        """池空但全局有 DONE 学平险 → 兜底返回最早到期日期，in_pool=False。"""
+        self._clean(db_conn)
+        # 2026 级学生的第 1 年学平险在 2027 年到期（不在 2026-11-01 的 30 天窗内）
+        sid_far = self._student(db_conn, '远到期')
+        self._record(db_conn, sid_far, S.DONE, batch_no=1, expiry_date='2027-08-11')
+        self._login(client)
+        try:
+            data = client.get(
+                '/api/insurance/renewal/list?today=2026-11-01'
+            ).get_json()
+            assert data['success'] is True
+            assert data['total'] == 0           # 池空！
+            assert data['items'] == []
+            assert data['next_expiry'] is not None, \
+                '池空但全局有 DONE 学平险时应走兜底'
+            ne = data['next_expiry']
+            assert ne['in_pool'] is False
+            assert ne['expiry_date'] == '2027-08-11'
+            assert ne['days_left'] == 283        # 2027-08-11 - 2026-11-01
+            assert ne['affected_count'] == 1
+        finally:
+            self._logout(client)
+            self._clean(db_conn)
+
+    def test_next_expiry_none_when_no_done_xueping(self, client, db_conn):
+        """池空 + 全局无 DONE 学平险 → next_expiry=None。"""
+        self._clean(db_conn)
+        # 只有 EXEMPT（放弃本期）学平险，没有 DONE → 兜底也拿不到
+        sid_exempt = self._student(db_conn, '放弃本期')
+        self._record(db_conn, sid_exempt, S.EXEMPT, batch_no=1)
+        self._login(client)
+        try:
+            data = client.get(
+                '/api/insurance/renewal/list?today=2026-11-01'
+            ).get_json()
+            assert data['success'] is True
+            assert data['total'] == 0
+            assert data['next_expiry'] is None
+        finally:
+            self._logout(client)
+            self._clean(db_conn)
+
+    def test_next_expiry_fallback_uses_earliest_globally(self, client, db_conn):
+        """兜底应取全局最早到期日期（同一天多人生效，affected_count 聚合）。"""
+        self._clean(db_conn)
+        common = '2027-03-10'
+        for i, name in enumerate(['共同到期A', '共同到期B', '另一批次X']):
+            sid = self._student(db_conn, name)
+            expiry = common if i < 2 else '2027-11-11'
+            self._record(db_conn, sid, S.DONE, batch_no=1, expiry_date=expiry)
+        self._login(client)
+        try:
+            data = client.get(
+                '/api/insurance/renewal/list?today=2026-11-01'
+            ).get_json()
+            assert data['success'] is True
+            ne = data['next_expiry']
+            assert ne is not None
+            assert ne['in_pool'] is False
+            assert ne['expiry_date'] == '2027-03-10'
+            assert ne['affected_count'] == 2
+            # 2027-03-10 - 2026-11-01 = 129 天
+            assert ne['days_left'] == 129
+        finally:
+            self._logout(client)
+            self._clean(db_conn)
+
+    def test_next_expiry_ignores_expired_then_exempt_student(self, client, db_conn):
+        """已过期未续保、且已标记「放弃本期」的学生不参与「下一批到期」。"""
+        self._clean(db_conn)
+        # 旧保单早已过期（2025-06-21），下一批已放弃本期办理
+        sid = self._student(db_conn, '过期放弃生')
+        self._record(db_conn, sid, S.DONE, batch_no=1, expiry_date='2025-06-21')
+        self._record(db_conn, sid, S.EXEMPT, batch_no=2)
+        self._login(client)
+        try:
+            data = client.get(
+                '/api/insurance/renewal/list?today=2026-11-01'
+            ).get_json()
+            assert data['success'] is True
+            assert data['total'] == 0
+            assert data['next_expiry'] is None, \
+                '放弃本期办理的过期学生不应计入「下一批到期」'
+        finally:
+            self._logout(client)
+            self._clean(db_conn)
+
+    def test_next_expiry_skips_expired_when_future_exists(self, client, db_conn):
+        """兜底只取未来到期日：过期旧保单不参与，返回最近一次未来到期。"""
+        self._clean(db_conn)
+        # 过期且放弃本期的学生（旧保单 2025-06-21 已过期）
+        sid_old = self._student(db_conn, '过期放弃生B')
+        self._record(db_conn, sid_old, S.DONE, batch_no=1, expiry_date='2025-06-21')
+        self._record(db_conn, sid_old, S.EXEMPT, batch_no=2)
+        # 仍在保险流程内、未来到期的学生
+        sid_next = self._student(db_conn, '未来到期生')
+        self._record(db_conn, sid_next, S.DONE, batch_no=1, expiry_date='2027-08-11')
+        self._login(client)
+        try:
+            data = client.get(
+                '/api/insurance/renewal/list?today=2026-11-01'
+            ).get_json()
+            assert data['success'] is True
+            ne = data['next_expiry']
+            assert ne is not None
+            assert ne['in_pool'] is False
+            assert ne['expiry_date'] == '2027-08-11', \
+                '应返回未来到期日，而不是过期的旧保单日期'
+            assert ne['days_left'] == 283
+            assert ne['affected_count'] == 1
+        finally:
+            self._logout(client)
+            self._clean(db_conn)
+
+
+# ============================================================
 # 推迟注册学生提前去实习：人工推送的数据流
 # ============================================================
 class TestRenewalPushInternDeferred:

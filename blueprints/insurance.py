@@ -332,6 +332,10 @@ def _pool_today():
     return datetime.strptime(raw, '%Y-%m-%d').date()
 
 
+# 「下一批到期」预览窗口：续保池为空时，用放大窗口查找最近一次未来到期日
+_NEXT_EXPIRY_PREVIEW_DAYS = 1825
+
+
 def _pool_response(pool, items):
     return jsonify({'success': True, 'pool': pool, 'total': len(items), 'items': items})
 
@@ -553,7 +557,10 @@ def insurance_intern():
 
 @bp.route('/api/insurance/intern/list')
 def api_insurance_intern_list():
-    """实习办结列表：pending=待审批/已缴费/已审批，done=已办结。"""
+    """实习办结列表：pending=待审批/已缴费/已审批，done=已办结。
+
+    已办结 tab 支持分页（page/page_size）；其他 tab 不分页，保持全量返回。
+    """
     err = _require_roles_json('admin', 'finance_chief', 'insurance_officer')
     if err:
         return err
@@ -571,8 +578,32 @@ def api_insurance_intern_list():
         statuses = (s.PENDING_APPROVE, s.PAID, s.APPROVED)
     items = insurance_domain.query_intern_stage(
         conn, statuses=statuses, **_pool_filters())
-    return jsonify({'success': True, 'total': len(items), 'items': items,
-                    'summary': insurance_domain.intern_stage_counts(conn)})
+
+    summary = insurance_domain.intern_stage_counts(conn)
+
+    # 已办结 tab 分页；其他 tab 保持全量，避免破坏多选/审批流程
+    page = 1
+    page_size = len(items)
+    pages = 1
+    total = len(items)
+    if tab == 'done':
+        try:
+            page = max(1, int(request.args.get('page', 1)))
+        except (TypeError, ValueError):
+            page = 1
+        try:
+            page_size = int(request.args.get('page_size', 30))
+        except (TypeError, ValueError):
+            page_size = 30
+        page_size = max(1, min(page_size, 200))
+        pages = max(1, (total + page_size - 1) // page_size)
+        page = min(page, pages)
+        start = (page - 1) * page_size
+        items = items[start:start + page_size]
+
+    return jsonify({'success': True, 'total': total, 'items': items,
+                    'summary': summary,
+                    'page': page, 'page_size': page_size, 'pages': pages})
 
 
 @bp.route('/api/insurance/intern/approve', methods=['POST'])
@@ -894,9 +925,58 @@ def api_insurance_renewal_list():
         key = item.get('urgency')
         if key in summary:
             summary[key] += 1
+
+    # 下一批保险到期汇总：取 days_left 最小的（忽略 None）
+    # 「距离下一批保险到期」= 最近一次尚未到期的保单到期日。
+    # 池内有学生时直接取其中 days_left 最小者；池空时用放大窗口复用池规则，
+    # 只取 days_left >= 0（未来）的记录——已过期未续保、且已标记「放弃本期」
+    # 的学生不含保单到期日，天然被排除，不计入该口径。
+    next_expiry = None
+    numeric = [i for i in items if i.get('days_left') is not None]
+    if numeric:
+        earliest = min(numeric, key=lambda i: i['days_left'])
+        earliest_days = earliest['days_left']
+        earliest_date = earliest.get('expiry_date') or ''
+        affected = sum(
+            1 for i in numeric
+            if i.get('days_left') == earliest_days
+            and (i.get('expiry_date') or '') == earliest_date
+        )
+        next_expiry = {
+            'days_left': earliest_days,
+            'expiry_date': earliest_date,
+            'affected_count': affected,
+            'in_pool': True,
+        }
+    else:
+        try:
+            upcoming = [
+                i for i in insurance_domain.query_renewal_pool(
+                    conn, today=today, window_days=_NEXT_EXPIRY_PREVIEW_DAYS,
+                    **_pool_filters())
+                if i.get('days_left') is not None and i['days_left'] >= 0
+            ]
+            if upcoming:
+                earliest = min(upcoming, key=lambda i: i['days_left'])
+                earliest_days = earliest['days_left']
+                earliest_date = earliest.get('expiry_date') or ''
+                affected = sum(
+                    1 for i in upcoming
+                    if i.get('days_left') == earliest_days
+                    and (i.get('expiry_date') or '') == earliest_date
+                )
+                next_expiry = {
+                    'days_left': earliest_days,
+                    'expiry_date': earliest_date,
+                    'affected_count': affected,
+                    'in_pool': False,
+                }
+        except Exception:
+            pass
+
     return jsonify({'success': True, 'total': len(items), 'items': items,
                     'summary': summary, 'today': today.isoformat(),
-                    'window_days': window_days})
+                    'window_days': window_days, 'next_expiry': next_expiry})
 
 
 @bp.route('/api/insurance/renewal/start', methods=['POST'])

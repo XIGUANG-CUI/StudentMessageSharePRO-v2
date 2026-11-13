@@ -35,12 +35,35 @@
                  border-radius: 6px; color: #fff; font-size: 0.85rem; }
     .irn-toast.success { background: #198754; }
     .irn-toast.error { background: #dc3545; }
+    .irn-next-expiry { display: flex; align-items: center; gap: 12px;
+                       padding: 10px 16px; border-radius: 10px; margin-bottom: 10px;
+                       min-height: 58px; border: 1px solid transparent; transition: background .15s; }
+    .irn-next-expiry .irn-ne-icon { font-size: 1.3rem; line-height: 1; }
+    .irn-next-expiry .irn-ne-body { flex: 1; font-size: 0.88rem; }
+    .irn-next-expiry .irn-ne-days { font-size: 1.45rem; font-weight: 700; margin-right: 2px; }
+    .irn-next-expiry .irn-ne-sub { color: #6c757d; font-size: 0.8rem; margin-top: 2px; }
+    .irn-ne-ok { background: #e8f5e9; border-color: #c8e6c9; color: #1b5e20; }
+    .irn-ne-soon { background: #fff4e5; border-color: #ffe0b3; color: #b25e00; }
+    .irn-ne-warn { background: #fdecec; border-color: #f1c2c7; color: #b02a37; }
+    .irn-ne-empty { background: #f8f9fa; border-color: #dee2e6; color: #6c757d; }
 </style>
 {% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-2">
     <h5 class="mb-0"><i class="bi bi-arrow-repeat me-2"></i>学平险续保</h5>
     <span class="text-muted small">保单到期前 <strong id="irnWindowLabel">30</strong> 天（含同月批次）进入续保池；已过期未续保与到期日缺失的学生同样列出；「推送就业险」会把当前待续保批次标记为「放弃本期（不参保）」</span>
+</div>
+
+<div class="irn-next-expiry irn-ne-empty" id="irnNextExpiry">
+    <span class="irn-ne-icon" id="irnNeIcon">📅</span>
+    <div class="irn-ne-body">
+        <div>
+            <span id="irnNePrefix">距离下一批保险到期还有</span>
+            <span class="irn-ne-days" id="irnNeDays">—</span>
+            <span id="irnNeSuffix"></span>
+        </div>
+        <div class="irn-ne-sub" id="irnNeSub">正在计算最近到期日…</div>
+    </div>
 </div>
 
 <ul class="nav nav-pills mb-2" id="irnTabs">
@@ -218,6 +241,57 @@
         if (days <= 7) { return 'warn'; }
         if (days <= 30) { return 'soon'; }
         return '';
+    }
+
+    function renderNextExpiry(next, todayStr) {
+        var box = $('irnNextExpiry');
+        box.classList.remove('irn-ne-ok', 'irn-ne-soon', 'irn-ne-warn', 'irn-ne-empty');
+        if (!next) {
+            box.classList.add('irn-ne-empty');
+            $('irnNeIcon').textContent = '📭';
+            $('irnNePrefix').textContent = '距离下一批保险到期还有';
+            $('irnNeDays').textContent = '—';
+            $('irnNeSuffix').textContent = '';
+            $('irnNeSub').textContent = '当前没有待续保的学生（或到期日均未填写）';
+            return;
+        }
+        var d = next.days_left;
+        var inPool = next.in_pool !== false;
+        var cls, icon;
+        if (d === null || d === undefined) { cls = 'irn-ne-empty'; icon = '📭'; }
+        else if (d < 0) { cls = 'irn-ne-warn'; icon = '🚨'; }
+        else if (d <= 7) { cls = 'irn-ne-warn'; icon = '⚠️'; }
+        else if (d <= 30) { cls = 'irn-ne-soon'; icon = '⏰'; }
+        else { cls = 'irn-ne-ok'; icon = '✅'; }
+        box.classList.add(cls);
+        $('irnNeIcon').textContent = icon;
+
+        if (d === null || d === undefined) {
+            $('irnNePrefix').textContent = '距离下一批保险到期还有';
+            $('irnNeDays').textContent = '—';
+        } else if (d < 0) {
+            $('irnNePrefix').textContent = '下一批保险已逾期';
+            $('irnNeDays').textContent = (-d) + ' 天';
+        } else if (d === 0) {
+            $('irnNePrefix').textContent = '下一批保险';
+            $('irnNeDays').textContent = '今天到期';
+        } else {
+            $('irnNePrefix').textContent = '距离下一批保险到期还有';
+            $('irnNeDays').textContent = d + ' 天';
+        }
+        $('irnNeSuffix').textContent = inPool ? '' : '（尚未进入续保窗）';
+
+        var sub = '最近到期日：' + (next.expiry_date || '未填写');
+        if (next.affected_count) {
+            sub += ' · 涉及 ' + next.affected_count + ' 人';
+        }
+        if (!inPool) {
+            sub += ' · 当前暂无在续保窗内的学生';
+        }
+        if (todayStr) {
+            sub += ' · 基准日 ' + todayStr;
+        }
+        $('irnNeSub').textContent = sub;
     }
 
     function statusChip(status) {
@@ -400,9 +474,19 @@
                 var keep = {};
                 items.forEach(function (s) { if (selected[s.id]) { keep[s.id] = true; } });
                 selected = keep;
+                renderNextExpiry(data.next_expiry, data.today);
                 renderPool();
             })
-            .catch(function () { toast('加载失败', 'error'); });
+            .catch(function () {
+                toast('加载失败', 'error');
+                $('irnNextExpiry').classList.remove('irn-ne-ok', 'irn-ne-soon', 'irn-ne-warn');
+                $('irnNextExpiry').classList.add('irn-ne-empty');
+                $('irnNeIcon').textContent = '⚠️';
+                $('irnNePrefix').textContent = '距离下一批保险到期还有';
+                $('irnNeDays').textContent = '—';
+                $('irnNeSuffix').textContent = '';
+                $('irnNeSub').textContent = '数据加载失败，请稍后刷新';
+            });
     }
 
     function downloadExport(ids, count) {

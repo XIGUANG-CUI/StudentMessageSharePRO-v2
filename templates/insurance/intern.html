@@ -25,6 +25,13 @@
                  border-radius: 6px; color: #fff; font-size: 0.85rem; }
     .iin-toast.success { background: #198754; }
     .iin-toast.error { background: #dc3545; }
+    .iin-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+                 padding: 8px 12px; background: #f8f9fa; border: 1px solid #dee2e6;
+                 border-top: none; border-radius: 0 0 8px 8px; font-size: 0.8rem; }
+    .iin-pager .pagination { margin: 0; }
+    .iin-pager .page-link { padding: 2px 9px; font-size: 0.78rem; }
+    .iin-pager-info { color: #6c757d; }
+    .iin-pager-size select { font-size: 0.78rem; padding: 2px 6px; }
 </style>
 {% endblock %}
 {% block content %}
@@ -82,6 +89,19 @@
         </tbody>
     </table>
 </div>
+
+<div class="iin-pager d-none" id="iinPager">
+    <span class="iin-pager-info" id="iinPagerInfo"></span>
+    <nav><ul class="pagination pagination-sm mb-0" id="iinPagerList"></ul></nav>
+    <span class="iin-pager-size ms-auto">每页
+        <select class="form-select form-select-sm d-inline-block" id="iinPagerSize" style="width:auto">
+            <option value="10">10</option>
+            <option value="30" selected>30</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+        </select> 条
+    </span>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -89,6 +109,7 @@
     var items = [];
     var selected = {};
     var currentTab = 'pending';
+    var pager = { page: 1, page_size: 30, pages: 1, total: 0 };
 
     var schoolMap = {};
     {% for st in school_types %}schoolMap[{{ st.code|tojson }}] = {{ st.name|tojson }};{% endfor %}
@@ -116,11 +137,66 @@
             admin_class: $('iinClass').value,
             status: currentTab
         };
+        if (currentTab === 'done') {
+            map.page = pager.page;
+            map.page_size = pager.page_size;
+        }
         var parts = [];
         Object.keys(map).forEach(function (key) {
-            if (map[key]) { parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(map[key])); }
+            if (map[key] || map[key] === 0) { parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(map[key])); }
         });
         return parts.join('&');
+    }
+
+    function renderPager() {
+        var box = $('iinPager');
+        var list = $('iinPagerList');
+        var info = $('iinPagerInfo');
+        if (currentTab !== 'done' || pager.pages <= 1) {
+            box.classList.add('d-none');
+            list.innerHTML = '';
+            info.textContent = '';
+            return;
+        }
+        box.classList.remove('d-none');
+        info.textContent = '共 ' + pager.total + ' 条，第 ' + pager.page + ' / ' + pager.pages + ' 页';
+
+        var cur = pager.page;
+        var total = pager.pages;
+        var start = (cur - 1) * pager.page_size + 1;
+        var end = Math.min(cur * pager.page_size, pager.total);
+
+        var html = '';
+        // 上一页
+        html += '<li class="page-item ' + (cur <= 1 ? 'disabled' : '') + '"><a class="page-link" href="#" data-p="' + (cur - 1) + '">‹</a></li>';
+        // 页码：当前页前后各 1 个
+        var window = [];
+        for (var i = Math.max(1, cur - 1); i <= Math.min(total, cur + 1); i++) { window.push(i); }
+        if (window[0] > 1) {
+            html += '<li class="page-item"><a class="page-link" href="#" data-p="1">1</a></li>';
+            if (window[0] > 2) { html += '<li class="page-item disabled"><span class="page-link">…</span></li>'; }
+        }
+        window.forEach(function (p) {
+            html += '<li class="page-item ' + (p === cur ? 'active' : '') + '"><a class="page-link" href="#" data-p="' + p + '">' + p + '</a></li>';
+        });
+        if (window[window.length - 1] < total) {
+            if (window[window.length - 1] < total - 1) { html += '<li class="page-item disabled"><span class="page-link">…</span></li>'; }
+            html += '<li class="page-item"><a class="page-link" href="#" data-p="' + total + '">' + total + '</a></li>';
+        }
+        // 下一页
+        html += '<li class="page-item ' + (cur >= total ? 'disabled' : '') + '"><a class="page-link" href="#" data-p="' + (cur + 1) + '">›</a></li>';
+        list.innerHTML = html;
+
+        // 页码点击
+        list.querySelectorAll('a.page-link').forEach(function (a) {
+            a.addEventListener('click', function (e) {
+                e.preventDefault();
+                var tgt = Number(a.getAttribute('data-p'));
+                if (!tgt || tgt === cur || tgt < 1 || tgt > total) { return; }
+                pager.page = tgt;
+                load();
+            });
+        });
     }
 
     function render() {
@@ -185,6 +261,10 @@
             .then(function (data) {
                 if (!data.success) { toast(data.message || '加载失败', 'error'); return; }
                 items = data.items || [];
+                if (data.page !== undefined) { pager.page = data.page; }
+                if (data.page_size !== undefined) { pager.page_size = data.page_size; }
+                if (data.pages !== undefined) { pager.pages = data.pages; }
+                if (data.total !== undefined) { pager.total = data.total; }
                 var summary = data.summary || {};
                 $('iinPendingCount').textContent =
                     (summary.pending_approve || 0) + (summary.paid || 0) + (summary.approved || 0);
@@ -193,6 +273,7 @@
                 items.forEach(function (s) { if (selected[s.record_id]) { keep[s.record_id] = true; } });
                 selected = keep;
                 render();
+                renderPager();
             })
             .catch(function () { toast('加载失败', 'error'); });
     }
@@ -211,21 +292,29 @@
             tab.classList.add('active');
             currentTab = tab.getAttribute('data-tab');
             selected = {};
+            pager.page = 1;
             $('iinActionBar').classList.toggle('d-none', currentTab !== 'pending');
             load();
         });
     });
 
     $('iinSearch').addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') { selected = {}; load(); }
+        if (e.key === 'Enter') { selected = {}; pager.page = 1; load(); }
     });
     ['iinSchool', 'iinGrade', 'iinClass'].forEach(function (id) {
-        $(id).addEventListener('change', function () { selected = {}; load(); });
+        $(id).addEventListener('change', function () { selected = {}; pager.page = 1; load(); });
     });
     $('iinReset').addEventListener('click', function () {
         $('iinSearch').value = '';
         ['iinSchool', 'iinGrade', 'iinClass'].forEach(function (id) { $(id).value = ''; });
         selected = {};
+        pager.page = 1;
+        load();
+    });
+
+    $('iinPagerSize').addEventListener('change', function () {
+        pager.page_size = Number(this.value) || 30;
+        pager.page = 1;
         load();
     });
 
