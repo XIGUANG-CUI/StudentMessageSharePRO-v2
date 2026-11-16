@@ -1,9 +1,9 @@
 import sqlite3
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask import g, has_app_context
-from config import DATABASE_PATH, PHOTOS_DIR
+from config import DATABASE_PATH, PHOTOS_DIR, ARCHIVE_HOLD_REASON_DICT_TYPE, ARCHIVE_HOLD_REASON_DEFAULTS
 
 logger = logging.getLogger(__name__)
 
@@ -11,9 +11,9 @@ logger = logging.getLogger(__name__)
 import sqlite3
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask import g, has_app_context
-from config import DATABASE_PATH, PHOTOS_DIR
+from config import DATABASE_PATH, PHOTOS_DIR, ARCHIVE_HOLD_REASON_DICT_TYPE, ARCHIVE_HOLD_REASON_DEFAULTS
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +206,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_dispatch_student_active
 CREATE INDEX IF NOT EXISTS idx_dispatch_batch  ON archive_dispatch (batch_no);
 CREATE INDEX IF NOT EXISTS idx_dispatch_status ON archive_dispatch (dispatch_status);
 CREATE INDEX IF NOT EXISTS idx_dispatch_county ON archive_dispatch (county_code);
+
+-- 人工标记「无法派遣」：与匹配逻辑无关，由管理员审核后手工标记，可恢复
+CREATE TABLE IF NOT EXISTS archive_hold (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id  INTEGER NOT NULL UNIQUE,
+    reason      TEXT NOT NULL DEFAULT '',
+    note        TEXT DEFAULT '',
+    operator    TEXT DEFAULT '',
+    released    INTEGER NOT NULL DEFAULT 0,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_archive_hold_released ON archive_hold (released);
 """
 
 # 档案机构导入用的补充历史映射（旧码 → 现行码），已存在则跳过
@@ -254,6 +267,21 @@ class _RequestDB:
 
     def __getattr__(self, name):
         return getattr(self._conn, name)
+
+def to_local_time(value):
+    """把库里以 UTC 落库的时间戳（CURRENT_TIMESTAMP）转成本机时区字符串。
+
+    仅用于页面展示，不改动库内数据；解析失败时原样返回。
+    """
+    if not value:
+        return value
+    text = str(value).strip()
+    try:
+        utc_dt = datetime.strptime(text[:19], '%Y-%m-%d %H:%M:%S')
+    except ValueError:
+        return value
+    return utc_dt.replace(tzinfo=timezone.utc).astimezone().strftime('%Y-%m-%d %H:%M:%S')
+
 
 def get_db():
     # 请求级连接复用：同一请求内多次调用返回同一连接，请求结束自动关闭
@@ -540,6 +568,12 @@ def init_db():
     for statement in ARCHIVE_DDL.split(';'):
         if statement.strip():
             cursor.execute(statement)
+
+    # 「无法派遣」标记原因：字典类型为空时补入默认项，之后完全以 /admin/dicts 为准
+    if not cursor.execute('SELECT 1 FROM dicts WHERE dict_type = ? LIMIT 1',
+                          (ARCHIVE_HOLD_REASON_DICT_TYPE,)).fetchone():
+        cursor.executemany('INSERT INTO dicts (dict_type, dict_value) VALUES (?, ?)',
+                           [(ARCHIVE_HOLD_REASON_DICT_TYPE, v) for v in ARCHIVE_HOLD_REASON_DEFAULTS])
 
     # 档案派遣增量列：最近一次退档时间（非空即「曾退档」，用于筛出重派单）
     for table, column, col_def in (

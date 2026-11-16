@@ -1,6 +1,6 @@
 import sqlite3
 import logging
-from models.db import get_db
+from models.db import get_db, to_local_time
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,10 @@ def get_export_history(limit=50):
     conn = get_db()
     rows = conn.execute('SELECT * FROM export_history ORDER BY created_at DESC LIMIT ?', (limit,)).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    items = [dict(r) for r in rows]
+    for item in items:
+        item['created_at'] = to_local_time(item.get('created_at'))
+    return items
 
 def clear_export_history():
     """清空所有导出历史记录"""

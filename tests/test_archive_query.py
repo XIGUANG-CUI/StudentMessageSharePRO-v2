@@ -231,16 +231,21 @@ class TestDispatchDetailExport:
         yield
         _logout(client)
 
-    def _download(self, client, query=''):
+    BATCH_LD = '2026-道里区-01'
+    BATCH_NG = '2027-南岗区-01'
+
+    def _download(self, client, query='', batches=(), sheet='派遣明细'):
         url = '/admin/archive/export-detail'
-        if query:
-            url += '?' + query
+        parts = [p for p in query.split('&') if p]
+        parts += ['batch=' + quote(b) for b in batches]
+        if parts:
+            url += '?' + '&'.join(parts)
         resp = client.get(url)
         assert resp.status_code == 200
         assert 'spreadsheetml' in resp.headers.get('Content-Type', '')
         assert 'attachment' in resp.headers.get('Content-Disposition', '')
         assert resp.data[:2] == b'PK'
-        return load_workbook(io.BytesIO(resp.data)).active
+        return load_workbook(io.BytesIO(resp.data))[sheet]
 
     @staticmethod
     def _data_rows(ws):
@@ -264,15 +269,38 @@ class TestDispatchDetailExport:
         return rows
 
     def test_headers(self, client, archive_students):
-        ws = self._download(client, 'start_date=2026-06-01&end_date=2026-06-30')
+        ws = self._download(client, 'start_date=2026-06-01&end_date=2026-06-30',
+                            batches=[self.BATCH_LD, self.BATCH_NG])
         assert [ws.cell(row=1, column=i).value for i in range(1, len(DETAIL_HEADERS) + 1)] \
             == DETAIL_HEADERS
         assert ws.freeze_panes == 'A2'
 
+    def test_overview_sheet(self, client, archive_students):
+        """总览 sheet 置顶，按批次·机构汇总已派遣人数。"""
+        url = ('/admin/archive/export-detail?batch=' + quote(self.BATCH_LD) +
+               '&batch=' + quote(self.BATCH_NG))
+        wb = load_workbook(io.BytesIO(client.get(url).data))
+        assert wb.sheetnames[0] == '批次总览'
+        assert wb.sheetnames[1] == '派遣明细'
+        ws = wb['批次总览']
+        assert [ws.cell(row=1, column=i).value for i in range(1, 7)] == \
+            ['批次号', '县（区）', '接收机构', '机构地址', '机构电话', '目标学生数']
+        per_batch = {}
+        for r in range(2, ws.max_row + 1):
+            batch = ws.cell(row=r, column=1).value
+            if not batch or batch == '合计':
+                continue
+            per_batch[batch] = per_batch.get(batch, 0) + (ws.cell(row=r, column=6).value or 0)
+        # AQ002 已退回（无派遣日期）、AQ004 升学不参与导出
+        assert per_batch == {self.BATCH_LD: 1, self.BATCH_NG: 1}
+        assert ws.cell(row=ws.max_row, column=1).value == '合计'
+        assert ws.cell(row=ws.max_row, column=6).value == 2
+
     def test_cross_batch_and_county(self, client, archive_students):
         # 张三（道里区·批次 01）与王五（南岗区·批次 01）属于不同批次/区县，
         # 只要派遣日期落在范围内就应一起导出；升学记录无派遣日期，不纳入。
-        ws = self._download(client, 'start_date=2026-06-01&end_date=2026-06-30')
+        ws = self._download(client, 'start_date=2026-06-01&end_date=2026-06-30',
+                            batches=[self.BATCH_LD, self.BATCH_NG])
         rows = self._data_rows(ws)
         assert set(rows) == {'AQ001', 'AQ003'}
         assert rows['AQ001']['batch'] == '2026-道里区-01'
@@ -281,7 +309,8 @@ class TestDispatchDetailExport:
         assert rows['AQ003']['county'] == '南岗区'
 
     def test_row_values(self, client, archive_students):
-        ws = self._download(client, 'start_date=2026-06-01&end_date=2026-06-30')
+        ws = self._download(client, 'start_date=2026-06-01&end_date=2026-06-30',
+                            batches=[self.BATCH_LD])
         row = self._data_rows(ws)['AQ001']
         assert row['name'] == '张三'
         assert row['status'] == '已派遣'
@@ -292,19 +321,27 @@ class TestDispatchDetailExport:
         assert row['home'] == '某街1号'
 
     def test_narrow_date_range(self, client, archive_students):
-        ws = self._download(client, 'start_date=2026-06-02&end_date=2026-06-02')
+        ws = self._download(client, 'start_date=2026-06-02&end_date=2026-06-02',
+                            batches=[self.BATCH_LD, self.BATCH_NG])
         assert set(self._data_rows(ws)) == {'AQ003'}
 
+    def test_only_selected_batch_exported(self, client, archive_students):
+        """只勾选道里区批次时，南岗区批次的学生不应出现在导出中。"""
+        ws = self._download(client, batches=[self.BATCH_LD])
+        assert set(self._data_rows(ws)) == {'AQ001'}
+
     def test_school_filter(self, client, archive_students):
-        ws = self._download(client, 'start_date=2026-06-01&end_date=2026-06-30&school=2')
+        ws = self._download(client, 'start_date=2026-06-01&end_date=2026-06-30&school=2',
+                            batches=[self.BATCH_LD, self.BATCH_NG])
         assert set(self._data_rows(ws)) == {'AQ003'}
 
     def test_without_dates_exports_all_dated_records(self, client, archive_students):
-        rows = self._data_rows(self._download(client))
+        rows = self._data_rows(self._download(client, batches=[self.BATCH_LD, self.BATCH_NG]))
         assert set(rows) == {'AQ001', 'AQ003'}
 
     def test_summary_rows(self, client, archive_students):
-        ws = self._download(client, 'start_date=2026-06-01&end_date=2026-06-30')
+        ws = self._download(client, 'start_date=2026-06-01&end_date=2026-06-30',
+                            batches=[self.BATCH_LD, self.BATCH_NG])
         summary = {}
         for r in range(2, ws.max_row + 1):
             key, value = ws.cell(row=r, column=1).value, ws.cell(row=r, column=2).value
@@ -316,10 +353,15 @@ class TestDispatchDetailExport:
         assert summary['合计'] == 2
 
     def test_no_rows_returns_404(self, client, archive_students):
-        resp = client.get('/admin/archive/export-detail'
-                          '?start_date=2027-01-01&end_date=2027-01-31')
+        resp = client.get('/admin/archive/export-detail?batch=' + quote(self.BATCH_LD) +
+                          '&start_date=2027-01-01&end_date=2027-01-31')
         assert resp.status_code == 404
         assert resp.get_json()['success'] is False
+
+    def test_without_batch_returns_400(self, client, archive_students):
+        resp = client.get('/admin/archive/export-detail?start_date=2026-06-01')
+        assert resp.status_code == 400
+        assert '勾选' in resp.get_json()['message']
 
     def test_invalid_date_returns_400(self, client, archive_students):
         resp = client.get('/admin/archive/export-detail?start_date=2026/06/01')

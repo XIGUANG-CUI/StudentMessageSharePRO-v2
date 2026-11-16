@@ -35,6 +35,16 @@ def _operator():
     return session.get('display_name', session.get('username', 'unknown'))
 
 
+# 「无法派遣」标记原因取自字典表，可在 /admin/dicts 动态维护
+HOLD_REASON_DICT_TYPE = config.ARCHIVE_HOLD_REASON_DICT_TYPE
+
+
+def _hold_reason_options():
+    """字典中维护的标记原因列表（按录入顺序）。"""
+    return [d['dict_value'] for d in models.get_dicts(HOLD_REASON_DICT_TYPE)
+            if (d.get('dict_value') or '').strip()]
+
+
 def _mappings():
     return [{'placeholder': '${' + key + '}', 'source_field': field, 'default_value': ''}
             for key, field in TRANSFER_MAPPINGS]
@@ -50,8 +60,28 @@ def agencies_page():
 @bp.route('/admin/archive/dispatch')
 @auth.admin_required
 def dispatch_page():
-    grades = models.get_graduated_list_grades()
-    return render_template('archive/dispatch.html', list_grades=grades)
+    """档案派遣工作台：按毕业届别（年级）隔离，默认当前年-3 届。"""
+    current_year = int(getattr(config, 'CURRENT_SCHOOL_YEAR', datetime.now().year))
+    grade_options = models.list_graduate_grades()
+    # 默认届别必须复用库里实际存在的 grade 值（历史数据存的是「2023」而非「2023级」），
+    # 否则拼接值对不上选项，页面会多出「（暂无数据）」项并被默认选中
+    default_grade = next(
+        (opt['grade'] for opt in grade_options if opt['graduate_year'] == str(current_year)),
+        f'{current_year - 3}级')
+    active_grade = (request.args.get('grade') or '').strip() or default_grade
+    # 兼容旧链接里带「级」的写法（?grade=2023级）
+    if active_grade not in [opt['grade'] for opt in grade_options]:
+        wanted = re.search(r'(\d{4})', active_grade)
+        if wanted:
+            matched = next((opt['grade'] for opt in grade_options
+                            if re.search(r'(\d{4})', opt['grade'])
+                            and re.search(r'(\d{4})', opt['grade']).group(1) == wanted.group(1)), '')
+            active_grade = matched or active_grade
+    return render_template('archive/dispatch.html', list_grades=grade_options,
+                           active_grade=active_grade,
+                           active_graduate_year=models.graduate_year_of(active_grade),
+                           default_grade=default_grade,
+                           hold_reasons=_hold_reason_options())
 
 
 @bp.route('/admin/archive/query')
@@ -153,7 +183,8 @@ def api_overview():
     counties = models.summarize_counties(rows)
     return jsonify({
         'counties': counties,
-        'batches': models.list_batches(school),
+        'batches': models.list_batches(school, grade),
+        'grades': models.list_graduate_grades(school),
         'settings': models.get_all_settings(),
         'coverage': models.coverage(grade),
     })
@@ -184,6 +215,8 @@ def api_students():
             return current == models.STATUS_RETURNED
         if status == 'study':
             return current == models.STATUS_STUDY
+        if status == 'held':
+            return bool(row.get('hold'))
         return True
 
     rows = [r for r in rows if keep(r)]
@@ -203,6 +236,7 @@ def api_students():
             'graduate_year': models.graduate_year_of(row.get('grade')),
             'dispatch_id': row.get('dispatch_id'),
             'dispatch_status': row['dispatch_status'],
+            'dispatch_date': row.get('dispatch_date') or '',
             'batch_no': row.get('batch_no') or '',
             'match_status': row['match_status'],
             'match_reason': row['match_reason'],
@@ -212,8 +246,45 @@ def api_students():
             'student_phone': row.get('student_phone') or '',
             'parent_phone': row.get('parent_phone') or '',
             'origin_place': row.get('origin_place') or '',
+            'hold': row.get('hold'),
         })
     return jsonify({'students': data, 'count': len(data)})
+
+
+@bp.route('/api/archive/hold/mark', methods=['POST'])
+@auth.admin_required
+def api_hold_mark():
+    """人工标记「无法派遣」（与机构匹配逻辑无关）。"""
+    data = request.get_json(silent=True) or {}
+    ids = data.get('student_ids') or []
+    reason = (data.get('reason') or '').strip()
+    note = (data.get('note') or '').strip()
+    if not ids:
+        return jsonify({'success': False, 'message': '请先勾选学生'}), 400
+    if not reason:
+        return jsonify({'success': False, 'message': '请选择标记原因'}), 400
+    operator = session.get('display_name') or session.get('username') or ''
+    marked, skipped = models.mark_hold(ids, reason, note, operator)
+    if not marked:
+        return jsonify({'success': False, 'marked': 0, 'skipped': skipped,
+                        'message': '所选学生均已生成派遣批次，不能标记「无法派遣」'}), 400
+    message = f'已标记 {marked} 人为「无法派遣」'
+    if skipped:
+        message += f'，跳过 {skipped} 人（已生成派遣批次，不能标记）'
+    return jsonify({'success': True, 'marked': marked, 'skipped': skipped, 'message': message})
+
+
+@bp.route('/api/archive/hold/release', methods=['POST'])
+@auth.admin_required
+def api_hold_release():
+    """恢复「无法派遣」学生到待派遣。"""
+    data = request.get_json(silent=True) or {}
+    ids = data.get('student_ids') or []
+    if not ids:
+        return jsonify({'success': False, 'message': '请先勾选学生'}), 400
+    count = models.release_hold(ids)
+    return jsonify({'success': True, 'released': count,
+                    'message': f'已恢复 {count} 人为待派遣'})
 
 
 @bp.route('/api/archive/search')
@@ -333,7 +404,7 @@ DETAIL_COLUMNS = [
 @bp.route('/admin/archive/export-detail')
 @auth.admin_required
 def export_dispatch_detail():
-    """按派遣日期范围导出派遣明细 Excel（跨批次/跨区县，含状态列与汇总统计）。"""
+    """导出所选批次的派遣明细 Excel（含状态列与汇总统计）。"""
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter
@@ -341,20 +412,58 @@ def export_dispatch_detail():
     start_date = request.args.get('start_date', '').strip()
     end_date = request.args.get('end_date', '').strip()
     school = request.args.get('school', '').strip() or None
+    grade = request.args.get('grade', '').strip() or None
+    batch_nos = [b.strip() for b in request.args.getlist('batch') if b.strip()]
     for value in (start_date, end_date):
         if value and not re.match(r'^\d{4}-\d{2}-\d{2}$', value):
             return jsonify({'success': False, 'message': '日期格式应为 YYYY-MM-DD'}), 400
     if start_date and end_date and start_date > end_date:
         return jsonify({'success': False, 'message': '开始日期不能晚于结束日期'}), 400
+    if not batch_nos:
+        return jsonify({'success': False, 'message': '请先在批次列表中勾选需要导出的批次'}), 400
 
-    rows = models.get_dispatch_detail_rows(start_date or None, end_date or None, school)
+    rows = models.get_dispatch_detail_rows(start_date or None, end_date or None, school, grade,
+                                           batch_nos)
     if not rows:
-        return jsonify({'success': False, 'message': '该日期范围内没有可导出的派遣明细'}), 404
+        return jsonify({'success': False, 'message': '所选批次在该日期范围内没有可导出的派遣明细'}), 404
 
     wb = Workbook()
     ws = wb.active
     ws.title = '派遣明细'
     fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+
+    # 总览 sheet：本次导出涉及批次 / 区县 / 接收机构 / 目标学生数
+    overview = {}
+    for row in rows:
+        key = (row.get('batch_no') or '', row.get('county_name') or '',
+               row.get('agency_name') or '未匹配机构',
+               row.get('agency_address') or '', row.get('agency_phone') or '')
+        overview[key] = overview.get(key, 0) + 1
+    summary = wb.create_sheet('批次总览', 0)
+    overview_columns = [('批次号', 24), ('县（区）', 16), ('接收机构', 34),
+                        ('机构地址', 40), ('机构电话', 18), ('目标学生数', 12)]
+    for idx, (title, width) in enumerate(overview_columns, 1):
+        cell = summary.cell(row=1, column=idx, value=title)
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = fill
+        cell.alignment = Alignment(horizontal='center')
+        summary.column_dimensions[get_column_letter(idx)].width = width
+    overview_rows = sorted(overview.items(), key=lambda kv: (kv[0][0], -kv[1], kv[0][2]))
+    for r, ((batch_no, county, agency, address, phone), count) in enumerate(overview_rows, 2):
+        summary.cell(row=r, column=1, value=batch_no)
+        summary.cell(row=r, column=2, value=county)
+        summary.cell(row=r, column=3, value=agency)
+        summary.cell(row=r, column=4, value=address)
+        summary.cell(row=r, column=5, value=phone)
+        summary.cell(row=r, column=6, value=count)
+    summary_total_row = len(overview_rows) + 2
+    summary.cell(row=summary_total_row, column=1, value='合计').font = Font(bold=True)
+    summary.cell(row=summary_total_row, column=4,
+                 value=f'共 {len(overview_rows)} 个批次·机构组合').font = Font(bold=True)
+    summary.cell(row=summary_total_row, column=6, value=len(rows)).font = Font(bold=True)
+    summary.freeze_panes = 'A2'
+    summary.auto_filter.ref = (f'A1:F{summary_total_row - 1}')
+
     for idx, (title, _key, width) in enumerate(DETAIL_COLUMNS, 1):
         cell = ws.cell(row=1, column=idx, value=title)
         cell.font = Font(bold=True, color='FFFFFF')
@@ -427,6 +536,8 @@ def api_batch_status(batch_no):
     message = f"已标记 {result['count']} 人为已派遣"
     if result['skipped_returned']:
         message += f"，跳过 {result['skipped_returned']} 条退档记录（需先「恢复待派遣」）"
+    if result.get('skipped_held'):
+        message += f"，跳过 {result['skipped_held']} 人（已标记无法派遣）"
     return jsonify({'success': True, **result, 'message': message})
 
 

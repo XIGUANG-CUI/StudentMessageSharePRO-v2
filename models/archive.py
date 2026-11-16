@@ -12,7 +12,7 @@ import re
 from datetime import datetime
 
 import config
-from models.db import get_db
+from models.db import get_db, to_local_time
 
 logger = logging.getLogger(__name__)
 
@@ -397,7 +397,10 @@ def get_all_settings():
     conn = get_db()
     rows = conn.execute('SELECT * FROM archive_settings ORDER BY school').fetchall()
     conn.close()
-    return {r['school']: dict(r) for r in rows}
+    settings = {r['school']: dict(r) for r in rows}
+    for item in settings.values():
+        item['updated_at'] = to_local_time(item.get('updated_at'))
+    return settings
 
 
 def save_settings(school, data, operator=''):
@@ -428,7 +431,7 @@ def load_graduates(grade=None, school=None):
                s.district_province_code, s.district_province_name,
                s.district_city_code, s.district_city_name,
                s.district_county_code, s.district_county_name,
-               d.id AS dispatch_id, d.dispatch_status, d.batch_no,
+               d.id AS dispatch_id, d.dispatch_status, d.batch_no, d.dispatch_date,
                d.agency_name, d.agency_address, d.agency_phone
         FROM students s
         LEFT JOIN archive_dispatch d ON d.student_id = s.id AND d.is_deleted = 0
@@ -444,6 +447,7 @@ def load_graduates(grade=None, school=None):
     sql += ' ORDER BY s.grade DESC, s.admin_class, s.name'
     rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
     agency_map = _load_agency_map(conn)
+    hold_map = _load_hold_map(conn)
     conn.close()
 
     for row in rows:
@@ -457,7 +461,71 @@ def load_graduates(grade=None, school=None):
         row['match_reason'] = match['reason']
         row['matched_agency'] = match['agency']
         row['dispatch_status'] = row.get('dispatch_status') or ''
+        row['hold'] = hold_map.get(row['id'])
     return rows
+
+
+def _load_hold_map(conn):
+    """当前生效的人工「无法派遣」标记：{student_id: 标记信息}。"""
+    sql = ('SELECT student_id, reason, note, operator, created_at '
+           'FROM archive_hold WHERE released = 0')
+    return {r['student_id']: dict(r) for r in conn.execute(sql).fetchall()}
+
+
+def mark_hold(student_ids, reason, note='', operator=''):
+    """人工标记「无法派遣」。
+
+    仅「未生成派遣批次」的学生可标记：生成批次意味着档案完整性已人工核对通过，
+    因此已有派遣记录（含已派遣/升学/待派遣/已退回/已失效）一律跳过。
+    返回 (成功数, 跳过数)。
+    """
+    ids = []
+    for value in student_ids or []:
+        try:
+            ids.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        return 0, 0
+    conn = get_db()
+    placeholders = ','.join('?' for _ in ids)
+    blocked = {r['student_id'] for r in conn.execute(
+        f'SELECT student_id FROM archive_dispatch '
+        f'WHERE is_deleted = 0 AND COALESCE(batch_no, "") != "" '
+        f'AND student_id IN ({placeholders})', ids).fetchall()}
+    targets = [i for i in ids if i not in blocked]
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    for student_id in targets:
+        conn.execute(
+            'INSERT INTO archive_hold (student_id, reason, note, operator, released, created_at, updated_at) '
+            'VALUES (?, ?, ?, ?, 0, ?, ?) '
+            'ON CONFLICT(student_id) DO UPDATE SET reason = excluded.reason, note = excluded.note, '
+            'operator = excluded.operator, released = 0, updated_at = excluded.updated_at',
+            (student_id, reason, note, operator, now, now))
+    conn.commit()
+    conn.close()
+    return len(targets), len(ids) - len(targets)
+
+
+def release_hold(student_ids):
+    """恢复「无法派遣」学生到待派遣，返回恢复条数。"""
+    ids = []
+    for value in student_ids or []:
+        try:
+            ids.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        return 0
+    conn = get_db()
+    placeholders = ','.join('?' for _ in ids)
+    cur = conn.execute(
+        f'UPDATE archive_hold SET released = 1, updated_at = ? '
+        f'WHERE released = 0 AND student_id IN ({placeholders})',
+        [datetime.now().strftime('%Y-%m-%d %H:%M:%S')] + ids)
+    conn.commit()
+    conn.close()
+    return cur.rowcount
 
 
 def summarize_counties(rows):
@@ -469,13 +537,17 @@ def summarize_counties(rows):
             'county_code': key,
             'county_name': row['group_name'],
             'total': 0, 'pending': 0, 'dispatchable': 0, 'sent': 0,
-            'study': 0, 'unmatched': 0, 'invalid': 0, 'returned': 0,
+            'study': 0, 'unmatched': 0, 'invalid': 0, 'returned': 0, 'held': 0,
             'match_status': row['match_status'],
             'agency_name': (row['matched_agency'] or {}).get('agency_name', ''),
         })
         item['total'] += 1
         status = row['dispatch_status']
-        if status == STATUS_STUDY:
+        # 人工标记「无法派遣」的学生单独计数，不进入待办（不阻塞区县完成）
+        held = bool(row.get('hold')) and status not in (STATUS_STUDY, STATUS_SENT, STATUS_INVALID)
+        if held:
+            item['held'] += 1
+        elif status == STATUS_STUDY:
             item['study'] += 1
         elif status == STATUS_SENT:
             item['sent'] += 1
@@ -496,8 +568,33 @@ def summarize_counties(rows):
                 item['unmatched'] += 1
 
     result = list(groups.values())
+    for item in result:
+        # 待办 = 待派遣（含未匹配） + 退档待重派；为 0 即该县已完成派遣任务
+        item['remaining'] = item['pending'] + item['returned']
+        # 应派遣 = 总人数 - 升学 - 已失效 - 人工标记无法派遣，用于进度条分母
+        item['dispatch_required'] = max(
+            item['total'] - item['study'] - item['invalid'] - item['held'], 0)
+        item['done'] = item['remaining'] == 0
     result.sort(key=lambda x: (x['county_code'] == '', x['county_name']))
     return result
+
+
+def list_graduate_grades(school=None):
+    """毕业届别选项：年级（如 2023级）、届（年级+3）、毕业生人数，按年级倒序。"""
+    sql = ("SELECT grade, COUNT(*) AS total FROM students "
+           "WHERE is_deleted = 0 AND registration_status = '毕业' "
+           "AND grade IS NOT NULL AND grade != ''")
+    params = []
+    if school:
+        sql += ' AND school = ?'
+        params.append(int(school))
+    sql += ' GROUP BY grade ORDER BY grade DESC'
+    conn = get_db()
+    rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+    conn.close()
+    for row in rows:
+        row['graduate_year'] = graduate_year_of(row['grade'])
+    return rows
 
 
 def coverage(grade=None):
@@ -531,7 +628,9 @@ def search_dispatches(keyword='', grade=None, school=None, limit=500):
                d.id AS dispatch_id, d.batch_no, d.dispatch_status, d.dispatch_date,
                d.agency_no, d.agency_name, d.agency_address, d.agency_phone,
                d.county_code AS dispatch_county_code, d.county_name AS dispatch_county_name,
-               d.graduate_year, d.operator, d.returned_at, d.match_status, d.match_reason
+               d.graduate_year, d.operator, d.returned_at, d.match_status, d.match_reason,
+               EXISTS (SELECT 1 FROM archive_hold h WHERE h.student_id = s.id
+                       AND h.released = 0) AS hold_flag
         FROM students s
         LEFT JOIN archive_dispatch d ON d.student_id = s.id AND d.is_deleted = 0
         WHERE s.is_deleted = 0
@@ -558,6 +657,7 @@ def search_dispatches(keyword='', grade=None, school=None, limit=500):
     for row in rows:
         code, name = _group_key(row)
         status = row.get('dispatch_status') or ''
+        held = bool(row.get('hold_flag'))
         result.append({
             'student_id': row['student_id'],
             'student_no': row.get('student_no') or '',
@@ -577,7 +677,8 @@ def search_dispatches(keyword='', grade=None, school=None, limit=500):
             'graduate_year': row.get('graduate_year') or graduate_year_of(row.get('grade')),
             'dispatch_id': row.get('dispatch_id'),
             'dispatch_status': status,
-            'status_label': status or '未生成',
+            'status_label': '无法派遣' if held else (status or '未生成'),
+            'hold': held,
             'dispatch_date': row.get('dispatch_date') or '',
             'batch_no': row.get('batch_no') or '',
             'agency_no': row.get('agency_no') or '',
@@ -641,6 +742,9 @@ def create_batch(group_code, student_ids, operator, overrides=None):
         inserted = 0
         skipped = []
         for row in rows:
+            if row.get('hold'):
+                skipped.append(f"{row['name']}：已标记无法派遣，跳过")
+                continue
             if row['dispatch_status'] in (STATUS_SENT, STATUS_STUDY):
                 skipped.append(f"{row['name']}：已派遣/升学，跳过")
                 continue
@@ -703,7 +807,7 @@ def create_batch(group_code, student_ids, operator, overrides=None):
             'county_name': county_name, 'graduate_year': graduate_year}
 
 
-def list_batches(school=None):
+def list_batches(school=None, grade=None):
     """批次汇总：退档、重派、升学、失效分别计数，并附带最近一次转递单导出标记。"""
     conn = get_db()
     sql = """SELECT d.batch_no, d.county_code, d.county_name,
@@ -714,9 +818,14 @@ def list_batches(school=None):
                             AND COALESCE(d.returned_at, '') != '' THEN 1 ELSE 0 END) AS redispatch,
                   SUM(CASE WHEN d.dispatch_status = '升学' THEN 1 ELSE 0 END) AS study,
                   SUM(CASE WHEN d.dispatch_status = '已失效' THEN 1 ELSE 0 END) AS invalid,
-                  MIN(d.created_at) AS created_at,
+                  SUM(CASE WHEN d.dispatch_status = '待派遣'
+                            AND EXISTS (SELECT 1 FROM archive_hold h
+                                        WHERE h.student_id = d.student_id AND h.released = 0)
+                           THEN 1 ELSE 0 END) AS held,
+                  -- created_at / exported_at 落库为 UTC（CURRENT_TIMESTAMP），展示时转本地时区
+                  datetime(MIN(d.created_at), 'localtime') AS created_at,
                   MIN(d.handler) AS handler,
-                  MAX(e.created_at) AS exported_at,
+                  datetime(MAX(e.created_at), 'localtime') AS exported_at,
                   MAX(e.created_by) AS exported_by
            FROM archive_dispatch d
            LEFT JOIN export_history e ON e.id = (
@@ -730,12 +839,17 @@ def list_batches(school=None):
     if school:
         sql += ' AND d.school = ?'
         params.append(int(school))
-    sql += ' GROUP BY d.batch_no ORDER BY created_at DESC'
+    if grade:
+        sql += ' AND d.grade = ?'
+        params.append(grade)
+    sql += ' GROUP BY d.batch_no ORDER BY created_at ASC, d.batch_no ASC'
     rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
     conn.close()
     for row in rows:
-        # 应派遣 = 总人数 - 升学 - 已失效；否则升学/失效会一直占着分母，批次永远「未完成」
-        row['active_total'] = (row['total'] or 0) - (row['study'] or 0) - (row['invalid'] or 0)
+        # 应派遣 = 总人数 - 升学 - 已失效 - 人工标记「无法派遣」；
+        # 否则这些记录一直占着分母，批次永远「未完成」
+        row['active_total'] = ((row['total'] or 0) - (row['study'] or 0)
+                               - (row['invalid'] or 0) - (row['held'] or 0))
         row['exported_at'] = row.get('exported_at') or ''
         row['exported_by'] = row.get('exported_by') or ''
     return rows
@@ -802,7 +916,7 @@ def update_dispatch(dispatch_id, action, payload=None, operator=''):
 def update_batch_status(batch_no, action, operator=''):
     """整批状态流转：整批标记已派遣（仅待派遣；已退回须先恢复待派遣再派）。
 
-    返回 {count, skipped_returned}，让前端提示「退档记录未被一并改状态」。
+    返回 {count, skipped_returned, skipped_held}，让前端提示「退档/无法派遣记录未被一并改状态」。
     """
     if action != 'sent':
         raise ValueError('未知操作')
@@ -812,10 +926,17 @@ def update_batch_status(batch_no, action, operator=''):
             'SELECT COUNT(1) FROM archive_dispatch WHERE batch_no = ? AND is_deleted = 0 '
             'AND dispatch_status = ?', (batch_no, STATUS_RETURNED)
         ).fetchone()[0]
+        held_filter = ('NOT EXISTS (SELECT 1 FROM archive_hold h '
+                       'WHERE h.student_id = archive_dispatch.student_id AND h.released = 0)')
+        skipped_held = conn.execute(
+            f'SELECT COUNT(1) FROM archive_dispatch WHERE batch_no = ? AND is_deleted = 0 '
+            f'AND dispatch_status = ? AND NOT ({held_filter})',
+            (batch_no, STATUS_PENDING)
+        ).fetchone()[0]
         cur = conn.execute(
             'UPDATE archive_dispatch SET dispatch_status = ?, dispatch_date = ?, '
             'operator = ?, updated_at = CURRENT_TIMESTAMP '
-            'WHERE batch_no = ? AND is_deleted = 0 AND dispatch_status = ?',
+            f'WHERE batch_no = ? AND is_deleted = 0 AND dispatch_status = ? AND {held_filter}',
             (STATUS_SENT, datetime.now().strftime('%Y-%m-%d'), operator, batch_no,
              STATUS_PENDING)
         )
@@ -825,7 +946,7 @@ def update_batch_status(batch_no, action, operator=''):
         conn.close()
     if not count:
         raise ValueError('该批次没有可标记为已派遣的待派遣记录')
-    return {'count': count, 'skipped_returned': skipped}
+    return {'count': count, 'skipped_returned': skipped, 'skipped_held': skipped_held}
 
 
 def update_dispatch_agency(dispatch_id, agency_id=None, manual=None):
@@ -981,6 +1102,8 @@ def list_further_study(grade=None, county='', school=None):
     sql += ' ORDER BY d.grade DESC, d.county_code, d.student_name'
     rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
     conn.close()
+    for r in rows:
+        r['updated_at'] = to_local_time(r.get('updated_at'))
     return rows
 
 
@@ -1013,11 +1136,17 @@ def build_export_rows(batch_no, redispatch_only=False):
     """组装 docx 模板填充所需的行数据（含年月日拆分）。
 
     redispatch_only=True：只取「曾退档且已重新派遣」的记录，用于打印重派单；
-    默认：取待派遣 + 已派遣，排除退档/失效/升学。
+    默认：取待派遣 + 已派遣，排除退档/失效/升学，以及人工标记「无法派遣」的学生。
     """
     rows = get_batch_rows(batch_no)
+    conn = get_db()
+    held_ids = {r['student_id'] for r in conn.execute(
+        'SELECT student_id FROM archive_hold WHERE released = 0').fetchall()}
+    conn.close()
     result = []
     for row in rows:
+        if row.get('student_id') in held_ids:
+            continue
         status = row.get('dispatch_status')
         if redispatch_only:
             if status != STATUS_SENT or not (row.get('returned_at') or '').strip():
@@ -1043,11 +1172,11 @@ def build_export_rows(batch_no, redispatch_only=False):
     return result
 
 
-def get_dispatch_detail_rows(start_date=None, end_date=None, school=None):
-    """派遣明细（Excel 导出用）：按派遣日期范围跨批次/跨区县汇总。
+def get_dispatch_detail_rows(start_date=None, end_date=None, school=None, grade=None, batch_nos=None):
+    """派遣明细（Excel 导出用）：按派遣日期范围跨区县汇总。
 
     只取有实际派遣日期的记录（升学、已退回等日期为空的记录不参与报销口径）；
-    school 为空表示全部校别。
+    school / grade 为空表示不限制；batch_nos 为空表示不限制批次。
     """
     sql = ("SELECT d.*, s.address, s.major_direction, s.name_pinyin "
            "FROM archive_dispatch d "
@@ -1064,6 +1193,13 @@ def get_dispatch_detail_rows(start_date=None, end_date=None, school=None):
     if school:
         sql += ' AND d.school = ?'
         params.append(int(school))
+    if grade:
+        sql += ' AND d.grade = ?'
+        params.append(grade)
+    if batch_nos:
+        placeholders = ','.join('?' for _ in batch_nos)
+        sql += f' AND d.batch_no IN ({placeholders})'
+        params.extend(batch_nos)
     sql += ' ORDER BY d.dispatch_date, d.county_code, d.student_no'
     conn = get_db()
     rows = conn.execute(sql, params).fetchall()

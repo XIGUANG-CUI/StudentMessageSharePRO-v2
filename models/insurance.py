@@ -16,6 +16,7 @@ import uuid
 from datetime import date, datetime, timedelta
 
 import config
+from models.db import to_local_time
 
 logger = logging.getLogger(__name__)
 
@@ -2649,6 +2650,7 @@ def list_export_batches(conn, limit=100, offset=0):
         item['insurance_type_label'] = (
             '学平险' if item['insurance_type'] == INSURANCE_TYPE_XUEPING else '实习就业险')
         item['action_label'] = '新生首保' if item['action'] == 'first' else '实习办结'
+        item['created_at'] = to_local_time(item.get('created_at'))
         items.append(item)
     return items
 
@@ -2676,7 +2678,10 @@ def list_operation_logs(conn, limit=200, action='', search='', offset=0):
     sql += ' ORDER BY l.created_at DESC, l.id DESC LIMIT ? OFFSET ?'
     params.append(max(1, min(int(limit), 1000)))
     params.append(max(0, int(offset)))
-    return [dict(row) for row in conn.execute(sql, params).fetchall()]
+    items = [dict(row) for row in conn.execute(sql, params).fetchall()]
+    for item in items:
+        item['created_at'] = to_local_time(item.get('created_at'))
+    return items
 
 
 def count_operation_logs(conn, action='', search=''):

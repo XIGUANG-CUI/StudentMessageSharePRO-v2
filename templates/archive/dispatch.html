@@ -26,6 +26,18 @@
 
     .ad-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
     .ad-stat { background: #fff; border: 1px solid var(--ad-gray-200); border-radius: var(--ad-radius); padding: .75rem 1rem; box-shadow: var(--ad-shadow); }
+
+    .ad-grade-banner {
+        display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+        background: linear-gradient(135deg, #134e4a, #0f766e); color: #fff;
+        border-radius: var(--ad-radius); padding: .9rem 1.15rem; margin-bottom: 1rem;
+        box-shadow: var(--ad-shadow);
+    }
+    .ad-grade-kicker { font-size: .72rem; font-weight: 700; letter-spacing: .08em; opacity: .82; }
+    .ad-grade-title { font-size: 1.4rem; font-weight: 800; line-height: 1.35; margin-top: .15rem; }
+    .ad-grade-meta { font-size: .8rem; opacity: .88; margin-top: .15rem; }
+    .ad-grade-switch { min-width: 270px; }
+    .ad-grade-switch .form-label { color: #fff; opacity: .85; font-size: .78rem; }
     .ad-stat-label { font-size: .76rem; color: var(--ad-gray-500); font-weight: 600; }
     .ad-stat-num { font-size: 1.4rem; font-weight: 700; color: var(--ad-gray-900); line-height: 1.35; }
     .ad-stat-num.is-ok { color: var(--ad-success); }
@@ -46,6 +58,44 @@
     .ad-sel-count { font-weight: 600; color: var(--ad-primary-dark); }
 
     .ad-county-list { max-height: 66vh; overflow-y: auto; }
+    .ad-county-tools {
+        display: flex; flex-direction: column; gap: .45rem;
+        padding: .55rem .7rem; border-bottom: 1px solid var(--ad-gray-100); background: #fff;
+    }
+    .ad-county-tabs { display: flex; gap: .3rem; }
+    .ad-county-tab {
+        flex: 1; border: 1px solid var(--ad-gray-200); background: #fff; border-radius: 99px;
+        font-size: .76rem; font-weight: 700; color: var(--ad-gray-500); padding: .22rem .4rem;
+        line-height: 1.3; transition: all .15s;
+    }
+    .ad-county-tab:hover { border-color: var(--ad-primary); color: var(--ad-primary); }
+    .ad-county-tab.is-active { background: var(--ad-primary); border-color: var(--ad-primary); color: #fff; }
+    .ad-county-tab .ad-tab-num { font-variant-numeric: tabular-nums; }
+    .ad-quick-chips { display: flex; gap: .3rem; flex-wrap: wrap; }
+    .ad-chip {
+        border: 1px solid var(--ad-gray-200); background: #fff; border-radius: 6px;
+        font-size: .72rem; padding: .1rem .42rem; color: var(--ad-gray-500); font-weight: 600;
+    }
+    .ad-chip:hover { border-color: var(--ad-primary); color: var(--ad-primary); }
+    .ad-chip.is-active { border-color: var(--ad-primary); color: var(--ad-primary); background: var(--ad-primary-light); }
+    .ad-county-bar { height: 4px; background: var(--ad-gray-100); border-radius: 3px; margin-top: .3rem; overflow: hidden; }
+    .ad-county-bar > i { display: block; height: 100%; background: var(--ad-success); transition: width .25s; }
+    .ad-status-tabs {
+        display: flex; gap: .35rem; padding: .5rem .8rem; background: #fff;
+        border-bottom: 1px solid var(--ad-gray-100); overflow-x: auto;
+    }
+    .ad-status-tab {
+        border: 1px solid var(--ad-gray-200); background: #fff; border-radius: 99px;
+        font-size: .8rem; font-weight: 700; color: var(--ad-gray-500);
+        padding: .2rem .62rem; white-space: nowrap; line-height: 1.4;
+    }
+    .ad-status-tab:hover { border-color: var(--ad-primary); color: var(--ad-primary); }
+    .ad-status-tab.is-active { background: var(--ad-primary); border-color: var(--ad-primary); color: #fff; }
+    .ad-status-num { font-variant-numeric: tabular-nums; opacity: .85; }
+    .ad-county-remain { background: #fff7ed; color: #b45309; font-size: .7rem; font-weight: 700; border-radius: 5px; padding: .1rem .35rem; }
+    .ad-mini-done { background: #ecfdf5; color: #047857; }
+    .ad-mini-hold { background: #fef3c7; color: #92400e; }
+    .ad-stat-num.is-hold { color: #b45309; }
     .ad-county-item {
         display: flex; align-items: center; justify-content: space-between; gap: .5rem;
         padding: .55rem .9rem; border-bottom: 1px solid var(--ad-gray-100); cursor: pointer;
@@ -85,6 +135,7 @@
     .ad-badge-study { background: #eff6ff; color: #1d4ed8; }
     .ad-badge-returned { background: #fef2f2; color: #b91c1c; }
     .ad-badge-invalid { background: var(--ad-gray-100); color: var(--ad-gray-500); }
+    .ad-badge-held { background: #fef3c7; color: #92400e; }
 
     .ad-empty { text-align: center; padding: 2.5rem 1rem; color: var(--ad-gray-500); font-size: .85rem; }
     .ad-agency-result { padding: .5rem .75rem; border-bottom: 1px solid var(--ad-gray-100); cursor: pointer; font-size: .84rem; }
@@ -104,20 +155,12 @@
         <div class="ad-subtitle">按县（区）筛选毕业生 → 生成派遣批次 → 导出毕业生档案转递单（每人一页）</div>
     </div>
     <div class="d-flex gap-2 align-items-center flex-wrap">
-        <label class="small text-muted mb-0">校别</label>
-        <select class="form-select form-select-sm" id="adSchool" style="max-width:150px">
-            <option value="">全部校别</option>
+        <div class="btn-group" id="adSchoolGroup" role="group" aria-label="校别筛选">
+            <button type="button" class="btn btn-outline-secondary btn-sm active" data-school="">全部</button>
             {% for st in school_types %}
-            <option value="{{ st.code }}">{{ st.name }}{% if not st.is_active %}（已停用）{% endif %}</option>
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-school="{{ st.code }}">{{ st.name }}{% if not st.is_active %}（已停用）{% endif %}</button>
             {% endfor %}
-        </select>
-        <label class="small text-muted mb-0">届别年级</label>
-        <select class="form-select form-select-sm" id="adGrade" style="max-width:150px">
-            <option value="">全部年级</option>
-            {% for g in list_grades %}
-            <option value="{{ g }}">{{ g }}</option>
-            {% endfor %}
-        </select>
+        </div>
         <button type="button" class="btn btn-outline-secondary btn-sm" id="adRefresh">
             <i class="bi bi-arrow-clockwise"></i> 刷新
         </button>
@@ -130,6 +173,30 @@
     </div>
 </div>
 
+<div class="ad-grade-banner">
+    <div>
+        <div class="ad-grade-kicker"><i class="bi bi-mortarboard-fill"></i> 当前毕业届别 · 本页仅展示该届毕业生</div>
+        <div class="ad-grade-title" id="adGradeTitle">{{ active_graduate_year }} 届 · {{ active_grade }}</div>
+        <div class="ad-grade-meta" id="adGradeMeta">正在加载该届毕业生数据…</div>
+    </div>
+    <div class="ad-grade-switch">
+        <label class="form-label mb-1" for="adGrade">切换毕业届别</label>
+        <select class="form-select form-select-sm" id="adGrade">
+            {% set grade_values = list_grades | map(attribute='grade') | list %}
+            {% for g in list_grades %}
+            <option value="{{ g.grade }}" {% if g.grade == active_grade %}selected{% endif %}>
+                {{ g.grade }} · {{ g.graduate_year }}届（{{ g.total }} 人）
+            </option>
+            {% endfor %}
+            {% if active_grade not in grade_values %}
+            <option value="{{ active_grade }}" selected>
+                {{ active_grade }} · {{ active_graduate_year }}届（暂无数据）
+            </option>
+            {% endif %}
+        </select>
+    </div>
+</div>
+
 <div class="ad-stats">
     <div class="ad-stat"><div class="ad-stat-label">毕业生</div><div class="ad-stat-num" id="adStatTotal">-</div></div>
     <div class="ad-stat"><div class="ad-stat-label">可派遣</div><div class="ad-stat-num is-ok" id="adStatDispatchable">-</div></div>
@@ -137,6 +204,7 @@
     <div class="ad-stat"><div class="ad-stat-label">已退回（退档）</div><div class="ad-stat-num is-returned" id="adStatReturned">-</div></div>
     <div class="ad-stat"><div class="ad-stat-label">升学</div><div class="ad-stat-num" id="adStatStudy">-</div></div>
     <div class="ad-stat"><div class="ad-stat-label">未匹配机构</div><div class="ad-stat-num is-warn" id="adStatUnmatched">-</div></div>
+    <div class="ad-stat"><div class="ad-stat-label">无法派遣（人工）</div><div class="ad-stat-num is-hold" id="adStatHeld">-</div></div>
 </div>
 
 <ul class="nav ad-tabs" id="adTabs">
@@ -167,6 +235,29 @@
         <div class="col-lg-3">
             <div class="ad-card">
                 <div class="ad-card-header"><span><i class="bi bi-geo-alt"></i> 县（区）</span><span class="small" id="adCountyCount"></span></div>
+                <div class="ad-county-tools">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control" id="adCountySearch"
+                               placeholder="搜索县（区）名称 / 机构" autocomplete="off">
+                        <button class="btn btn-outline-secondary" type="button" id="adCountySearchClear" hidden>
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                    <div class="ad-county-tabs" id="adCountyTabs">
+                        <button type="button" class="ad-county-tab is-active" data-ctab="todo">
+                            待办 <span class="ad-tab-num" id="adCountyTodoNum">0</span>
+                        </button>
+                        <button type="button" class="ad-county-tab" data-ctab="done">
+                            已完成派遣 <span class="ad-tab-num" id="adCountyDoneNum">0</span>
+                        </button>
+                    </div>
+                    <div class="ad-quick-chips" id="adCountyChips">
+                        <button type="button" class="ad-chip is-active" data-chip="">全部</button>
+                        <button type="button" class="ad-chip" data-chip="unmatched">有未匹配</button>
+                        <button type="button" class="ad-chip" data-chip="returned">有退档</button>
+                    </div>
+                </div>
                 <div class="ad-county-list" id="adCountyList">
                     <div class="ad-empty">加载中…</div>
                 </div>
@@ -177,6 +268,9 @@
                 <div class="ad-card-header">
                     <span id="adCountyTitle">请先在左侧选择县（区）</span>
                     <div class="d-flex gap-2 flex-wrap">
+                        <button type="button" class="btn btn-sm btn-outline-light" id="adMarkHold" disabled>
+                            <i class="bi bi-slash-circle"></i> 标记无法派遣
+                        </button>
                         <button type="button" class="btn btn-sm btn-outline-light" id="adMarkStudy" disabled>
                             <i class="bi bi-mortarboard"></i> 标记升学
                         </button>
@@ -185,18 +279,11 @@
                         </button>
                     </div>
                 </div>
+                <div class="ad-status-tabs" id="adStatusTabs"></div>
                 <div class="ad-toolbar">
                     <label class="d-flex align-items-center gap-1 mb-0">
                         <input type="checkbox" id="adSelectAll"> 全选本页
                     </label>
-                    <select class="form-select form-select-sm" id="adStatusFilter" style="max-width:140px">
-                        <option value="">全部状态</option>
-                        <option value="pending">待派遣</option>
-                        <option value="unmatched">未匹配</option>
-                        <option value="sent">已派遣</option>
-                        <option value="returned">已退回（退档）</option>
-                        <option value="study">升学</option>
-                    </select>
                     <input type="text" class="form-control form-control-sm" id="adSearch" placeholder="学号 / 姓名 / 身份证" style="max-width:220px">
                     <span class="ad-sel-count" id="adSelCount">已选 0 人</span>
                 </div>
@@ -214,11 +301,13 @@
                                 <th>住址</th>
                                 <th>匹配方式</th>
                                 <th>派遣状态</th>
+                                <th>派遣日期</th>
+                                <th>批次号</th>
                                 <th>操作</th>
                             </tr>
                         </thead>
                         <tbody id="adTableBody">
-                            <tr><td colspan="11" class="ad-empty">请先在左侧选择县（区）</td></tr>
+                            <tr><td colspan="13" class="ad-empty">请先在左侧选择县（区）</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -237,7 +326,8 @@
                 <input type="date" class="form-control form-control-sm" id="adExportStart" style="max-width:150px">
                 <span>至</span>
                 <input type="date" class="form-control form-control-sm" id="adExportEnd" style="max-width:150px">
-                <button type="button" class="btn btn-sm btn-light text-dark fw-bold" id="adExportDetailBtn">
+                <button type="button" class="btn btn-sm btn-light text-dark fw-bold" id="adExportDetailBtn" disabled
+                        title="仅导出批次列表中勾选的批次明细">
                     <i class="bi bi-file-earmark-excel"></i> 导出派遣明细
                 </button>
                 <button type="button" class="btn btn-sm btn-outline-light" id="adExportClearBtn">清空日期</button>
@@ -250,7 +340,7 @@
             <span class="ad-sel-count" id="adBatchSelCount">已选 0 个批次</span>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="adBatchClearSelBtn">清空选择</button>
             <span class="small text-muted ms-auto">
-                勾选多个区县批次可合并为一个 Word 连续打印；已导出批次会显示标记，重复导出前会二次确认
+                勾选多个区县批次可合并为一个 Word 连续打印；「导出派遣明细」只导出勾选的批次；已导出批次会显示标记，重复导出前会二次确认
             </span>
         </div>
         <div class="ad-table-wrap" style="max-height:66vh">
@@ -355,6 +445,34 @@
         </div>
     </div>
 </div>
+<!-- 人工标记「无法派遣」弹窗（与机构匹配逻辑无关） -->
+<div class="modal fade" id="adHoldModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-slash-circle"></i> 标记无法派遣</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="small text-muted mb-2" id="adHoldTarget"></div>
+                <div class="fw-bold small mb-1">标记原因（必选）</div>
+                <div class="d-flex flex-column gap-1 mb-3" id="adHoldReasons"></div>
+                <div class="alert alert-warning py-2 px-3 small mb-3" id="adHoldReasonEmpty" hidden>
+                    尚未配置标记原因，请先到
+                    <a href="{{ url_for('admin.admin_dicts') }}" target="_blank">字典管理</a>
+                    新增字典类型 <code>archive_hold_reason</code> 及其选项。
+                </div>
+                <label class="form-label small mb-1" for="adHoldNote">补充说明（可选）</label>
+                <textarea class="form-control form-control-sm" id="adHoldNote" rows="2"
+                          placeholder="如：班主任已联系家长，等待补交材料"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-warning btn-sm" id="adHoldConfirm">确认标记</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -362,17 +480,24 @@
     'use strict';
 
     var state = {
-        grade: '',
+        grade: {{ active_grade | tojson }},
         school: '',
         county: '',
         counties: [],
+        grades: [],
+        countyQuery: '',
+        countyQuick: '',
+        countyTab: 'todo',
+        statusTab: 'pending',
         students: [],
+        studentsAll: [],
         batches: [],
         study: [],
         studyCounty: '',
         selected: new Set(),
         studySelected: new Set(),
         batchSelected: new Set(),
+        holdTargets: [],
         agencyDispatchId: null,
         globalResults: [],
         highlightId: null
@@ -383,7 +508,8 @@
         '已派遣': 'ad-badge-sent',
         '已退回': 'ad-badge-returned',
         '已失效': 'ad-badge-invalid',
-        '升学': 'ad-badge-study'
+        '升学': 'ad-badge-study',
+        '无法派遣': 'ad-badge-held'
     };
     var MATCH_CLASS = {
         '县级直寄': 'ad-badge-county',
@@ -392,6 +518,9 @@
         '人工指定': 'ad-badge-city',
         '未匹配': 'ad-badge-none'
     };
+
+    // 「无法派遣」标记原因：来自字典 archive_hold_reason（/admin/dicts 动态维护）
+    var HOLD_REASONS = {{ hold_reasons | tojson }};
 
     function esc(v) {
         return String(v === null || v === undefined ? '' : v)
@@ -416,7 +545,7 @@
             .then(function(data) {
                 if (data.success) {
                     showToast(okText, 'success');
-                    loadOverview().then(loadStudents);
+                    refreshAfterMutation();
                 } else {
                     showToast(data.message || '操作失败', 'danger');
                 }
@@ -492,13 +621,66 @@
         }
         switchPane('dispatch');
         state.highlightId = item.student_id;
-        // 定位后展示该县全部学生：清空县内状态筛选与关键词，仅用高亮标记目标学生
-        document.getElementById('adStatusFilter').value = '';
+        // 定位后展示该县全部学生：清空县内筛选，并切到该县所在标签页
+        state.countyQuery = '';
+        state.countyQuick = '';
+        state.countyTab = found.done ? 'done' : 'todo';
+        state.statusTab = rowStatusKey(item);  // 直接切到该生所在状态的标签页
+        document.getElementById('adCountySearch').value = '';
+        syncCountyTools();
         document.getElementById('adSearch').value = '';
-        selectCounty(item.county_code);
+        selectCounty(item.county_code, { preserveFilter: true }).then(function() {
+            // 以该县实际数据为准再校正一次标签页（搜索接口与列表字段不完全一致）
+            var target = state.studentsAll.filter(function(s) {
+                return s.id === item.student_id;
+            })[0];
+            if (!target) return;
+            var key = rowStatusKey(target);
+            if (key !== state.statusTab) {
+                state.statusTab = key;
+                renderStatusTabs();
+                renderStudents();
+            }
+        });
     }
 
     // ---------------------------------------------------- 概览
+    function gradeYear(grade) {
+        var m = /(\d{4})/.exec(String(grade || ''));
+        return m ? parseInt(m[1], 10) + 3 : '';
+    }
+
+    // 届别下拉：展示「年级 · 届（人数）」；当前届无数据时保留为「暂无数据」项
+    function renderGrades(options) {
+        state.grades = options || [];
+        var sel = document.getElementById('adGrade');
+        var hasCurrent = state.grades.some(function(g) { return g.grade === state.grade; });
+        var html = state.grades.map(function(g) {
+            return '<option value="' + esc(g.grade) + '">' + esc(g.grade) + ' · ' +
+                esc(g.graduate_year) + '届（' + g.total + ' 人）</option>';
+        }).join('');
+        if (!hasCurrent && state.grade) {
+            html = '<option value="' + esc(state.grade) + '">' + esc(state.grade) + ' · ' +
+                gradeYear(state.grade) + '届（暂无数据）</option>' + html;
+        }
+        sel.innerHTML = html;
+        sel.value = state.grade;
+    }
+
+    function renderGradeBanner() {
+        var total = 0, todoCounties = 0;
+        state.counties.forEach(function(c) {
+            total += c.total;
+            if (!c.done) todoCounties += 1;
+        });
+        var year = gradeYear(state.grade);
+        document.getElementById('adGradeTitle').textContent =
+            year ? year + ' 届 · ' + state.grade : state.grade;
+        document.getElementById('adGradeMeta').textContent = total
+            ? '毕业生 ' + total + ' 人 · 区县 ' + state.counties.length + ' 个 · 待办区县 ' + todoCounties + ' 个'
+            : '该届暂无毕业生数据，请确认是否已完成毕业处理，或在右上角切换其他届别';
+    }
+
     function loadOverview() {
         var params = new URLSearchParams({ grade: state.grade, school: state.school });
         return fetch('/api/archive/overview?' + params.toString())
@@ -506,6 +688,8 @@
             .then(function(data) {
                 state.counties = data.counties || [];
                 state.batches = data.batches || [];
+                renderGrades(data.grades);
+                renderGradeBanner();
                 renderStats();
                 renderCounties();
                 renderBatches();
@@ -513,7 +697,7 @@
     }
 
     function renderStats() {
-        var total = 0, dispatchable = 0, sent = 0, study = 0, unmatched = 0, returned = 0;
+        var total = 0, dispatchable = 0, sent = 0, study = 0, unmatched = 0, returned = 0, held = 0;
         state.counties.forEach(function(c) {
             total += c.total;
             dispatchable += c.dispatchable;
@@ -521,6 +705,7 @@
             study += c.study;
             unmatched += c.unmatched;
             returned += (c.returned || 0);
+            held += (c.held || 0);
         });
         document.getElementById('adStatTotal').textContent = total;
         document.getElementById('adStatDispatchable').textContent = dispatchable;
@@ -528,29 +713,132 @@
         document.getElementById('adStatReturned').textContent = returned;
         document.getElementById('adStatStudy').textContent = study;
         document.getElementById('adStatUnmatched').textContent = unmatched;
+        document.getElementById('adStatHeld').textContent = held;
+    }
+
+    function currentCounty() {
+        return state.counties.filter(function(c) { return c.county_code === state.county; })[0] || null;
+    }
+
+    // 状态变更后刷新概览与学生列表；当前县刚完成派遣时自动归档到「已完成派遣」
+    function refreshAfterMutation() {
+        var before = currentCounty();
+        var wasDone = !!(before && before.done);
+        return loadOverview().then(function() {
+            if (!state.county) return null;
+            return loadStudents();
+        }).then(function() {
+            var now = currentCounty();
+            if (!state.county || !now) return;
+            if (!wasDone && now.done) {
+                state.countyTab = 'done';
+                syncCountyTools();
+                renderCounties();
+                document.getElementById('adCountyTitle').textContent =
+                    now.county_name + '（' + now.total + ' 人） · 已完成派遣';
+                showToast('「' + now.county_name + '」已完成派遣，已移至「已完成派遣」标签页', 'success');
+            } else if (wasDone && !now.done) {
+                // 例如取消升学后重新产生待办，县回到待办标签页
+                state.countyTab = 'todo';
+                syncCountyTools();
+                renderCounties();
+                showToast('「' + now.county_name + '」重新产生待办，已移回「待办」标签页', 'warning');
+            }
+        });
+    }
+
+    function countyProgress(c) {
+        var need = c.dispatch_required || 0;
+        if (!need) return 100;  // 全部升学/失效，无派遣任务
+        return Math.round(Math.min(c.sent || 0, need) / need * 100);
+    }
+
+    function countyMatchesQuick(c) {
+        if (state.countyQuick === 'unmatched') return (c.unmatched || 0) > 0;
+        if (state.countyQuick === 'returned') return (c.returned || 0) > 0;
+        return true;
+    }
+
+    // 当前标签页 + 快捷筛选 + 关键词过滤后的区县（待办按剩余量降序）
+    function visibleCounties() {
+        var q = state.countyQuery.trim().toLowerCase();
+        var list = state.counties.filter(function(c) {
+            if (!!c.done !== (state.countyTab === 'done')) return false;
+            if (!countyMatchesQuick(c)) return false;
+            if (!q) return true;
+            var text = (c.county_name + ' ' + (c.agency_name || '') + ' ' + (c.county_code || '')).toLowerCase();
+            return text.indexOf(q) >= 0;
+        });
+        list.sort(function(a, b) {
+            if (state.countyTab === 'done') {
+                return a.county_name.localeCompare(b.county_name, 'zh-Hans-CN');
+            }
+            return (b.remaining - a.remaining) || (b.dispatchable - a.dispatchable) ||
+                a.county_name.localeCompare(b.county_name, 'zh-Hans-CN');
+        });
+        return list;
+    }
+
+    function syncCountyTools() {
+        document.querySelectorAll('#adCountyTabs .ad-county-tab').forEach(function(btn) {
+            btn.classList.toggle('is-active', btn.getAttribute('data-ctab') === state.countyTab);
+        });
+        document.querySelectorAll('#adCountyChips .ad-chip').forEach(function(btn) {
+            btn.classList.toggle('is-active', btn.getAttribute('data-chip') === state.countyQuick);
+        });
+        document.getElementById('adCountySearchClear').hidden = !state.countyQuery;
     }
 
     function renderCounties() {
         var box = document.getElementById('adCountyList');
-        document.getElementById('adCountyCount').textContent = state.counties.length + ' 个';
+        var todoCount = state.counties.filter(function(c) { return !c.done; }).length;
+        document.getElementById('adCountyTodoNum').textContent = todoCount;
+        document.getElementById('adCountyDoneNum').textContent = state.counties.length - todoCount;
+        document.getElementById('adCountySearchClear').hidden = !state.countyQuery;
+
+        var list = visibleCounties();
+        document.getElementById('adCountyCount').textContent = list.length === state.counties.length
+            ? state.counties.length + ' 个'
+            : list.length + ' / ' + state.counties.length + ' 个';
+
         if (!state.counties.length) {
-            box.innerHTML = '<div class="ad-empty">暂无毕业生数据</div>';
-            return;
+            box.innerHTML = '<div class="ad-empty">「' + esc(state.grade) +
+                '」暂无毕业生数据<br><span class="small">请确认该届是否已完成毕业处理，或在页面上方切换其他届别</span></div>';
+        } else if (!list.length) {
+            var hint = state.countyQuery
+                ? '没有匹配「' + esc(state.countyQuery) + '」的区县'
+                : (state.countyTab === 'done' ? '暂无已完成派遣的区县' : '暂无待办的区县');
+            box.innerHTML = '<div class="ad-empty">' + hint + '</div>';
+        } else {
+            box.innerHTML = list.map(function(c) {
+                var ok = c.dispatchable
+                    ? '<span class="ad-mini ad-mini-ok" title="可派遣（已匹配机构）">' + c.dispatchable + '</span>' : '';
+                var back = c.returned
+                    ? '<span class="ad-mini ad-mini-returned" title="退档待重派">' + c.returned + '</span>' : '';
+                var bad = c.unmatched
+                    ? '<span class="ad-mini ad-mini-bad" title="未匹配接收机构">' + c.unmatched + '</span>' : '';
+                var hold = c.held
+                    ? '<span class="ad-mini ad-mini-hold" title="人工标记无法派遣">异常 ' + c.held + '</span>' : '';
+                var rest = '<span class="ad-mini ad-mini-off" title="该县毕业生总数">' + c.total + '</span>';
+                var tag = c.done
+                    ? '<span class="ad-mini ad-mini-done" style="flex-shrink:0" title="已完成派遣">完成</span>'
+                    : '<span class="ad-county-remain" style="flex-shrink:0" title="待派遣 + 退档待重派">待办 ' +
+                      (c.remaining || 0) + '</span>';
+                var tip = c.county_name + ' · 已派遣 ' + (c.sent || 0) + ' / 应派遣 ' +
+                    (c.dispatch_required || 0) + ' · 升学 ' + (c.study || 0);
+                return '<div class="ad-county-item' + (state.county === c.county_code ? ' is-active' : '') +
+                       '" data-code="' + esc(c.county_code) + '" title="' + esc(tip) + '">' +
+                       '<div style="min-width:0;flex:1">' +
+                       '<div class="d-flex align-items-center gap-1">' +
+                       '<span class="ad-county-name text-truncate">' + esc(c.county_name) + '</span>' + tag +
+                       '</div>' +
+                       '<div class="ad-county-meta text-truncate">' + esc(c.agency_name || '未配置机构') + '</div>' +
+                       '<div class="ad-county-bar"><i style="width:' + countyProgress(c) + '%"></i></div>' +
+                       '</div>' +
+                       '<div class="ad-county-nums">' + ok + back + bad + hold + rest + '</div>' +
+                       '</div>';
+            }).join('');
         }
-        box.innerHTML = state.counties.map(function(c) {
-            var ok = c.dispatchable ? '<span class="ad-mini ad-mini-ok">' + c.dispatchable + '</span>' : '';
-            var back = c.returned ? '<span class="ad-mini ad-mini-returned">' + c.returned + '</span>' : '';
-            var bad = c.unmatched ? '<span class="ad-mini ad-mini-bad">' + c.unmatched + '</span>' : '';
-            var rest = '<span class="ad-mini ad-mini-off">' + c.total + '</span>';
-            return '<div class="ad-county-item' + (state.county === c.county_code ? ' is-active' : '') +
-                   '" data-code="' + esc(c.county_code) + '">' +
-                   '<div style="min-width:0">' +
-                   '<div class="ad-county-name">' + esc(c.county_name) + '</div>' +
-                   '<div class="ad-county-meta">' + esc(c.agency_name || '未配置机构') + '</div>' +
-                   '</div>' +
-                   '<div class="ad-county-nums">' + ok + back + bad + rest + '</div>' +
-                   '</div>';
-        }).join('');
 
         var studySelect = document.getElementById('adStudyCounty');
         studySelect.innerHTML = '<option value="">全部县（区）</option>' +
@@ -578,7 +866,7 @@
             var sent = b.sent || 0;
             var redispatch = b.redispatch || 0;
             var returned = b.returned || 0;
-            var ignored = (b.study || 0) + (b.invalid || 0);
+            var ignored = (b.study || 0) + (b.invalid || 0) + (b.held || 0);
             var allSent = active > 0 && sent >= active;
             var picked = state.batchSelected.has(b.batch_no);
             var exportMark = b.exported_at
@@ -622,6 +910,7 @@
         document.getElementById('adBatchSelCount').textContent =
             '已选 ' + state.batchSelected.size + ' 个批次';
         document.getElementById('adBatchExportBtn').disabled = state.batchSelected.size === 0;
+        document.getElementById('adExportDetailBtn').disabled = state.batchSelected.size === 0;
         var all = document.getElementById('adBatchSelectAll');
         all.checked = state.batches.length > 0 &&
             state.batchSelected.size === state.batches.length;
@@ -630,33 +919,69 @@
     }
 
     // ---------------------------------------------------- 学生列表
-    function selectCounty(code) {
+    function selectCounty(code, opts) {
+        opts = opts || {};
+        var item = state.counties.filter(function(c) { return c.county_code === code; })[0];
         state.county = code;
         state.selected.clear();
         document.getElementById('adSelectAll').checked = false;
-        var item = state.counties.filter(function(c) { return c.county_code === code; })[0];
         document.getElementById('adCountyTitle').textContent = item
-            ? item.county_name + '（' + item.total + ' 人）'
+            ? item.county_name + '（' + item.total + ' 人）' + (item.done ? ' · 已完成派遣' : '')
             : '请先在左侧选择县（区）';
+        if (!opts.preserveFilter) {
+            // 已完成派遣的区县：默认看已派遣；其余默认看待派遣
+            state.statusTab = item && item.done ? 'sent' : 'pending';
+        }
         renderCounties();
-        loadStudents();
+        return loadStudents();
+    }
+
+    var STATUS_TABS = [
+        { key: 'pending', label: '待派遣' },
+        { key: 'sent', label: '已派遣' },
+        { key: 'study', label: '升学' },
+        { key: 'returned', label: '已退回' },
+        { key: 'held', label: '无法派遣' }
+    ];
+
+    function rowStatusKey(s) {
+        if (s.hold) return 'held';
+        if (s.dispatch_status === '已派遣') return 'sent';
+        if (s.dispatch_status === '升学') return 'study';
+        if (s.dispatch_status === '已退回') return 'returned';
+        if (s.dispatch_status === '已失效') return 'invalid';
+        return 'pending';
+    }
+
+    function renderStatusTabs() {
+        var counts = { pending: 0, sent: 0, study: 0, returned: 0, invalid: 0, held: 0 };
+        state.studentsAll.forEach(function(s) { counts[rowStatusKey(s)] += 1; });
+        var tabs = STATUS_TABS.slice();
+        if (counts.invalid) tabs.push({ key: 'invalid', label: '已失效' });
+        document.getElementById('adStatusTabs').innerHTML = tabs.map(function(t) {
+            return '<button type="button" class="ad-status-tab' + (state.statusTab === t.key ? ' is-active' : '') +
+                '" data-status="' + t.key + '">' + t.label +
+                ' <span class="ad-status-num">' + counts[t.key] + '</span></button>';
+        }).join('');
     }
 
     function loadStudents() {
         if (!state.county) {
             document.getElementById('adTableBody').innerHTML =
-                '<tr><td colspan="11" class="ad-empty">请先在左侧选择县（区）</td></tr>';
+                '<tr><td colspan="13" class="ad-empty">请先在左侧选择县（区）</td></tr>';
+            document.getElementById('adStatusTabs').innerHTML = '';
+            state.students = [];
+            state.studentsAll = [];
             updateSelCount();
-            return;
+            return Promise.resolve();
         }
         var params = new URLSearchParams({
             grade: state.grade,
             school: state.school,
-            county: state.county,
-            status: document.getElementById('adStatusFilter').value
+            county: state.county
         });
         var keyword = document.getElementById('adSearch').value.trim().toLowerCase();
-        fetch('/api/archive/students?' + params.toString())
+        return fetch('/api/archive/students?' + params.toString())
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 var rows = data.students || [];
@@ -667,34 +992,55 @@
                                (s.id_card || '').toLowerCase().indexOf(keyword) >= 0;
                     });
                 }
-                state.students = rows;
+                state.studentsAll = rows;
+                renderStatusTabs();
                 renderStudents();
             })
             .catch(function() {
                 document.getElementById('adTableBody').innerHTML =
-                    '<tr><td colspan="11" class="ad-empty">加载失败，请重试</td></tr>';
+                    '<tr><td colspan="13" class="ad-empty">加载失败，请重试</td></tr>';
             });
     }
 
     function canPick(s) {
-        return s.dispatch_status === '' || s.dispatch_status === '待派遣' || s.dispatch_status === '已退回';
+        return !s.hold && (s.dispatch_status === '' || s.dispatch_status === '待派遣' || s.dispatch_status === '已退回');
     }
 
     function renderStudents() {
         var body = document.getElementById('adTableBody');
+        state.students = state.studentsAll.filter(function(s) {
+            return rowStatusKey(s) === state.statusTab;
+        });
         if (!state.students.length) {
-            body.innerHTML = '<tr><td colspan="11" class="ad-empty">该县暂无符合条件的毕业生</td></tr>';
+            var tabLabel = (STATUS_TABS.filter(function(t) { return t.key === state.statusTab; })[0] || {}).label ||
+                (state.statusTab === 'invalid' ? '已失效' : '该状态');
+            body.innerHTML = '<tr><td colspan="13" class="ad-empty">该县暂无「' + tabLabel + '」学生</td></tr>';
             updateSelCount();
             return;
         }
         body.innerHTML = state.students.map(function(s) {
             var pickable = canPick(s);
             var picked = state.selected.has(s.id);
+            var held = !!s.hold;
             var matchCls = MATCH_CLASS[s.match_status] || 'ad-badge-pending';
-            var statusCls = STATUS_CLASS[s.dispatch_status] || 'ad-badge-pending';
-            var statusText = s.dispatch_status || '未生成';
+            var statusCls = held ? 'ad-badge-held' : (STATUS_CLASS[s.dispatch_status] || 'ad-badge-pending');
+            var statusText = held ? '无法派遣' : (s.dispatch_status || '未生成');
+            var statusExtra = held && s.hold.reason
+                ? '<div class="small text-muted">' + esc(s.hold.reason) +
+                  (s.hold.operator ? ' · ' + esc(s.hold.operator) : '') + '</div>'
+                : '';
+            var holdBtn = '<button type="button" class="btn btn-sm btn-outline-warning" data-hold="' +
+                s.id + '" data-name="' + esc(s.name) + '">无法派遣</button>';
             var actions = '';
-            if (s.dispatch_id && (s.dispatch_status === '待派遣' || s.dispatch_status === '已退回')) {
+            if (held) {
+                actions = '<button type="button" class="btn btn-sm btn-outline-secondary" data-release-hold="' +
+                    s.id + '" data-name="' + esc(s.name) + '">恢复待办</button>';
+            } else if (s.dispatch_status === '升学') {
+                actions = '<button type="button" class="btn btn-sm btn-outline-warning" data-cancel-study="' +
+                    s.id + '" data-name="' + esc(s.name) + '">取消升学</button>';
+            } else if (s.dispatch_status === '已失效') {
+                actions = '<span class="small text-muted">已失效</span>';
+            } else if (s.dispatch_id && (s.dispatch_status === '待派遣' || s.dispatch_status === '已退回')) {
                 actions += '<button type="button" class="btn btn-sm btn-outline-secondary" data-dispatch="' + s.dispatch_id +
                     '" data-name="' + esc(s.name) + '">改机构</button> ';
                 actions += '<button type="button" class="btn btn-sm btn-outline-success" data-sent="' + s.dispatch_id + '">已派遣</button>';
@@ -703,11 +1049,10 @@
                         s.dispatch_id + '">恢复待派遣</button>';
                 }
             } else if (s.dispatch_status === '已派遣') {
-                actions = '<span class="small text-muted">' + esc(s.batch_no) + '</span> ' +
-                    '<button type="button" class="btn btn-sm btn-outline-danger" data-returned="' +
+                actions = '<button type="button" class="btn btn-sm btn-outline-danger" data-returned="' +
                     s.dispatch_id + '">退档</button>';
             } else if (!s.dispatch_id) {
-                actions = '<span class="small text-muted">未生成</span>';
+                actions = '<span class="small text-muted">未生成</span> ' + holdBtn;
             }
             return '<tr class="' + (picked ? 'is-picked' : '') + '" data-student-id="' + s.id + '">' +
                 '<td>' + (pickable
@@ -722,7 +1067,9 @@
                 '<td class="ad-addr" title="' + esc(s.address || '') + '">' + esc(s.address || '—') + '</td>' +
                 '<td>' + badge(s.match_status, matchCls) +
                     (s.match_reason ? ' <span class="small text-muted">' + esc(s.match_reason) + '</span>' : '') + '</td>' +
-                '<td>' + badge(statusText, statusCls) + '</td>' +
+                '<td>' + badge(statusText, statusCls) + statusExtra + '</td>' +
+                '<td class="ad-mono">' + esc(s.dispatch_date || '—') + '</td>' +
+                '<td class="ad-mono">' + esc(s.batch_no || '—') + '</td>' +
                 '<td>' + actions + '</td>' +
                 '</tr>';
         }).join('');
@@ -741,6 +1088,7 @@
         document.getElementById('adSelCount').textContent = '已选 ' + state.selected.size + ' 人';
         document.getElementById('adGenerate').disabled = !state.county || state.selected.size === 0;
         document.getElementById('adMarkStudy').disabled = state.selected.size === 0;
+        document.getElementById('adMarkHold').disabled = state.selected.size === 0;
     }
 
     // ---------------------------------------------------- 事件：按县派遣
@@ -749,6 +1097,31 @@
         if (!item) return;
         state.highlightId = null;
         selectCounty(item.getAttribute('data-code'));
+    });
+
+    document.getElementById('adCountySearch').addEventListener('input', function() {
+        state.countyQuery = this.value;
+        renderCounties();
+    });
+    document.getElementById('adCountySearchClear').addEventListener('click', function() {
+        state.countyQuery = '';
+        document.getElementById('adCountySearch').value = '';
+        renderCounties();
+        document.getElementById('adCountySearch').focus();
+    });
+    document.getElementById('adCountyTabs').addEventListener('click', function(e) {
+        var btn = e.target.closest('[data-ctab]');
+        if (!btn) return;
+        state.countyTab = btn.getAttribute('data-ctab');
+        syncCountyTools();
+        renderCounties();
+    });
+    document.getElementById('adCountyChips').addEventListener('click', function(e) {
+        var btn = e.target.closest('[data-chip]');
+        if (!btn) return;
+        state.countyQuick = btn.getAttribute('data-chip');
+        syncCountyTools();
+        renderCounties();
     });
 
     document.getElementById('adGlobalSearchBtn').addEventListener('click', globalSearch);
@@ -774,7 +1147,13 @@
         if (item) locateStudent(item);
     });
 
-    document.getElementById('adStatusFilter').addEventListener('change', loadStudents);
+    document.getElementById('adStatusTabs').addEventListener('click', function(e) {
+        var btn = e.target.closest('[data-status]');
+        if (!btn) return;
+        state.statusTab = btn.getAttribute('data-status');
+        renderStatusTabs();
+        renderStudents();
+    });
     document.getElementById('adSearch').addEventListener('input', function() {
         clearTimeout(state._searchTimer);
         state._searchTimer = setTimeout(loadStudents, 250);
@@ -828,7 +1207,7 @@
                             showToast('跳过 ' + data.skipped.length + ' 人：' + data.skipped.slice(0, 3).join('；'), 'warning');
                         }
                         state.selected.clear();
-                        loadOverview().then(loadStudents);
+                        refreshAfterMutation();
                     } else {
                         showToast(data.message || '生成失败', 'danger');
                     }
@@ -850,7 +1229,7 @@
                     if (data.success) {
                         showToast(data.message, 'success');
                         state.selected.clear();
-                        loadOverview().then(loadStudents);
+                        refreshAfterMutation();
                     } else {
                         showToast(data.message || '标记失败', 'danger');
                     }
@@ -859,7 +1238,116 @@
             .catch(function() { showToast('标记失败，请重试', 'danger'); });
     });
 
+    // ---------------------------------------------------- 人工标记「无法派遣」
+    // 标记原因按字典动态渲染；字典未配置时提示去维护并禁用确认
+    function renderHoldReasons() {
+        var box = document.getElementById('adHoldReasons');
+        box.innerHTML = HOLD_REASONS.map(function(text) {
+            return '<label class="form-check mb-0">' +
+                '<input class="form-check-input" type="radio" name="adHoldReason" value="' + esc(text) + '">' +
+                '<span class="form-check-label">' + esc(text) + '</span></label>';
+        }).join('');
+        document.getElementById('adHoldReasonEmpty').hidden = HOLD_REASONS.length > 0;
+        document.getElementById('adHoldConfirm').disabled = HOLD_REASONS.length === 0;
+    }
+
+    function openHoldModal(ids, targetText) {
+        state.holdTargets = ids || [];
+        document.getElementById('adHoldTarget').textContent = targetText || '';
+        document.getElementById('adHoldNote').value = '';
+        document.querySelectorAll('input[name="adHoldReason"]').forEach(function(el) { el.checked = false; });
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('adHoldModal')).show();
+    }
+
+    document.getElementById('adMarkHold').addEventListener('click', function() {
+        if (!state.selected.size) return;
+        // 只有「未生成派遣批次」的学生可标记：生成批次代表档案完整性已人工核对
+        var ids = Array.from(state.selected).filter(function(id) {
+            var s = state.studentsAll.find(function(x) { return x.id === id; });
+            return s && !s.dispatch_id;
+        });
+        if (!ids.length) {
+            showToast('所选学生均已生成派遣批次，不能标记「无法派遣」', 'warning');
+            return;
+        }
+        var skipped = state.selected.size - ids.length;
+        openHoldModal(ids, '已选 ' + ids.length + ' 名学生' +
+            (skipped ? '（已自动排除 ' + skipped + ' 名已生成批次学生）' : ''));
+    });
+
+    document.getElementById('adHoldConfirm').addEventListener('click', function() {
+        var checked = document.querySelector('input[name="adHoldReason"]:checked');
+        if (!checked) {
+            showToast('请选择标记原因', 'warning');
+            return;
+        }
+        if (!state.holdTargets.length) return;
+        postJSON('/api/archive/hold/mark', {
+            student_ids: state.holdTargets,
+            reason: checked.value,
+            note: document.getElementById('adHoldNote').value.trim()
+        }).then(function(data) {
+            if (data.success) {
+                bootstrap.Modal.getOrCreateInstance(document.getElementById('adHoldModal')).hide();
+                showToast(data.message, 'success');
+                state.selected.clear();
+                state.holdTargets = [];
+                refreshAfterMutation();
+            } else {
+                showToast(data.message || '标记失败', 'danger');
+            }
+        }).catch(function() { showToast('标记失败，请重试', 'danger'); });
+    });
+
     document.getElementById('adTableBody').addEventListener('click', function(e) {
+        var holdBtn = e.target.closest('[data-hold]');
+        if (holdBtn) {
+            openHoldModal([parseInt(holdBtn.getAttribute('data-hold'), 10)],
+                '当前学生：' + holdBtn.getAttribute('data-name'));
+            return;
+        }
+        var releaseBtn = e.target.closest('[data-release-hold]');
+        if (releaseBtn) {
+            var releaseName = releaseBtn.getAttribute('data-name');
+            showConfirm('恢复「' + releaseName + '」为待派遣？恢复后可重新生成派遣批次。', 'warn')
+                .then(function(ok) {
+                    if (!ok) return;
+                    return postJSON('/api/archive/hold/release', {
+                        student_ids: [parseInt(releaseBtn.getAttribute('data-release-hold'), 10)]
+                    }).then(function(data) {
+                        if (data.success) {
+                            showToast(data.message, 'success');
+                            state.statusTab = 'pending';
+                            refreshAfterMutation();
+                        } else {
+                            showToast(data.message || '恢复失败', 'danger');
+                        }
+                    });
+                })
+                .catch(function() { showToast('恢复失败，请重试', 'danger'); });
+            return;
+        }
+        var cancelStudyBtn = e.target.closest('[data-cancel-study]');
+        if (cancelStudyBtn) {
+            var name = cancelStudyBtn.getAttribute('data-name');
+            showConfirm('取消「' + name + '」的升学标记？取消后该生将回到「待派遣」。', 'warn')
+                .then(function(ok) {
+                    if (!ok) return;
+                    return postJSON('/api/archive/further-study/cancel', {
+                        student_ids: [parseInt(cancelStudyBtn.getAttribute('data-cancel-study'), 10)]
+                    }).then(function(data) {
+                        if (data.success) {
+                            showToast(data.message, 'success');
+                            state.statusTab = 'pending';
+                            refreshAfterMutation();
+                        } else {
+                            showToast(data.message || '取消失败', 'danger');
+                        }
+                    });
+                })
+                .catch(function() { showToast('取消失败，请重试', 'danger'); });
+            return;
+        }
         var sentBtn = e.target.closest('[data-sent]');
         if (sentBtn) {
             changeStatus(sentBtn.getAttribute('data-sent'), 'sent', '已标记为已派遣');
@@ -896,14 +1384,14 @@
         var btn = e.target.closest('[data-send-batch]');
         if (!btn) return;
         var batchNo = btn.getAttribute('data-send-batch');
-        showConfirm('将批次「' + batchNo + '」中所有待派遣记录标记为已派遣？（退档记录需先「恢复待派遣」，不会一并处理）', 'warn')
+        showConfirm('将批次「' + batchNo + '」中所有待派遣记录标记为已派遣？（退档记录需先「恢复待派遣」、已标记无法派遣的学生会被跳过，均不会一并处理）', 'warn')
             .then(function(ok) {
                 if (!ok) return;
                 return postJSON('/api/archive/batch/' + encodeURIComponent(batchNo) + '/status', { action: 'sent' })
                     .then(function(data) {
                         if (data.success) {
                             showToast(data.message, 'success');
-                            loadOverview().then(loadStudents);
+                            refreshAfterMutation();
                         } else {
                             showToast(data.message || '操作失败', 'danger');
                         }
@@ -1037,6 +1525,10 @@
     }
 
     function exportDispatchDetail() {
+        if (!state.batchSelected.size) {
+            showToast('请先在批次列表中勾选要导出的批次', 'warning');
+            return;
+        }
         var start = document.getElementById('adExportStart').value;
         var end = document.getElementById('adExportEnd').value;
         if (start && end && start > end) {
@@ -1047,6 +1539,8 @@
         if (start) params.set('start_date', start);
         if (end) params.set('end_date', end);
         if (state.school) params.set('school', state.school);
+        if (state.grade) params.set('grade', state.grade);
+        state.batchSelected.forEach(function(no) { params.append('batch', no); });
         var query = params.toString();
         downloadFile('/admin/archive/export-detail' + (query ? '?' + query : ''))
             .catch(function(err) { showToast(err.message || '导出失败，请重试', 'danger'); });
@@ -1200,23 +1694,46 @@
         state.grade = this.value;
         state.county = '';
         state.selected.clear();
+        state.countyQuery = '';
+        state.countyQuick = '';
+        state.countyTab = 'todo';
+        state.statusTab = 'pending';
+        state.highlightId = null;
+        document.getElementById('adCountySearch').value = '';
+        syncCountyTools();
         document.getElementById('adSelectAll').checked = false;
         document.getElementById('adCountyTitle').textContent = '请先在左侧选择县（区）';
+        document.getElementById('adSearch').value = '';
         document.getElementById('adTableBody').innerHTML =
-            '<tr><td colspan="9" class="ad-empty">请先在左侧选择县（区）</td></tr>';
+            '<tr><td colspan="13" class="ad-empty">请先在左侧选择县（区）</td></tr>';
+        document.getElementById('adStatusTabs').innerHTML = '';
+        var box = document.getElementById('adGlobalResults');
+        box.hidden = true;
+        box.innerHTML = '';
+        state.globalResults = [];
         updateSelCount();
+        // 把当前届别写进 URL，刷新 / 收藏后仍停留在该届
+        var url = new URL(window.location.href);
+        url.searchParams.set('grade', state.grade);
+        history.replaceState(null, '', url.toString());
         loadOverview();
+        if (!document.querySelector('div[data-pane="study"]').hidden) loadStudy();
     });
 
-    document.getElementById('adSchool').addEventListener('change', function() {
-        state.school = this.value;
+    document.getElementById('adSchoolGroup').addEventListener('click', function(e) {
+        var btn = e.target.closest('[data-school]');
+        if (!btn || btn.classList.contains('active')) return;
+        this.querySelectorAll('[data-school]').forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        state.school = btn.getAttribute('data-school') || '';
         state.county = '';
         state.studyCounty = '';
         state.selected.clear();
         document.getElementById('adSelectAll').checked = false;
         document.getElementById('adCountyTitle').textContent = '请先在左侧选择县（区）';
         document.getElementById('adTableBody').innerHTML =
-            '<tr><td colspan="9" class="ad-empty">请先在左侧选择县（区）</td></tr>';
+            '<tr><td colspan="13" class="ad-empty">请先在左侧选择县（区）</td></tr>';
+        document.getElementById('adStatusTabs').innerHTML = '';
         updateSelCount();
         loadOverview();
     });
@@ -1228,6 +1745,7 @@
         });
     });
 
+    renderHoldReasons();
     loadOverview();
 })();
 </script>

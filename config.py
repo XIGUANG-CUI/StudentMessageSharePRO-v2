@@ -229,6 +229,11 @@ TUITION_STATUS = ['已缴清', '部分欠费', '未缴', '免学费']
 # 且无 2 位年的世纪翻转歧义。
 CURRENT_SCHOOL_YEAR = datetime.now().year  # 系统当前学年基准 = 保险批次年份来源；如需固定某学年可在此改值
 
+# 档案派遣：「无法派遣」标记原因存于字典表，可在 /admin/dicts 动态维护；
+# 字典中该类型为空时，初始化会自动补入以下默认项，之后完全以字典为准。
+ARCHIVE_HOLD_REASON_DICT_TYPE = 'archive_hold_reason'
+ARCHIVE_HOLD_REASON_DEFAULTS = ('缺档案', '档案不全', '联系不上学生', '待核实')
+
 
 class InsuranceStatus:
     UNREGISTERED = ''                       # NULL / ''

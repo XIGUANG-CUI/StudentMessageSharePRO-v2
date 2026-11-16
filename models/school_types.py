@@ -7,7 +7,7 @@ import sqlite3
 import logging
 
 import config
-from models.db import get_db
+from models.db import get_db, to_local_time
 from models.logs import update_sync_timestamp
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,10 @@ def get_school_types(active_only=False):
             sql += ' WHERE is_active = 1'
         sql += ' ORDER BY code'
         rows = conn.execute(sql).fetchall()
-        return [dict(r) for r in rows]
+        items = [dict(r) for r in rows]
+        for item in items:
+            item['created_at'] = to_local_time(item.get('created_at'))
+        return items
     except sqlite3.Error as e:
         logger.warning("读取学校类别失败，回退配置默认值: %s", e)
         return [{'code': c, 'name': n, 'is_active': 1, 'created_at': None}

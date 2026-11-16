@@ -2,7 +2,7 @@ import sqlite3
 import re
 import logging
 from datetime import datetime, timedelta
-from models.db import get_db, _exclude_graduated_clause
+from models.db import get_db, _exclude_graduated_clause, to_local_time
 from models.district import fill_district_fields, DISTRICT_FIELDS
 from models.logs import update_sync_timestamp
 from models.school_types import get_school_type_map
@@ -429,6 +429,7 @@ def get_deleted_students():
     school_names = get_school_type_map()
     for r in rows:
         r['school_name'] = school_names.get(r.get('school'), '')
+        r['updated_at'] = to_local_time(r.get('updated_at'))
     return rows
 
 def get_deleted_student_count():
