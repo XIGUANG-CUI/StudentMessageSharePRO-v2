@@ -17,6 +17,7 @@ from models.insurance import (
     query_first_pool,
     query_intern_pool,
     query_push_pool,
+    query_push_upcoming,
     query_renewal_pool,
 )
 
@@ -651,6 +652,96 @@ class TestPushPool:
         assert result['created'] == 0
         assert result['skipped'] == 1
         assert result['errors'][0]['message'] == '仅推迟注册学生可继续续保'
+
+
+# ============================================================
+# 学年门槛锚定（9 月起始）与「即将入池」预统计
+# ============================================================
+class TestSchoolYearAnchor:
+    def test_current_school_year_flips_on_september(self):
+        assert ins.current_school_year(date(2026, 8, 31)) == 2025
+        assert ins.current_school_year(date(2026, 9, 1)) == 2026
+        assert ins.current_school_year(date(2027, 1, 1)) == 2026
+
+    def test_push_gate_waits_for_school_year_start(self, conn):
+        """2026 级学生：2028-01-01 尚未升入实习学年，2028-09-01 才入推送池。"""
+        sid = _add_student(conn, '2026级', grade='2026', enrollment_year=2026)
+        _add_record(conn, sid, status=S.DONE, batch_no=1)
+        _add_record(conn, sid, status=S.DONE, batch_no=2)
+
+        assert query_push_pool(
+            conn, current_year=ins.current_school_year(date(2028, 1, 1))) == []
+        assert len(query_push_pool(
+            conn, current_year=ins.current_school_year(date(2028, 9, 1)))) == 1
+
+
+class TestPushUpcoming:
+    def test_normal_student_counts_down_to_next_school_year(self, conn):
+        sid = _add_student(conn, '2025级', grade='2025', enrollment_year=2025)
+        _add_record(conn, sid, status=S.DONE, batch_no=1)
+        _add_record(conn, sid, status=S.DONE, batch_no=2)
+
+        upcoming = query_push_upcoming(
+            conn, today=date(2026, 11, 17), current_year=2026)
+        assert upcoming['count'] == 1
+        assert upcoming['next_date'] == '2027-09-01'
+        assert upcoming['affected_count'] == 1
+        assert upcoming['days_left'] == 288
+        assert upcoming['by_year'] == [{'year': 2027, 'count': 1}]
+
+    def test_already_in_pool_not_counted(self, conn):
+        sid = _add_student(conn, '已到学年', grade='2025', enrollment_year=2025)
+        _add_record(conn, sid, status=S.DONE, batch_no=1)
+        _add_record(conn, sid, status=S.DONE, batch_no=2)
+        assert query_push_upcoming(
+            conn, today=date(2027, 11, 17), current_year=2027)['count'] == 0
+
+    def test_in_flight_xueping_not_counted(self, conn):
+        sid = _add_student(conn, '在办', grade='2025', enrollment_year=2025)
+        _add_record(conn, sid, status=S.DONE, batch_no=1)
+        _add_record(conn, sid, status=S.PENDING_RENEWAL, batch_no=2)
+        assert query_push_upcoming(conn, current_year=2026)['count'] == 0
+
+    def test_existing_intern_record_not_counted(self, conn):
+        sid = _add_student(conn, '已有实习险', grade='2025', enrollment_year=2025)
+        _add_record(conn, sid, status=S.DONE, batch_no=1)
+        _add_record(conn, sid, status=S.DONE, batch_no=2)
+        _add_record(conn, sid, insurance_type='intern', status=S.EXEMPT, batch_no=3)
+        assert query_push_upcoming(conn, current_year=2026)['count'] == 0
+
+    def test_transfer_and_deferred_entry_years(self, conn):
+        transfer = _add_student(conn, '转学生', grade='2025', enrollment_year=2026)
+        _add_record(conn, transfer, status=S.DONE, batch_no=2)
+
+        deferred = _add_student(conn, '推迟', grade='2027', enrollment_year=2026)
+        for batch in (1, 2, 3):
+            _add_record(conn, deferred, status=S.DONE, batch_no=batch)
+
+        upcoming = query_push_upcoming(conn, current_year=2026)
+        assert upcoming['count'] == 2
+        assert upcoming['next_date'] == '2027-09-01'
+        assert upcoming['affected_count'] == 1
+        assert upcoming['by_year'] == [
+            {'year': 2027, 'count': 1},
+            {'year': 2029, 'count': 1},
+        ]
+
+    def test_legacy_missing_first_batch_not_blocked(self, conn):
+        """历史缺档（只有第 2 年学平险）不应阻塞普通生入池。"""
+        sid = _add_student(conn, '历史缺档', grade='2025', enrollment_year=2025)
+        _add_record(conn, sid, status=S.DONE, batch_no=2)
+
+        upcoming = query_push_upcoming(
+            conn, today=date(2026, 11, 17), current_year=2026)
+        assert upcoming['count'] == 1
+        assert upcoming['next_date'] == '2027-09-01'
+        assert len(query_push_pool(conn, current_year=2027)) == 1
+
+    def test_empty_when_nobody_ready(self, conn):
+        _add_student(conn, '新生')
+        upcoming = query_push_upcoming(conn, current_year=2026)
+        assert upcoming == {'count': 0, 'next_date': None, 'days_left': None,
+                            'affected_count': 0, 'by_year': []}
 
 
 # ============================================================

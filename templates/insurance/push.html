@@ -22,12 +22,35 @@
                  border-radius: 6px; color: #fff; font-size: 0.85rem; }
     .ips-toast.success { background: #198754; }
     .ips-toast.error { background: #dc3545; }
+    .ips-upcoming { display: flex; align-items: center; gap: 12px;
+                    padding: 10px 16px; border-radius: 10px; margin-bottom: 10px;
+                    min-height: 58px; border: 1px solid transparent; }
+    .ips-upcoming .ips-up-icon { font-size: 1.3rem; line-height: 1; }
+    .ips-upcoming .ips-up-body { flex: 1; font-size: 0.88rem; }
+    .ips-upcoming .ips-up-days { font-size: 1.45rem; font-weight: 700; margin-right: 2px; }
+    .ips-upcoming .ips-up-sub { color: #6c757d; font-size: 0.8rem; margin-top: 2px; }
+    .ips-up-ok { background: #e8f5e9; border-color: #c8e6c9; color: #1b5e20; }
+    .ips-up-soon { background: #fff4e5; border-color: #ffe0b3; color: #b25e00; }
+    .ips-up-warn { background: #fdecec; border-color: #f1c2c7; color: #b02a37; }
+    .ips-up-empty { background: #f8f9fa; border-color: #dee2e6; color: #6c757d; }
 </style>
 {% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-2">
     <h5 class="mb-0"><i class="bi bi-send me-2"></i>就业险推送</h5>
     <span class="text-muted small">学平险全部办结的学生 → 推送至实习就业险催缴池；推迟注册学生可推送至续保；不参加实习的学生可放弃实习险</span>
+</div>
+
+<div class="ips-upcoming ips-up-empty" id="ipsUpcoming">
+    <span class="ips-up-icon" id="ipsUpIcon">📅</span>
+    <div class="ips-up-body">
+        <div>
+            <span id="ipsUpPrefix">距离下一批学生进入待推送池还有</span>
+            <span class="ips-up-days" id="ipsUpDays">—</span>
+            <span id="ipsUpSuffix"></span>
+        </div>
+        <div class="ips-up-sub" id="ipsUpSub">正在计算下一个学年门槛…</div>
+    </div>
 </div>
 
 <div class="ips-toolbar">
@@ -196,6 +219,48 @@
         body.innerHTML = html;
     }
 
+    function renderUpcoming(u) {
+        var box = $('ipsUpcoming');
+        box.classList.remove('ips-up-ok', 'ips-up-soon', 'ips-up-warn', 'ips-up-empty');
+        if (!u || !u.count) {
+            box.classList.add('ips-up-empty');
+            $('ipsUpIcon').textContent = '📭';
+            $('ipsUpPrefix').textContent = '距离下一批学生进入待推送池还有';
+            $('ipsUpDays').textContent = '—';
+            $('ipsUpSuffix').textContent = '';
+            $('ipsUpSub').textContent = '暂无即将入池的学生（学平险仍在办理或计划尚未完成）';
+            return;
+        }
+        var d = u.days_left;
+        var cls, icon;
+        if (d === null || d === undefined) { cls = 'ips-up-empty'; icon = '📭'; }
+        else if (d <= 0) { cls = 'ips-up-warn'; icon = '🚨'; }
+        else if (d <= 30) { cls = 'ips-up-soon'; icon = '⏰'; }
+        else { cls = 'ips-up-ok'; icon = '✅'; }
+        box.classList.add(cls);
+        $('ipsUpIcon').textContent = icon;
+        if (d === null || d === undefined) {
+            $('ipsUpPrefix').textContent = '距离下一批学生进入待推送池还有';
+            $('ipsUpDays').textContent = '—';
+        } else if (d === 0) {
+            $('ipsUpPrefix').textContent = '下一批学生';
+            $('ipsUpDays').textContent = '今天入池';
+        } else {
+            $('ipsUpPrefix').textContent = '距离下一批学生进入待推送池还有';
+            $('ipsUpDays').textContent = d + ' 天';
+        }
+        $('ipsUpSuffix').textContent = '';
+        var sub = '预计 ' + (u.next_date || '未定') + '（学年起始）入池 · 涉及 '
+            + u.affected_count + ' 人';
+        if (u.count > u.affected_count) { sub += ' · 待入池共 ' + u.count + ' 人'; }
+        if (u.by_year && u.by_year.length > 1) {
+            sub += '（' + u.by_year.map(function (b) {
+                return b.year + '年 ' + b.count + ' 人';
+            }).join('，') + '）';
+        }
+        $('ipsUpSub').textContent = sub;
+    }
+
     function load() {
         fetch('/api/insurance/push/list?' + queryString())
             .then(function (r) { return r.json(); })
@@ -206,6 +271,7 @@
                 items.forEach(function (s) { if (selected[s.id]) { keep[s.id] = true; } });
                 selected = keep;
                 render();
+                renderUpcoming(data.upcoming);
             })
             .catch(function () { toast('加载失败', 'error'); });
     }

@@ -460,7 +460,7 @@ def insurance_push():
     """独立推送页：把学平险全部办结的学生推入实习就业险。"""
     return render_template('insurance/push.html',
                            filter_values=models.get_filter_values(),
-                           current_school_year=config.CURRENT_SCHOOL_YEAR)
+                           current_school_year=insurance_domain.current_school_year())
 
 
 @bp.route('/api/insurance/push/list')
@@ -470,7 +470,9 @@ def api_insurance_push_list():
         return err
     conn = models.get_db()
     items = insurance_domain.query_push_pool(conn, **_pool_filters())
-    return jsonify({'success': True, 'total': len(items), 'items': items})
+    upcoming = insurance_domain.query_push_upcoming(conn, **_pool_filters())
+    return jsonify({'success': True, 'total': len(items), 'items': items,
+                    'today': date.today().isoformat(), 'upcoming': upcoming})
 
 
 @bp.route('/api/insurance/push/start', methods=['POST'])
@@ -552,7 +554,7 @@ def insurance_intern():
     """实习就业险办结页。"""
     return render_template('insurance/intern.html',
                            filter_values=models.get_filter_values(),
-                           current_school_year=config.CURRENT_SCHOOL_YEAR)
+                           current_school_year=insurance_domain.current_school_year())
 
 
 @bp.route('/api/insurance/intern/list')
@@ -689,7 +691,7 @@ def insurance_first():
     return render_template('insurance/first.html',
                            school_types=models.get_school_types(),
                            filter_values=models.get_filter_values(),
-                           current_school_year=config.CURRENT_SCHOOL_YEAR)
+                           current_school_year=insurance_domain.current_school_year())
 
 
 def _first_tab_statuses():
@@ -921,7 +923,7 @@ def insurance_renewal():
     """第二年续保页：到期前 30 天（及同月批次）学生列表。"""
     return render_template('insurance/renewal.html',
                            filter_values=models.get_filter_values(),
-                           current_school_year=config.CURRENT_SCHOOL_YEAR)
+                           current_school_year=insurance_domain.current_school_year())
 
 
 @bp.route('/api/insurance/renewal/list')
@@ -1227,7 +1229,7 @@ def insurance_collection():
     """保费催缴页：录入学平险/实习险缴费日期。"""
     return render_template('insurance/collection.html',
                            filter_values=models.get_filter_values(),
-                           current_school_year=config.CURRENT_SCHOOL_YEAR)
+                           current_school_year=insurance_domain.current_school_year())
 
 
 def _collection_counts(conn):
@@ -1407,7 +1409,7 @@ def insurance_records():
     """保险记录查询（新查询页，数据源 insurance_records）。"""
     return render_template('insurance/records.html',
                            filter_values=models.get_filter_values(),
-                           current_school_year=config.CURRENT_SCHOOL_YEAR)
+                           current_school_year=insurance_domain.current_school_year())
 
 
 @bp.route('/api/insurance/records/list')
@@ -1611,7 +1613,7 @@ def _annotate_xueping_lock(s):
       3) 主管标记“YYYY年度学平险已办结”且 YYYY >= 学平险缴费日期年份——同年（或回溯跨边界）已办完，无需重复办理。
          仅当 标记年份 < 缴费日期年份（即已录入下一年真实日期）时才放行，允许办理第2年学平险。
 
-    flag 年份 = CURRENT_SCHOOL_YEAR（日历年）；缴费日期年份取其前4位。
+    flag 年份 = current_school_year()（学年基准，过 9/1 升年）；缴费日期年份取其前4位。
     年份既不相等也不小于（如回溯跨学年边界导致 标记年 > 缴费年）时按锁定处理（安全侧），避免误放行重复办理。
     后端为唯一真源，前端仅读取 xueping_locked / xueping_lock_hint，避免前后端解析不一致。
     """
@@ -1967,9 +1969,10 @@ def api_insurance_complete():
     if not student_ids and not items:
         return jsonify({'error': '请选择学生'}), 400
 
-    # 年份来源：取系统学年基准（config.CURRENT_SCHOOL_YEAR），而非点击当天的
-    # datetime.now().year —— 避免 clerk 在跨年时把上一学年的批次误标成本年前缀。
-    year = config.CURRENT_SCHOOL_YEAR
+    # 年份来源：取系统学年基准（9 月起始，见 insurance_domain.current_school_year），
+    # 而非点击当天的 datetime.now().year —— 避免 clerk 在跨年时把上一学年的批次
+    # 误标成本年前缀。
+    year = insurance_domain.current_school_year()
 
     try:
         if items:

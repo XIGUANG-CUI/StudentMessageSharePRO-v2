@@ -199,6 +199,7 @@ class TestPushInternRoutes:
             assert data['success'] is True
             assert data['total'] == 1
             assert data['items'][0]['id'] == sid
+            assert data['upcoming']['count'] == 0
 
             resp = self._post(client, '/api/insurance/push/start',
                               {'student_ids': [sid]})

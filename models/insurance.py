@@ -235,10 +235,21 @@ def start_year(enrollment_year, grade):
     return min(g, en)
 
 
+def current_school_year(today=None):
+    """当前学年基准年：过了学年起始月（默认 9 月）才升入新学年。
+
+    保险批次按学年推进而非自然年：例如 2028-01-01 仍属 2027-2028 学年
+    （基准年 2027），到 2028-09-01 才进入 2028 学年。
+    """
+    today = today or date.today()
+    start_month = min(max(int(getattr(config, 'SCHOOL_YEAR_START_MONTH', 9)), 1), 12)
+    return today.year if today.month >= start_month else today.year - 1
+
+
 def batch_now(enrollment_year, grade, current_year=None):
-    """当前处于保险计划的第几年（从 1 开始）。"""
+    """当前处于保险计划的第几年（按学年计算，从 1 开始）。"""
     if current_year is None:
-        current_year = config.CURRENT_SCHOOL_YEAR
+        current_year = current_school_year()
     start = start_year(enrollment_year, grade)
     if not start:
         return 1
@@ -342,7 +353,7 @@ def backfill_insurance_records(cursor, current_year=None):
     仅在 insurance_records 为空时调用。返回统计字典，便于日志与验证。
     """
     if current_year is None:
-        current_year = config.CURRENT_SCHOOL_YEAR
+        current_year = current_school_year()
 
     rows = cursor.execute(
         '''
@@ -770,7 +781,7 @@ def repair_never_insured_xueping(conn, current_year=None):
     幂等：重复执行不会重复写入，也不会改动已办结/已审批的记录。
     """
     if current_year is None:
-        current_year = config.CURRENT_SCHOOL_YEAR
+        current_year = current_school_year()
 
     stats = {'candidates': 0, 'students': 0, 'created': 0, 'exempted': 0,
              'cleared': 0}
@@ -908,7 +919,7 @@ def build_plan(enrollment_year, grade, current_year=None):
       - deferred: 按 offset 配置多一年学平险，实习险顺延
     """
     if current_year is None:
-        current_year = config.CURRENT_SCHOOL_YEAR
+        current_year = current_school_year()
     offset = student_offset(enrollment_year, grade)
 
     if offset >= 1:
@@ -1066,7 +1077,7 @@ def _flag_year_from_school_year(school_year):
     try:
         return int(str(school_year)[:4])
     except (TypeError, ValueError):
-        return config.CURRENT_SCHOOL_YEAR
+        return current_school_year()
 
 
 _SNAPSHOT_FIELDS = ('policy_no', 'pay_date', 'expiry_date', 'premium')
@@ -1526,7 +1537,7 @@ def push_to_intern(conn, student_ids, operator='', current_year=None):
     已存在实习险记录的学生跳过。返回 {'created': n, 'skipped': m}。
     """
     if current_year is None:
-        current_year = config.CURRENT_SCHOOL_YEAR
+        current_year = current_school_year()
 
     created = 0
     skipped = 0
@@ -1556,7 +1567,7 @@ def exempt_intern(conn, student_ids, operator='', current_year=None):
     返回 {'count': n, 'skipped': m, 'errors': [...]}。
     """
     if current_year is None:
-        current_year = config.CURRENT_SCHOOL_YEAR
+        current_year = current_school_year()
 
     count = 0
     skipped = 0
@@ -1602,7 +1613,7 @@ def push_intern_from_renewal(conn, student_ids, operator='', current_year=None,
     返回 {'created': n, 'skipped': m, 'errors': [...]}。
     """
     if current_year is None:
-        current_year = config.CURRENT_SCHOOL_YEAR
+        current_year = current_school_year()
 
     created = 0
     skipped = 0
@@ -1660,7 +1671,7 @@ def push_to_renewal(conn, student_ids, operator='', current_year=None):
     返回 {'created': n, 'skipped': m, 'errors': [...]}。
     """
     if current_year is None:
-        current_year = config.CURRENT_SCHOOL_YEAR
+        current_year = current_school_year()
 
     created = 0
     skipped = 0
@@ -1867,7 +1878,7 @@ def _sort_pool_items(items):
 def query_first_pool(conn, current_year=None, **filters):
     """① 首保池：计划第一步为「首保」，且无记录或记录待审批。"""
     if current_year is None:
-        current_year = config.CURRENT_SCHOOL_YEAR
+        current_year = current_school_year()
     students = _pool_students(conn, **filters)
     rec_map = _records_map(conn, [s['id'] for s in students])
 
@@ -2017,7 +2028,7 @@ def query_renewal_pool(conn, today=None, window_days=30,
     """
     today = today or date.today()
     if current_year is None:
-        current_year = config.CURRENT_SCHOOL_YEAR
+        current_year = current_school_year()
     window_days = max(1, int(window_days or 30))
     active_months = _renewal_active_months(conn, today, window_days)
 
@@ -2107,14 +2118,20 @@ def query_collection_pool(conn, today=None, **filters):
     return query_collection_stage(conn, paid=False, **filters)
 
 
-def query_push_pool(conn, current_year=None, **filters):
-    """④ 待推送池：计划内最后一个学平险批次已了结，且尚无实习险记录。"""
-    if current_year is None:
-        current_year = config.CURRENT_SCHOOL_YEAR
+def _push_ready_students(conn, current_year, **filters):
+    """推送池公共候选：计划内最后一个学平险批次已了结、无在办批次、无实习险记录。
+
+    早期批次缺档（历史数据未入库）不阻塞：只看最高终态批次是否覆盖计划最后批次。
+
+    只做「学平险侧」判定，学年门槛交由调用方处理：
+    - 待推送池：学年已推进到实习批次；
+    - 即将入池预统计：学年尚未推进到实习批次。
+    返回 [(student, intern_step, last_terminal), ...]。
+    """
     students = _pool_students(conn, **filters)
     rec_map = _records_map(conn, [s['id'] for s in students])
 
-    items = []
+    ready = []
     for s in students:
         plan = build_plan(s.get('enrollment_year'), s.get('grade'), current_year)
         xueping_steps = [p for p in plan if p['insurance_type'] == INSURANCE_TYPE_XUEPING]
@@ -2133,22 +2150,12 @@ def query_push_pool(conn, current_year=None, **filters):
              if r['status'] in XUEPING_TERMINAL_STATUSES),
             key=lambda r: r['batch_no'], default=None)
 
-        if student_kind(s.get('enrollment_year'), s.get('grade')) == STUDENT_KIND_DEFERRED:
-            # 推迟注册学生历史数据可能缺档（如没有第 1 批记录），
-            # 以「已了结的最高批次」覆盖计划最后一个学平险批次即可。
-            plan_last = max(p['batch_no'] for p in xueping_steps)
-            if last_terminal is None or last_terminal['batch_no'] < plan_last:
-                continue
-        else:
-            ready = True
-            for step in xueping_steps:
-                rec = _find_record(rec_map, s['id'], step['batch_no'],
-                                   INSURANCE_TYPE_XUEPING)
-                if not rec or rec['status'] not in XUEPING_TERMINAL_STATUSES:
-                    ready = False
-                    break
-            if not ready:
-                continue
+        # 以「最高终态学平险批次」覆盖计划最后一个学平险批次即可：
+        # 历史数据可能缺少早期批次（如 2025 级从第 2 年学平险才开始入库），
+        # 只要最后一个应办批次已了结，就不阻塞后续实习险。
+        plan_last = max(p['batch_no'] for p in xueping_steps)
+        if last_terminal is None or last_terminal['batch_no'] < plan_last:
+            continue
 
         # 存在仍在办理中的学平险批次（已「推送至续保」）时先等其了结，
         # 避免同一学生同时出现在推送页与续保流程中。放弃本期的批次视为已了结。
@@ -2158,14 +2165,23 @@ def query_push_pool(conn, current_year=None, **filters):
         if any(r['insurance_type'] == INSURANCE_TYPE_INTERN for r in records):
             continue
 
+        ready.append((s, intern_step, last_terminal))
+    return ready
+
+
+def query_push_pool(conn, current_year=None, **filters):
+    """④ 待推送池：计划内最后一个学平险批次已了结，且尚无实习险记录。"""
+    if current_year is None:
+        current_year = current_school_year()
+
+    items = []
+    for s, intern_step, last_done in _push_ready_students(conn, current_year, **filters):
         # 学年门槛对所有学生生效：严格按「入学年 − grade」推算实习险批次，
         # 只有学年推进到实习批次才进入推送。避免「放弃本期 / 从未投保」的学生
         # 在学平险批次被了结后提前一年被推入实习就业险。
         if batch_now(s.get('enrollment_year'), s.get('grade'),
                      current_year) < intern_step['batch_no']:
             continue
-
-        last_done = last_terminal
 
         item = _pool_item(s, intern_step, last_done)
         item.update({
@@ -2181,6 +2197,48 @@ def query_push_pool(conn, current_year=None, **filters):
         })
         items.append(item)
     return items
+
+
+def query_push_upcoming(conn, today=None, current_year=None, **filters):
+    """即将进入推送池的预统计：只差学年推进的学生。
+
+    口径与 query_push_pool 完全一致（学平险全部了结、无在办批次、无实习险记录），
+    但只取「学年门槛尚未到达」的学生，并按计划实习批次推算预计入池日期
+    （学年起始月 1 日，默认 9 月 1 日）。
+    """
+    today = today or date.today()
+    if current_year is None:
+        current_year = current_school_year()
+    start_month = min(max(int(getattr(config, 'SCHOOL_YEAR_START_MONTH', 9)), 1), 12)
+
+    entry_dates = []
+    for s, intern_step, _last_done in _push_ready_students(conn, current_year, **filters):
+        if batch_now(s.get('enrollment_year'), s.get('grade'),
+                     current_year) >= intern_step['batch_no']:
+            continue                    # 学年已到：已在推送池内，不计入预统计
+
+        start = start_year(s.get('enrollment_year'), s.get('grade'))
+        if not start:
+            continue
+        entry_year = start + intern_step['batch_no'] - 1
+        entry_dates.append(date(entry_year, start_month, 1))
+
+    if not entry_dates:
+        return {'count': 0, 'next_date': None, 'days_left': None,
+                'affected_count': 0, 'by_year': []}
+
+    entry_dates.sort()
+    next_date = entry_dates[0]
+    by_year = {}
+    for d in entry_dates:
+        by_year[d.year] = by_year.get(d.year, 0) + 1
+    return {
+        'count': len(entry_dates),
+        'next_date': next_date.isoformat(),
+        'days_left': (next_date - today).days,
+        'affected_count': sum(1 for d in entry_dates if d == next_date),
+        'by_year': [{'year': y, 'count': c} for y, c in sorted(by_year.items())],
+    }
 
 
 def query_intern_pool(conn, today=None, **filters):
@@ -2267,7 +2325,7 @@ def query_first_stage(conn, current_year=None, statuses=None, **filters):
     statuses 为 None 表示不限制；集合中允许包含 '' 代表尚未建档。
     """
     if current_year is None:
-        current_year = config.CURRENT_SCHOOL_YEAR
+        current_year = current_school_year()
     allowed = set(statuses) if statuses is not None else None
     students = _pool_students(conn, **filters)
     rec_map = _records_map(conn, [s['id'] for s in students])
@@ -2312,7 +2370,7 @@ def first_stage_counts(conn, current_year=None, **filters):
 def start_renewal(conn, student_id, current_year=None, operator=''):
     """续保页「进入参保流程」：创建下一批学平险记录，置为已审批待导出。"""
     if current_year is None:
-        current_year = config.CURRENT_SCHOOL_YEAR
+        current_year = current_school_year()
 
     cur = conn.execute(
         'SELECT id, id_card, grade, enrollment_year FROM students '
@@ -2390,7 +2448,7 @@ def exempt_renewal_batch(conn, student_id, current_year=None, operator='',
     仅允许放弃当前已进入续保窗口的批次，避免误放弃未来批次。
     """
     if current_year is None:
-        current_year = config.CURRENT_SCHOOL_YEAR
+        current_year = current_school_year()
     if today is None:
         today = date.today()
 
@@ -2481,7 +2539,7 @@ def query_collection_stage(conn, paid=False, insurance_types=None,
     的缴费在审批环节确定，不进入催缴。
     """
     if current_year is None:
-        current_year = config.CURRENT_SCHOOL_YEAR
+        current_year = current_school_year()
     types = set(insurance_types) if insurance_types else None
     students = _pool_students(conn, **filters)
     rec_map = _records_map(conn, [s['id'] for s in students])
@@ -2532,7 +2590,7 @@ def query_renewal_stage(conn, statuses=None, current_year=None, **filters):
     已办结（done）不在续保页展示，避免历史数据堆积。
     """
     if current_year is None:
-        current_year = config.CURRENT_SCHOOL_YEAR
+        current_year = current_school_year()
     if statuses is None:
         statuses = (InsuranceStatus.APPROVED, InsuranceStatus.EXPORTED)
     allowed = set(statuses)

@@ -864,7 +864,8 @@ StudentMessageSharePRO-v2/
 | TUITION_STATUS | `['已缴清','部分欠费','未缴','免学费']` | 学费状态枚举 | config.py:145 |
 | INSURANCE_SUPERVISOR_FLAGS ⭐v3 | 6 个标准标记（由 `InsuranceStatus` 派生） | 财务主管/导入可写入的主管标记全集 | config.py:280 |
 | InsuranceStatus ⭐v3 | 枚举 + `done_xueping(y)`/`done_intern(y)`/`parse_flag_year()` | 保险状态单一事实来源，`EXTERNAL_PAY_MARKER='新生默认首保'` | config.py:233-284 |
-| CURRENT_SCHOOL_YEAR ⭐v3 | `datetime.now().year` | 保险学年基准（办结标记年份来源） | config.py:230 |
+| CURRENT_SCHOOL_YEAR ⭐v3 | `datetime.now().year` | 日历年基准（档案派遣等沿用）；保险批次用 `current_school_year()` | config.py:230 |
+| SCHOOL_YEAR_START_MONTH ⭐v3 | `9` | 学年起始月：过 9/1 才算升入新学年，保险批次按学年推进 | config.py:234 |
 | FIELD_MAPPING | `{中文名: db字段}` | 50 字段映射表 | config.py:100-141 |
 
 ### 备份配置
@@ -984,11 +985,14 @@ insurance_records.status：
   collection  → 已审批未缴费（首保批次排除）
   push        → 学平险全部终态、无实习记录、已达实习批次
   intern      → 实习记录 ∈ pending_approve/paid/approved
+
+学年门槛（push）：batch_now() 按学年计算，过 SCHOOL_YEAR_START_MONTH（9/1）才升批；
+「即将入池」预统计 = 与 push 同学平险判定、但学年尚未到达，预计入池日 = 实习批次年份的 9/1。
 ```
 
 **规则**：
 - `supervisor_flag` 由 `sync_student_snapshot()` 从记录投影：终态 `done` → `YYYY年度学平险办结`/`YYYY年度实习就业险办结`；`exempt` → `不参保`；`approved` → `按计划办理学平险`/`按计划办理实习就业险`；初始 → 空
-- 办结年份取批次学年（`grade + batch − 1` 或 `CURRENT_SCHOOL_YEAR`），不是操作当天年份
+- 办结年份取批次学年（`grade + batch − 1`，学年基准用 `current_school_year()`），不是操作当天年份
 - `declaration_date`、`insurance_update_date` 由快照同步，不再单独手写
 - 游离写入 `supervisor_flag` 仅允许初始化导入；其余路径必须经记录流转
 - 所有流转写 `insurance_operation_logs`（action/from_status/to_status/payload/operator）
@@ -1201,3 +1205,5 @@ insurance_records.status：
 89. ⚠️ 2026-11 **按县派遣学生状态标签页**：右侧学生列表取消「全部状态」下拉，改为「待派遣 / 已派遣 / 升学 / 已退回」+ 动态「已失效」标签页（仅存在时显示）并带人数；`loadStudents()` 一次性取该县全部状态学生（不再传 `status`），前端按标签页过滤，默认「待派遣」，已完成区县默认「已派遣」；「升学」标签行内新增「取消升学」→ `POST /api/archive/further-study/cancel`，取消后回到待派遣并把区县移回待办标签页 —— 原因：状态分组更直观且省一次接口切换
 90. ⚠️ 2026-11 **人工「无法派遣」标记**：新增独立表 `archive_hold`（`student_id` 唯一、`reason/note/operator/released`），与机构匹配逻辑完全解耦（未匹配区划 ≠ 无法派遣）；`load_graduates()` 给行附加 `hold`，`summarize_counties()` 单独计 `held`，且 `remaining`/`dispatch_required` 均排除 held（标记后不阻塞区县完成）；`create_batch()` 跳过 held 学生；API `POST /api/archive/hold/mark`（原因必填，**仅「未生成派遣批次」的学生可标记**：只要 `archive_dispatch.batch_no` 非空即跳过，因为生成批次代表档案完整性已人工核对通过）、`POST /api/archive/hold/release`；标记原因不写死在代码里，取自字典类型 `archive_hold_reason`（`config.ARCHIVE_HOLD_REASON_DICT_TYPE`，可在 `/admin/dicts` 增删改；该类型为空时 `init_db()` 自动补入 `ARCHIVE_HOLD_REASON_DEFAULTS` 4 项，非空则不再干预）；前端第 5 个状态标签「无法派遣」+ 工具栏批量标记（自动排除已生成批次学生）+ 行内单条（仅未生成行显示）+ 恢复待办；全局「按学生姓名查询」结果含 `hold` 标记，定位时按该生真实状态自动切换学生状态标签页（待派遣/已派遣/升学/已退回/无法派遣/已失效），并在县级数据加载后二次校正 —— 原因：搜索结果与县级列表字段口径不同，不能只依赖一处判断
 91. ⚠️ 2026-11 **时间戳时区约定**：SQLite 的 `CURRENT_TIMESTAMP` 恒为 **UTC**，直出会早 8 小时。规范：①新建业务记录（如 `students.created_at`、`update_logs`、`attendance_records.update_time`）写入时用 `datetime('now','localtime')` 直接存本地时间；②其余以 `CURRENT_TIMESTAMP` 落库的字段（`students.updated_at`、`archive_dispatch.created_at/updated_at`、`archive_settings.updated_at`、`export_history.created_at`、`insurance_export_batches/insurance_operation_logs.created_at`、`school_types.created_at`）**必须在读取时转换**：SQL 用 `datetime(col,'localtime')`，或在模型里调用 `models.db.to_local_time()`（页面展示前统一转，不改库内数据）；③`archive_dispatch.returned_at` 只存本地日期，不需转换 —— 原因：历史数据已是 UTC，只能读时换算，改写入会造成新旧数据混排
+92. ⚠️ 2026-11 **保险批次按学年锚定（9/1）**：`models.insurance.current_school_year()` 以 `SCHOOL_YEAR_START_MONTH`（默认 9）判定学年，`batch_now()` 仅在过 9/1 后升批；所有保险批次默认值不再用 `config.CURRENT_SCHOOL_YEAR`（该常量保留给档案派遣等日历年场景）。推送池新增「即将入池」预统计 `query_push_upcoming()`：与推送池同学平险判定，只取学年未到的学生，预计入池日 = 实习批次年份的 9/1，随 `/api/insurance/push/list` 的 `upcoming` 字段返回，页面顶部倒计时横幅展示 —— 原因：自然年 1/1 切换比秋季学年早 8 个月，会把学生提前推入实习险；春季入学学生按学籍秋季学年对齐，不按参保月锚定
+93. ⚠️ 2026-11 **推送池学平险判定放宽（容忍历史缺档）**：`_push_ready_students()` 统一为「最高终态学平险批次 ≥ 计划最后一个学平险批次」，不再要求每个计划批次都有终态记录；仍保留「无在办学平险批次 + 无任何实习险记录 + 学年门槛」—— 原因：生产库 2025 级 374 人只有第 2 年学平险（2026-11-06 导入，缺 2025-2026 batch1），逐批校验会永久阻塞；放宽后 2025 级即将入池由 129 人恢复为 503 人
