@@ -324,10 +324,18 @@
                 if (!r.ok) {
                     return r.json().then(function (d) { throw new Error(d.message || '导出失败'); });
                 }
-                return r.blob();
+                var unpaid = parseInt(r.headers.get('X-Insurance-Unpaid') || '0', 10) || 0;
+                var raw = r.headers.get('X-Insurance-Unpaid-Names') || '';
+                var names = '';
+                if (raw) {
+                    try { names = decodeURIComponent(raw); } catch (e) { names = raw; }
+                }
+                return r.blob().then(function (blob) {
+                    return { blob: blob, unpaid: unpaid, names: names };
+                });
             })
-            .then(function (blob) {
-                var url = URL.createObjectURL(blob);
+            .then(function (res) {
+                var url = URL.createObjectURL(res.blob);
                 var a = document.createElement('a');
                 a.href = url;
                 a.download = '就业险办结.xlsx';
@@ -335,7 +343,13 @@
                 a.click();
                 a.remove();
                 URL.revokeObjectURL(url);
-                toast('已导出并办结 ' + chosen.length + ' 人', 'success');
+                if (res.unpaid) {
+                    toast('已办结 ' + chosen.length + ' 人，但 ' + res.unpaid
+                        + ' 人未登记缴费日期' + (res.names ? '（' + res.names + '）' : '')
+                        + '，请到催缴页补录', 'error');
+                } else {
+                    toast('已导出并办结 ' + chosen.length + ' 人', 'success');
+                }
                 selected = {};
                 load();
             })

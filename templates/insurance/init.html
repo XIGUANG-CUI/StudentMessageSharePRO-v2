@@ -301,7 +301,12 @@
 
               pollTimer = setInterval(function() {
                   fetch('/api/insurance/init-progress/' + progressId)
-                      .then(function(r) { return r.json(); })
+                      .then(function(r) {
+                          if (!r.ok) {
+                              throw new Error('获取导入进度失败（HTTP ' + r.status + '），请刷新页面后重试');
+                          }
+                          return r.json();
+                      })
                       .then(function(progress) {
                           var percent = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
                           progressBar.style.width = percent + '%';
@@ -321,6 +326,17 @@
                                   li.textContent = err;
                                   errorList.appendChild(li);
                               });
+                          }
+
+                          if (progress.status === 'failed') {
+                              clearInterval(pollTimer);
+                              isImporting = false;
+                              importStatus.textContent = progress.message || '导入失败';
+                              importStatus.className = 'text-danger';
+                              progressBar.classList.remove('progress-bar-animated');
+                              closeModalBtn.style.display = 'block';
+                              cancelBtn.textContent = '关闭';
+                              return;
                           }
 
                           if (progress.status === 'completed') {
@@ -366,7 +382,13 @@
                           }
                       })
                       .catch(function(err) {
-                          console.error('轮询错误:', err);
+                          clearInterval(pollTimer);
+                          isImporting = false;
+                          importStatus.textContent = '导入失败: ' + (err.message || '网络异常');
+                          importStatus.className = 'text-danger';
+                          progressBar.classList.remove('progress-bar-animated');
+                          closeModalBtn.style.display = 'block';
+                          cancelBtn.textContent = '关闭';
                       });
               }, 500);
           })

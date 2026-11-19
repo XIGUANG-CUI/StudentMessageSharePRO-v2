@@ -344,7 +344,13 @@
             body: JSON.stringify({ student_ids: ids.map(Number) })
         }).then(function (r) { return r.json(); }).then(function (data) {
             if (!data.success) { toast(data.message || '推送失败', 'error'); return; }
-            toast('已推送 ' + data.count + ' 人' + (data.skipped ? '，跳过 ' + data.skipped + ' 人' : ''), 'success');
+            var msg = '已推送 ' + data.count + ' 人';
+            if (data.skipped) {
+                msg += '，跳过 ' + data.skipped + ' 人';
+                var first = (data.errors || [])[0];
+                if (first && first.message) { msg += '（' + first.message + '）'; }
+            }
+            toast(msg, data.count ? 'success' : 'error');
             selected = {};
             load();
         }).catch(function () { toast('推送失败', 'error'); });

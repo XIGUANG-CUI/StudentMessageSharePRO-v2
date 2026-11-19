@@ -1541,13 +1541,16 @@ def _create_intern_record(conn, student, operator='', current_year=None,
 def push_to_intern(conn, student_ids, operator='', current_year=None):
     """手动推送：为续保/首保已完成的学生创建实习就业险待审批记录。
 
-    已存在实习险记录的学生跳过。返回 {'created': n, 'skipped': m}。
+    服务端强制校验「学年已到达实习批次」，避免绕过待推送池直接调用接口，
+    生成未来学年的实习险记录。提前推送推迟注册学生请走 push_intern_from_renewal。
+    已存在实习险记录的学生跳过。返回 {'created': n, 'skipped': m, 'errors': [...]}。
     """
     if current_year is None:
         current_year = current_school_year()
 
     created = 0
     skipped = 0
+    errors = []
     for sid in student_ids:
         cur = conn.execute(
             'SELECT id, id_card, grade, enrollment_year FROM students WHERE id = ?', (sid,)
@@ -1555,15 +1558,38 @@ def push_to_intern(conn, student_ids, operator='', current_year=None):
         student = _row_to_dict(cur, cur.fetchone())
         if not student:
             skipped += 1
+            errors.append({'student_id': sid, 'message': '学生不存在'})
+            continue
+
+        plan = build_plan(student.get('enrollment_year'), student.get('grade'),
+                          current_year)
+        intern_step = next(
+            (p for p in plan if p['insurance_type'] == INSURANCE_TYPE_INTERN), None
+        )
+        if not intern_step:
+            skipped += 1
+            errors.append({'student_id': sid, 'message': '该生无实习就业险计划'})
+            continue
+
+        reached = batch_now(student.get('enrollment_year'), student.get('grade'),
+                            current_year)
+        if reached < intern_step['batch_no']:
+            skipped += 1
+            errors.append({
+                'student_id': sid,
+                'message': '尚未到达实习就业险批次（第%d年），当前第%d年'
+                           % (intern_step['batch_no'], reached),
+            })
             continue
 
         if _create_intern_record(conn, student, operator=operator,
                                  current_year=current_year) is None:
             skipped += 1
+            errors.append({'student_id': sid, 'message': '已存在实习就业险记录'})
             continue
         created += 1
 
-    return {'created': created, 'skipped': skipped}
+    return {'created': created, 'skipped': skipped, 'errors': errors[:20]}
 
 
 def exempt_intern(conn, student_ids, operator='', current_year=None):

@@ -499,7 +499,8 @@ def api_insurance_push_start():
         conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
     return jsonify({'success': True, 'count': result['created'],
-                    'skipped': result['skipped']})
+                    'skipped': result['skipped'],
+                    'errors': result['errors']})
 
 
 @bp.route('/api/insurance/push/exempt', methods=['POST'])
@@ -584,7 +585,7 @@ def api_insurance_intern_list():
     items = insurance_domain.query_intern_stage(
         conn, statuses=statuses, **_pool_filters())
 
-    summary = insurance_domain.intern_stage_counts(conn)
+    summary = insurance_domain.intern_stage_counts(conn, **_pool_filters())
 
     # 已办结 tab 分页；其他 tab 保持全量，避免破坏多选/审批流程
     page = 1
@@ -666,6 +667,17 @@ def api_insurance_intern_export():
     timestamp = datetime.now().strftime('%Y%m%d_%H%M')
     filename = f'就业险办结_{timestamp}.xlsx'
     operator = session.get('username', '')
+
+    # 实习险允许「未登记缴费先办结」，但需在响应中提示补录缴费日期
+    unpaid_names = []
+    unpaid_ids = [rec['student_id'] for rec in records
+                  if not (rec.get('pay_date') or '').strip()]
+    if unpaid_ids:
+        placeholders = ','.join('?' * len(unpaid_ids))
+        unpaid_names = [row[0] for row in conn.execute(
+            f'SELECT name FROM students WHERE id IN ({placeholders})',
+            unpaid_ids).fetchall()]
+
     try:
         insurance_domain.export_records(
             conn, record_ids, action='intern', operator=operator,
@@ -678,10 +690,15 @@ def api_insurance_intern_export():
         conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
 
-    return send_file(
+    resp = send_file(
         output,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         as_attachment=True, download_name=filename)
+    if unpaid_names:
+        resp.headers['X-Insurance-Unpaid'] = str(len(unpaid_names))
+        resp.headers['X-Insurance-Unpaid-Names'] = quote(
+            '、'.join(unpaid_names), safe='')
+    return resp
 
 
 # ============================================================

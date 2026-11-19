@@ -157,6 +157,10 @@
 {% block scripts %}
 <script>
 (function () {
+    // 行内按钮与后端权限保持一致，避免无权限角色点击后 403
+    var CAN_APPROVE = {{ 'true' if session.get('role') in ('admin', 'finance_chief') else 'false' }};
+    var CAN_EXPORT = {{ 'true' if session.get('role') in ('admin', 'insurance_officer') else 'false' }};
+
     var items = [];
     var selected = {};
     var currentStatus = 'pending';
@@ -203,17 +207,20 @@
         };
     }
 
-    // 行内操作：按记录状态决定显示哪些按钮，已完成/不办理不显示任何操作
+    // 行内操作：按记录状态 + 当前角色决定显示哪些按钮，已完成/不办理不显示任何操作
     function rowAction(s) {
         var st = s.source_status || '';
         if (st === '' || st === 'pending_approve') {
+            if (!CAN_APPROVE) { return '<span class="text-muted">—</span>'; }
             return '<button type="button" class="btn btn-sm btn-success me-1" data-act="approve" data-sid="' + s.id + '">办理</button>'
                 + '<button type="button" class="btn btn-sm btn-outline-danger" data-act="exempt" data-sid="' + s.id + '">不办理</button>';
         }
         if (st === 'approved' && s.record_id) {
+            if (!CAN_EXPORT) { return '<span class="text-muted">—</span>'; }
             return '<button type="button" class="btn btn-sm btn-primary" data-act="export" data-rid="' + s.record_id + '">导出</button>';
         }
         if (st === 'exported' && s.record_id) {
+            if (!CAN_EXPORT) { return '<span class="text-muted">—</span>'; }
             return '<button type="button" class="btn btn-sm btn-outline-primary" data-act="policy" data-sid="' + s.id + '">补录保单</button>';
         }
         return '<span class="text-muted">—</span>';
@@ -231,10 +238,10 @@
         var hasExported = items.some(function (s) {
             return s.source_status === 'exported' && s.record_id;
         });
-        $('ifApproveBtn').style.display = hasPending ? '' : 'none';
-        $('ifExemptBtn').style.display = hasPending ? '' : 'none';
-        $('ifExportBtn').style.display = hasApproved ? '' : 'none';
-        $('ifPolicyBtn').style.display = hasExported ? '' : 'none';
+        $('ifApproveBtn').style.display = (hasPending && CAN_APPROVE) ? '' : 'none';
+        $('ifExemptBtn').style.display = (hasPending && CAN_APPROVE) ? '' : 'none';
+        $('ifExportBtn').style.display = (hasApproved && CAN_EXPORT) ? '' : 'none';
+        $('ifPolicyBtn').style.display = (hasExported && CAN_EXPORT) ? '' : 'none';
     }
 
     function queryString() {

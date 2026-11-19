@@ -442,7 +442,9 @@ class TestPushToIntern:
         sid = _add_student(conn, grade='2024', enrollment_year=2024)
 
         result = ins.push_to_intern(conn, [sid], current_year=2026)
-        assert result == {'created': 1, 'skipped': 0}
+        assert result['created'] == 1
+        assert result['skipped'] == 0
+        assert result['errors'] == []
 
         rec = dict(conn.execute(
             "SELECT * FROM insurance_records WHERE student_id = ? AND insurance_type = 'intern'",
@@ -457,31 +459,59 @@ class TestPushToIntern:
         conn = _db()
         sid = _add_student(conn, grade='2025', enrollment_year=2026)
 
-        ins.push_to_intern(conn, [sid], current_year=2026)
+        ins.push_to_intern(conn, [sid], current_year=2027)
         rec = dict(conn.execute(
             "SELECT * FROM insurance_records WHERE student_id = ? AND insurance_type = 'intern'",
             (sid,)
         ).fetchone())
         assert rec['batch_no'] == 3
+        assert rec['school_year'] == '2027-2028'
 
     def test_push_deferred_creates_batch4(self):
         conn = _db()
         sid = _add_student(conn, grade='2027', enrollment_year=2026)
 
-        ins.push_to_intern(conn, [sid], current_year=2026)
+        ins.push_to_intern(conn, [sid], current_year=2029)
         rec = dict(conn.execute(
             "SELECT * FROM insurance_records WHERE student_id = ? AND insurance_type = 'intern'",
             (sid,)
         ).fetchone())
         assert rec['batch_no'] == 4
+        assert rec['school_year'] == '2029-2030'
+
+    def test_push_before_intern_batch_rejected(self):
+        """学年未到实习批次时直接调用接口应拒绝，不生成未来学年记录。"""
+        conn = _db()
+        sid = _add_student(conn, grade='2025', enrollment_year=2026)
+
+        result = ins.push_to_intern(conn, [sid], current_year=2026)
+        assert result['created'] == 0
+        assert result['skipped'] == 1
+        assert '尚未到达实习就业险批次' in result['errors'][0]['message']
+        assert conn.execute(
+            "SELECT COUNT(*) FROM insurance_records "
+            "WHERE student_id = ? AND insurance_type = 'intern'", (sid,)
+        ).fetchone()[0] == 0
+
+    def test_push_deferred_before_intern_year_rejected(self):
+        conn = _db()
+        sid = _add_student(conn, grade='2027', enrollment_year=2026)
+
+        result = ins.push_to_intern(conn, [sid], current_year=2026)
+        assert result['created'] == 0
+        assert result['skipped'] == 1
 
     def test_push_duplicate_skipped(self):
         conn = _db()
         sid = _add_student(conn, grade='2024', enrollment_year=2024)
         ins.push_to_intern(conn, [sid], current_year=2026)
 
-        assert ins.push_to_intern(conn, [sid], current_year=2026) == {'created': 0, 'skipped': 1}
+        result = ins.push_to_intern(conn, [sid], current_year=2026)
+        assert result['created'] == 0
+        assert result['skipped'] == 1
 
     def test_push_missing_student_skipped(self):
         conn = _db()
-        assert ins.push_to_intern(conn, [9999], current_year=2026) == {'created': 0, 'skipped': 1}
+        result = ins.push_to_intern(conn, [9999], current_year=2026)
+        assert result['created'] == 0
+        assert result['skipped'] == 1
