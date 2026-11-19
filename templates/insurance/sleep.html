@@ -12,15 +12,16 @@
                   background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
     .sl-toolbar .form-control, .sl-toolbar .form-select { font-size: 0.8rem; }
     .sl-search { width: 220px; }
-    .sl-table-wrap { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; overflow: auto;
-                     max-height: calc(100vh - 300px); }
-    .sl-table-wrap thead th { position: sticky; top: 0; background: #f1f3f5; z-index: 2; font-size: 0.78rem; white-space: nowrap; }
+    .sl-table-wrap { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; overflow-x: auto; }
+    .sl-table-wrap thead th { background: #f1f3f5; font-size: 0.78rem; white-space: nowrap; }
     .sl-table-wrap td { font-size: 0.8rem; }
     .sl-batch { display: inline-block; padding: 1px 8px; border-radius: 8px; background: #f0ebff; color: #59359a; font-size: 0.72rem; }
     .sl-chip { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 0.72rem; white-space: nowrap; }
     .sl-chip-sleeping { background: #e9ecef; color: #495057; }
     .sl-chip-pending { background: #fff3cd; color: #856404; }
     .sl-chip-paid { background: #cff4fc; color: #055160; }
+    .sl-pager { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+    .sl-pager .pagination { margin-bottom: 0; }
     .modal-sl .modal-header { background: #6f42c1; color: #fff; border-radius: 5px 5px 0 0; }
     .modal-sl .modal-header .btn-close { filter: invert(1); }
 </style>
@@ -75,6 +76,14 @@
     </table>
 </div>
 
+<div class="sl-pager" id="slPagerBar">
+    <span class="text-muted small" id="slPageInfo"></span>
+    <span class="text-muted small ms-auto">每页 20 条</span>
+    <nav aria-label="睡眠池分页">
+        <ul class="pagination pagination-sm mb-0" id="slPager"></ul>
+    </nav>
+</div>
+
 <div class="modal fade modal-sl" id="slActivateModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -110,7 +119,8 @@
         {% for st in school_types %}{{ st.code|tojson }}: {{ st.name|tojson }}{% if not loop.last %},{% endif %}{% endfor %}
     };
     var KIND_NAMES = { normal: '普通', transfer: '转学生', deferred: '推迟注册' };
-    var state = { tab: 'sleeping', sleeping: [], activated: [] };
+    var PAGE_SIZE = 20;
+    var state = { tab: 'sleeping', sleeping: [], activated: [], page: 1 };
     var activating = null;
 
     function $(id) { return document.getElementById(id); }
@@ -149,9 +159,61 @@
         return '<span class="sl-chip ' + cls + '">' + esc(item.status_label || '—') + '</span>';
     }
 
+    function pageWindow(page, pages) {
+        // 首页、末页、当前页 ±2，其余折叠为省略号
+        var nums = [1, pages];
+        for (var p = page - 2; p <= page + 2; p += 1) {
+            if (p >= 1 && p <= pages) { nums.push(p); }
+        }
+        nums = nums.filter(function (v, i, arr) { return arr.indexOf(v) === i; })
+                   .sort(function (a, b) { return a - b; });
+        var result = [];
+        for (var i = 0; i < nums.length; i += 1) {
+            if (i > 0 && nums[i] - nums[i - 1] > 1) { result.push('...'); }
+            result.push(nums[i]);
+        }
+        return result;
+    }
+
+    function renderPager(total, pages) {
+        var page = state.page;
+        var info = $('slPageInfo');
+        if (!total) {
+            info.textContent = '共 0 条';
+            $('slPager').innerHTML = '';
+            return;
+        }
+        info.textContent = '共 ' + total + ' 条，第 ' + page + ' / ' + pages + ' 页';
+        if (pages <= 1) {
+            $('slPager').innerHTML = '';
+            return;
+        }
+        var html = '<li class="page-item' + (page <= 1 ? ' disabled' : '') + '">'
+            + '<a class="page-link" href="#" data-p="' + (page - 1) + '">上一页</a></li>';
+        pageWindow(page, pages).forEach(function (p) {
+            if (p === '...') {
+                html += '<li class="page-item disabled"><span class="page-link">…</span></li>';
+            } else if (p === page) {
+                html += '<li class="page-item active"><span class="page-link">' + p + '</span></li>';
+            } else {
+                html += '<li class="page-item"><a class="page-link" href="#" data-p="' + p + '">'
+                    + p + '</a></li>';
+            }
+        });
+        html += '<li class="page-item' + (page >= pages ? ' disabled' : '') + '">'
+            + '<a class="page-link" href="#" data-p="' + (page + 1) + '">下一页</a></li>';
+        $('slPager').innerHTML = html;
+    }
+
     function render() {
         var isSleeping = state.tab === 'sleeping';
-        var rows = isSleeping ? state.sleeping : state.activated;
+        var allRows = isSleeping ? state.sleeping : state.activated;
+        var size = PAGE_SIZE;
+        var total = allRows.length;
+        var pages = Math.max(1, Math.ceil(total / size));
+        if (state.page > pages) { state.page = pages; }
+        if (state.page < 1) { state.page = 1; }
+        var rows = allRows.slice((state.page - 1) * size, state.page * size);
         var head = isSleeping
             ? '<tr><th>姓名</th><th>学号</th><th>身份证号</th><th>校别</th><th>班级</th><th>年级</th>'
               + '<th>学生类型</th><th>在校状态</th><th>当前批次</th><th>首保批次</th><th>激活目标</th><th>操作</th></tr>'
@@ -162,6 +224,7 @@
         if (!rows.length) {
             $('slBody').innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">'
                 + (isSleeping ? '暂无睡眠池学生' : '暂无已激活待审批记录') + '</td></tr>';
+            renderPager(total, pages);
             return;
         }
 
@@ -212,6 +275,7 @@
                 + '<td>' + action + '</td>'
                 + '</tr>';
         }).join('');
+        renderPager(total, pages);
     }
 
     function updateCounts(summary) {
@@ -331,6 +395,7 @@
             });
             btn.classList.add('active');
             state.tab = btn.getAttribute('data-tab');
+            state.page = 1;
             render();
         });
     });
@@ -344,18 +409,35 @@
         if (act === 'revert') { revert(btn.getAttribute('data-rid')); }
     });
 
+    $('slPager').addEventListener('click', function (event) {
+        var link = event.target.closest('a.page-link');
+        if (!link) { return; }
+        event.preventDefault();
+        var target = parseInt(link.getAttribute('data-p'), 10);
+        if (!target || target === state.page) { return; }
+        state.page = target;
+        render();
+    });
+
     $('slActivateSave').addEventListener('click', saveActivate);
     $('slReset').addEventListener('click', function () {
         ['slSearch', 'slSchool', 'slGrade', 'slClass', 'slMajor'].forEach(function (id) {
             $(id).value = '';
         });
+        state.page = 1;
         load();
     });
     ['slSchool', 'slGrade', 'slClass', 'slMajor'].forEach(function (id) {
-        $(id).addEventListener('change', load);
+        $(id).addEventListener('change', function () {
+            state.page = 1;
+            load();
+        });
     });
     $('slSearch').addEventListener('keydown', function (event) {
-        if (event.key === 'Enter') { load(); }
+        if (event.key === 'Enter') {
+            state.page = 1;
+            load();
+        }
     });
 
     load();
