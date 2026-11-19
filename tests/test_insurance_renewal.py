@@ -44,7 +44,8 @@ CREATE TABLE students (
     student_insurance_expiry TEXT DEFAULT '',
     insurance_premium TEXT DEFAULT '',
     internship_insurance_pay_date TEXT DEFAULT '',
-    supervisor_flag TEXT DEFAULT ''
+    supervisor_flag TEXT DEFAULT '',
+    admission_type TEXT DEFAULT ''
 );
 CREATE TABLE schema_version (
     id INTEGER PRIMARY KEY CHECK (id = 1),

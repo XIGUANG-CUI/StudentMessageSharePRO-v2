@@ -276,7 +276,8 @@ CREATE TABLE students (
     attendance_status TEXT DEFAULT '在校',
     student_insurance_no TEXT DEFAULT '', student_insurance_pay_date TEXT DEFAULT '',
     student_insurance_expiry TEXT DEFAULT '', insurance_premium TEXT DEFAULT '',
-    internship_insurance_pay_date TEXT DEFAULT '', supervisor_flag TEXT DEFAULT ''
+    internship_insurance_pay_date TEXT DEFAULT '', supervisor_flag TEXT DEFAULT '',
+    admission_type TEXT DEFAULT ''
 );
 CREATE TABLE schema_version (
     id INTEGER PRIMARY KEY CHECK (id = 1),

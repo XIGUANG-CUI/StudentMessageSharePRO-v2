@@ -1784,7 +1784,8 @@ STATUS_LABELS = {
 
 _POOL_STUDENT_COLUMNS = '''
     s.id, s.name, s.student_no, s.id_card, s.school, s.grade, s.enrollment_year,
-    s.admin_class, s.major, s.student_phone, s.name_pinyin, s.attendance_status
+    s.admin_class, s.major, s.student_phone, s.name_pinyin, s.attendance_status,
+    s.admission_type
 '''
 
 

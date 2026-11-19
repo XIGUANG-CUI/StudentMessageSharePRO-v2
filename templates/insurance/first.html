@@ -103,6 +103,7 @@
                 <th>校别</th>
                 <th>班级</th>
                 <th>年级</th>
+                <th>入学形式</th>
                 <th>在校状态</th>
                 <th>批次</th>
                 <th>状态</th>
@@ -112,7 +113,7 @@
             </tr>
         </thead>
         <tbody id="ifBody">
-            <tr><td colspan="13" class="text-center text-muted py-4">加载中…</td></tr>
+            <tr><td colspan="14" class="text-center text-muted py-4">加载中…</td></tr>
         </tbody>
     </table>
 </div>
@@ -317,7 +318,7 @@
     function render() {
         var body = $('ifBody');
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="13" class="text-center text-muted py-4">暂无学生</td></tr>';
+            body.innerHTML = '<tr><td colspan="14" class="text-center text-muted py-4">暂无学生</td></tr>';
             return;
         }
         var html = '';
@@ -331,6 +332,7 @@
                 + '<td>' + esc(schoolName(s.school)) + '</td>'
                 + '<td>' + esc(s.admin_class) + '</td>'
                 + '<td>' + esc(s.grade) + '</td>'
+                + '<td>' + esc(s.admission_type) + '</td>'
                 + '<td>' + esc(s.attendance_status) + '</td>'
                 + '<td><span class="if-batch">第' + (s.batch_no || '?') + '年</span></td>'
                 + '<td><span class="if-chip ' + (CHIP[s.source_status] || 'if-chip-unbuilt') + '">'
