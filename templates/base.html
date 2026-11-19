@@ -132,6 +132,9 @@
                             <li><a class="dropdown-item" href="{{ url_for('insurance.insurance_intern') }}">
                                 <i class="bi bi-mortarboard"></i> 就业险办结
                             </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('insurance.insurance_sleep') }}">
+                                <i class="bi bi-moon-stars"></i> 睡眠池
+                            </a></li>
                             <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item" href="{{ url_for('insurance.insurance_records') }}">
                                 <i class="bi bi-card-list"></i> 保险记录查询
@@ -204,6 +207,11 @@
                     </li>
                     {% endif %}
                     {% if session.role in ('finance_chief', 'finance_staff', 'insurance_officer') %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('insurance.insurance_sleep') }}">
+                            <i class="bi bi-moon-stars"></i> 睡眠池
+                        </a>
+                    </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('insurance.insurance_records') }}">
                             <i class="bi bi-card-list"></i> 保险记录查询

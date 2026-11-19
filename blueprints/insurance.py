@@ -17,7 +17,7 @@ import auth
 import utils
 import config
 from models import insurance as insurance_domain
-from models.insurance import current_insurance_batch
+# from models.insurance import current_insurance_batch  # 旧版 compute_insurance_batch 专用，已停用
 from services import insurance_service
 
 bp = Blueprint('insurance', __name__)
@@ -76,181 +76,184 @@ def api_insurance_query():
     return jsonify({'students': students, 'count': len(students)})
 
 
-@bp.route('/insurance/register')
-@auth.login_required
-def insurance_register():
-    """旧版缴费登记页已下线，统一重定向到新版保费催缴页。"""
-    return redirect(url_for('insurance.insurance_collection'))
-
-
-@bp.route('/api/insurance/students')
-@auth.finance_required
-def api_insurance_students():
-    """保险学生相关接口。"""
-    page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 20, type=int)
-    search = request.args.get('search', '').strip()
-    grade = request.args.get('grade', '').strip()
-    admin_class = request.args.get('admin_class', '').strip()
-    major = request.args.get('major', '').strip()
-    supervisor_flag = request.args.get('supervisor_flag', '').strip()
-
-    cursor = models.get_db().execute(f'''
-        SELECT COUNT(*) FROM students WHERE {models._non_graduated_where()}
-    ''')
-    total = cursor.fetchone()[0]
-
-    conditions = ['s.is_deleted = 0', "(s.registration_status IS NULL OR s.registration_status != '毕业')"]
-    params = []
-
-    if search:
-        conditions.append('(s.name LIKE ? OR s.student_no LIKE ? OR s.id_card LIKE ? OR s.name_pinyin LIKE ?)')
-        like = f'%{search}%'
-        params.extend([like, like, like, like])
-    if grade:
-        conditions.append('s.grade = ?')
-        params.append(grade)
-    if admin_class:
-        conditions.append('s.admin_class = ?')
-        params.append(admin_class)
-    if major:
-        conditions.append('s.major = ?')
-        params.append(major)
-
-    columns = 's.id, s.name, s.student_no, s.id_card, s.grade, s.admin_class, s.major, s.supervisor_flag, s.student_insurance_no, s.student_insurance_pay_date, s.student_insurance_expiry, s.insurance_premium, s.internship_insurance_pay_date, s.declaration_date, s.insurance_update_date, s.tuition_status'
-    where = ' AND '.join(conditions)
-
-    if supervisor_flag == 'not_completed':
-        conditions.append("(s.supervisor_flag IS NULL OR s.supervisor_flag = '' OR s.supervisor_flag NOT LIKE '%办结%')")
-
-    where = ' AND '.join(conditions)
-
-    count_cursor = models.get_db().execute(f'SELECT COUNT(*) FROM students s WHERE {where}', params)
-    filtered_total = count_cursor.fetchone()[0]
-
-    offset = (page - 1) * per_page
-    rows = models.get_db().execute(
-        f'SELECT {columns} FROM students s WHERE {where} ORDER BY s.grade, s.admin_class, s.name LIMIT ? OFFSET ?',
-        params + [per_page, offset]
-    ).fetchall()
-
-    students = [dict(r) for r in rows]
-
-    return jsonify({
-        'students': students,
-        'total': total,
-        'filtered_total': filtered_total,
-        'page': page,
-        'per_page': per_page,
-        'total_pages': max(1, (filtered_total + per_page - 1) // per_page)
-    })
-
-
-@bp.route('/api/insurance/register-tree')
-@auth.finance_required
-def api_insurance_register_tree():
-    """保险登记tree相关接口。支持 search / grade / admin_class / major 筛选。"""
-    search = request.args.get('search', '').strip()
-    grade = request.args.get('grade', '').strip()
-    admin_class = request.args.get('admin_class', '').strip()
-    major = request.args.get('major', '').strip()
-
-    conditions = [
-        "s.is_deleted = 0",
-        "s.attendance_status NOT IN ('托管', '退学办结')",
-        "(s.registration_status IS NULL OR s.registration_status != '毕业')",
-        "(s.supervisor_flag IS NULL OR (s.supervisor_flag NOT LIKE '%实习就业险%' AND s.supervisor_flag NOT IN ('{config.InsuranceStatus.PENDING_XUEPING}', '{config.InsuranceStatus.PENDING_INTERN}')))"
-    ]
-    params = []
-
-    if grade:
-        conditions.append('s.grade = ?')
-        params.append(grade)
-    if admin_class:
-        conditions.append('s.admin_class = ?')
-        params.append(admin_class)
-    if major:
-        conditions.append('s.major = ?')
-        params.append(major)
-
-    if search:
-        conditions.append('(s.name LIKE ? OR s.student_no LIKE ? OR s.id_card LIKE ? OR s.name_pinyin LIKE ?)')
-        like = f'%{search}%'
-        params.extend([like, like, like, like])
-
-    where = ' AND '.join(conditions)
-
-    rows = models.get_db().execute(
-        f'''SELECT s.id, s.name, s.student_no, s.id_card, s.grade, s.admin_class,
-                   s.major, s.enrollment_year, s.school,
-                   s.student_insurance_no, s.student_insurance_pay_date,
-                   s.student_insurance_expiry, s.insurance_premium,
-                   s.internship_insurance_pay_date, s.supervisor_flag,
-                   s.declaration_date
-            FROM students s
-            WHERE {where}
-            ORDER BY s.enrollment_year DESC, s.admin_class, s.name''',
-        params
-    ).fetchall()
-
-    students = [dict(r) for r in rows]
-
-    # batch=1 空标记学生默认走审批环节（外部参保），不显示在缴费登记页
-    students = [s for s in students
-                if not (_student_batch(s) == 1 and _is_blank(s.get('supervisor_flag')))]
-
-    # 批次统一由后端计算并下发，模板只读取，避免前端维护第二份公式
-    for s in students:
-        s['batch'] = _student_batch(s)
-
-    tree = {}
-    for s in students:
-        year = str(s.get('enrollment_year') or '未知年份')
-        cls = s.get('admin_class') or '未分班'
-        if year not in tree:
-            tree[year] = {}
-        if cls not in tree[year]:
-            tree[year][cls] = []
-        tree[year][cls].append(s)
-
-    return jsonify({'tree': tree})
-
-
-@bp.route('/api/insurance/register-single', methods=['POST'])
-@auth.finance_required
-def api_insurance_register_single():
-    """保险登记single相关接口（旧版，已下线）。"""
-    return jsonify({'success': False,
-                    'message': '旧版保险登记接口已下线，请使用新版保费催缴接口'}), 410
-
-
-@bp.route('/api/insurance/register-batch', methods=['POST'])
-@auth.finance_required
-def api_insurance_register_batch():
-    """保险登记批量相关接口（旧版，已下线）。"""
-    return jsonify({'success': False,
-                    'message': '旧版保险登记接口已下线，请使用新版保费催缴接口'}), 410
-
-
-@bp.route('/insurance/approve')
-@auth.login_required
-def insurance_approve():
-    """旧版审批页已下线，统一重定向到新版新生首保页。"""
-    return redirect(url_for('insurance.insurance_first'))
-
-
-def _is_blank(v):
-    """判断缴费日期等字段是否为空（None / 空串 / 纯空白）。"""
-    return v is None or (isinstance(v, str) and v.strip() == '')
-
-
-def compute_insurance_batch(grade, enrollment_year, current_year=None):
-    """计算学生保险批次（第几年），委托 models.insurance 统一实现。
-
-    保持原签名与返回值（1~3 或 None），供审批/待办/导入等旧逻辑继续调用。
-    统一规则：偏移量 = 入学年 − 年级；0 普通、≥1 转学生、≤−1 推迟注册。
-    """
-    return current_insurance_batch(grade, enrollment_year, current_year)
+# ============================================================
+# 旧版代码已停用：登记 / 审批旧页面入口与旧接口（register、students、register-tree、register-single、register-batch、approve 重定向、_is_blank、compute_insurance_batch）
+# ============================================================
+# @bp.route('/insurance/register')
+# @auth.login_required
+# def insurance_register():
+#     """旧版缴费登记页已下线，统一重定向到新版保费催缴页。"""
+#     return redirect(url_for('insurance.insurance_collection'))
+#
+#
+# @bp.route('/api/insurance/students')
+# @auth.finance_required
+# def api_insurance_students():
+#     """保险学生相关接口。"""
+#     page = request.args.get('page', 1, type=int)
+#     per_page = request.args.get('per_page', 20, type=int)
+#     search = request.args.get('search', '').strip()
+#     grade = request.args.get('grade', '').strip()
+#     admin_class = request.args.get('admin_class', '').strip()
+#     major = request.args.get('major', '').strip()
+#     supervisor_flag = request.args.get('supervisor_flag', '').strip()
+#
+#     cursor = models.get_db().execute(f'''
+#         SELECT COUNT(*) FROM students WHERE {models._non_graduated_where()}
+#     ''')
+#     total = cursor.fetchone()[0]
+#
+#     conditions = ['s.is_deleted = 0', "(s.registration_status IS NULL OR s.registration_status != '毕业')"]
+#     params = []
+#
+#     if search:
+#         conditions.append('(s.name LIKE ? OR s.student_no LIKE ? OR s.id_card LIKE ? OR s.name_pinyin LIKE ?)')
+#         like = f'%{search}%'
+#         params.extend([like, like, like, like])
+#     if grade:
+#         conditions.append('s.grade = ?')
+#         params.append(grade)
+#     if admin_class:
+#         conditions.append('s.admin_class = ?')
+#         params.append(admin_class)
+#     if major:
+#         conditions.append('s.major = ?')
+#         params.append(major)
+#
+#     columns = 's.id, s.name, s.student_no, s.id_card, s.grade, s.admin_class, s.major, s.supervisor_flag, s.student_insurance_no, s.student_insurance_pay_date, s.student_insurance_expiry, s.insurance_premium, s.internship_insurance_pay_date, s.declaration_date, s.insurance_update_date, s.tuition_status'
+#     where = ' AND '.join(conditions)
+#
+#     if supervisor_flag == 'not_completed':
+#         conditions.append("(s.supervisor_flag IS NULL OR s.supervisor_flag = '' OR s.supervisor_flag NOT LIKE '%办结%')")
+#
+#     where = ' AND '.join(conditions)
+#
+#     count_cursor = models.get_db().execute(f'SELECT COUNT(*) FROM students s WHERE {where}', params)
+#     filtered_total = count_cursor.fetchone()[0]
+#
+#     offset = (page - 1) * per_page
+#     rows = models.get_db().execute(
+#         f'SELECT {columns} FROM students s WHERE {where} ORDER BY s.grade, s.admin_class, s.name LIMIT ? OFFSET ?',
+#         params + [per_page, offset]
+#     ).fetchall()
+#
+#     students = [dict(r) for r in rows]
+#
+#     return jsonify({
+#         'students': students,
+#         'total': total,
+#         'filtered_total': filtered_total,
+#         'page': page,
+#         'per_page': per_page,
+#         'total_pages': max(1, (filtered_total + per_page - 1) // per_page)
+#     })
+#
+#
+# @bp.route('/api/insurance/register-tree')
+# @auth.finance_required
+# def api_insurance_register_tree():
+#     """保险登记tree相关接口。支持 search / grade / admin_class / major 筛选。"""
+#     search = request.args.get('search', '').strip()
+#     grade = request.args.get('grade', '').strip()
+#     admin_class = request.args.get('admin_class', '').strip()
+#     major = request.args.get('major', '').strip()
+#
+#     conditions = [
+#         "s.is_deleted = 0",
+#         "s.attendance_status NOT IN ('退学办结')",
+#         "(s.registration_status IS NULL OR s.registration_status != '毕业')",
+#         "(s.supervisor_flag IS NULL OR (s.supervisor_flag NOT LIKE '%实习就业险%' AND s.supervisor_flag NOT IN ('{config.InsuranceStatus.PENDING_XUEPING}', '{config.InsuranceStatus.PENDING_INTERN}')))"
+#     ]
+#     params = []
+#
+#     if grade:
+#         conditions.append('s.grade = ?')
+#         params.append(grade)
+#     if admin_class:
+#         conditions.append('s.admin_class = ?')
+#         params.append(admin_class)
+#     if major:
+#         conditions.append('s.major = ?')
+#         params.append(major)
+#
+#     if search:
+#         conditions.append('(s.name LIKE ? OR s.student_no LIKE ? OR s.id_card LIKE ? OR s.name_pinyin LIKE ?)')
+#         like = f'%{search}%'
+#         params.extend([like, like, like, like])
+#
+#     where = ' AND '.join(conditions)
+#
+#     rows = models.get_db().execute(
+#         f'''SELECT s.id, s.name, s.student_no, s.id_card, s.grade, s.admin_class,
+#                    s.major, s.enrollment_year, s.school,
+#                    s.student_insurance_no, s.student_insurance_pay_date,
+#                    s.student_insurance_expiry, s.insurance_premium,
+#                    s.internship_insurance_pay_date, s.supervisor_flag,
+#                    s.declaration_date
+#             FROM students s
+#             WHERE {where}
+#             ORDER BY s.enrollment_year DESC, s.admin_class, s.name''',
+#         params
+#     ).fetchall()
+#
+#     students = [dict(r) for r in rows]
+#
+#     # batch=1 空标记学生默认走审批环节（外部参保），不显示在缴费登记页
+#     students = [s for s in students
+#                 if not (_student_batch(s) == 1 and _is_blank(s.get('supervisor_flag')))]
+#
+#     # 批次统一由后端计算并下发，模板只读取，避免前端维护第二份公式
+#     for s in students:
+#         s['batch'] = _student_batch(s)
+#
+#     tree = {}
+#     for s in students:
+#         year = str(s.get('enrollment_year') or '未知年份')
+#         cls = s.get('admin_class') or '未分班'
+#         if year not in tree:
+#             tree[year] = {}
+#         if cls not in tree[year]:
+#             tree[year][cls] = []
+#         tree[year][cls].append(s)
+#
+#     return jsonify({'tree': tree})
+#
+#
+# @bp.route('/api/insurance/register-single', methods=['POST'])
+# @auth.finance_required
+# def api_insurance_register_single():
+#     """保险登记single相关接口（旧版，已下线）。"""
+#     return jsonify({'success': False,
+#                     'message': '旧版保险登记接口已下线，请使用新版保费催缴接口'}), 410
+#
+#
+# @bp.route('/api/insurance/register-batch', methods=['POST'])
+# @auth.finance_required
+# def api_insurance_register_batch():
+#     """保险登记批量相关接口（旧版，已下线）。"""
+#     return jsonify({'success': False,
+#                     'message': '旧版保险登记接口已下线，请使用新版保费催缴接口'}), 410
+#
+#
+# @bp.route('/insurance/approve')
+# @auth.login_required
+# def insurance_approve():
+#     """旧版审批页已下线，统一重定向到新版新生首保页。"""
+#     return redirect(url_for('insurance.insurance_first'))
+#
+#
+# def _is_blank(v):
+#     """判断缴费日期等字段是否为空（None / 空串 / 纯空白）。"""
+#     return v is None or (isinstance(v, str) and v.strip() == '')
+#
+#
+# def compute_insurance_batch(grade, enrollment_year, current_year=None):
+#     """计算学生保险批次（第几年），委托 models.insurance 统一实现。
+#
+#     保持原签名与返回值（1~3 或 None），供审批/待办/导入等旧逻辑继续调用。
+#     统一规则：偏移量 = 入学年 − 年级；0 普通、≥1 转学生、≤−1 推迟注册。
+#     """
+#     return current_insurance_batch(grade, enrollment_year, current_year)
 
 
 # ============================================================
@@ -679,6 +682,110 @@ def api_insurance_intern_export():
         output,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         as_attachment=True, download_name=filename)
+
+
+# ============================================================
+# 睡眠池：已过首保学年、零有效投保记录的学生（人工激活）
+# ============================================================
+@bp.route('/insurance/sleep')
+@_page_roles(*_INSURANCE_POOL_ROLES)
+def insurance_sleep():
+    """睡眠池页：零有效投保记录学生的人工激活与审批。"""
+    return render_template(
+        'insurance/sleep.html',
+        school_types=models.get_school_types(),
+        filter_values=models.get_filter_values(),
+        current_school_year=insurance_domain.current_school_year(),
+        can_manage=session.get('role') in ('admin', 'finance_chief'))
+
+
+@bp.route('/api/insurance/sleep/list')
+def api_insurance_sleep_list():
+    err = _require_insurance_json()
+    if err:
+        return err
+    conn = models.get_db()
+    filters = _pool_filters()
+    sleeping = insurance_domain.query_sleep_pool(conn, **filters)
+    activated = insurance_domain.query_sleep_activated(conn, **filters)
+    return jsonify({'success': True, 'sleeping': sleeping, 'activated': activated,
+                    'summary': {'sleeping': len(sleeping),
+                                'activated': len(activated)}})
+
+
+@bp.route('/api/insurance/sleep/activate', methods=['POST'])
+@_json_roles('admin', 'finance_chief')
+def api_insurance_sleep_activate():
+    """激活睡眠池学生：按当前学年自动定位目标批次。"""
+    data = request.get_json(silent=True) or {}
+    try:
+        student_id = int(data.get('student_id'))
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': '学生参数无效'}), 400
+
+    conn = models.get_db()
+    try:
+        record = insurance_domain.activate_sleep_student(
+            conn, student_id,
+            (data.get('pay_date') or '').strip(),
+            (data.get('premium') or '').strip(),
+            operator=session.get('username', ''))
+        conn.commit()
+    except insurance_domain.InsuranceTransitionError as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({'success': True, 'record': record})
+
+
+@bp.route('/api/insurance/sleep/approve', methods=['POST'])
+@_json_roles('admin', 'finance_chief')
+def api_insurance_sleep_approve():
+    """审批睡眠池激活记录（支持多选）。"""
+    data = request.get_json(silent=True) or {}
+    record_ids = data.get('record_ids') or []
+    if not record_ids:
+        return jsonify({'success': False, 'message': '请选择记录'}), 400
+
+    conn = models.get_db()
+    operator = session.get('username', '')
+    done, errors = 0, []
+    for record_id in record_ids:
+        try:
+            insurance_domain.approve_sleep_activation(
+                conn, int(record_id), operator=operator)
+            done += 1
+        except Exception as e:
+            errors.append(str(e))
+    conn.commit()
+    return jsonify({'success': not errors, 'count': done,
+                    'skipped': len(errors), 'errors': errors})
+
+
+@bp.route('/api/insurance/sleep/revert', methods=['POST'])
+@_json_roles('admin', 'finance_chief')
+def api_insurance_sleep_revert():
+    """撤销睡眠池激活（支持多选）。"""
+    data = request.get_json(silent=True) or {}
+    record_ids = data.get('record_ids') or []
+    if not record_ids:
+        return jsonify({'success': False, 'message': '请选择记录'}), 400
+
+    conn = models.get_db()
+    operator = session.get('username', '')
+    done, errors = 0, []
+    for record_id in record_ids:
+        try:
+            insurance_domain.revert_sleep_activation(
+                conn, int(record_id), operator=operator)
+            done += 1
+        except Exception as e:
+            errors.append(str(e))
+    conn.commit()
+    return jsonify({'success': not errors, 'count': done,
+                    'skipped': len(errors), 'errors': errors})
 
 
 # ============================================================
@@ -1570,453 +1677,456 @@ def api_insurance_revert_logs():
                     'page': page, 'page_size': page_size, 'pages': pages})
 
 
-def _pay_date_year(pd):
-    """从学平险缴费日期提取年份，兼容 'YYYY-MM-DD' 字符串 与 Excel 日期序列号（如 45893）。
-
-    空值 / 外部占位标记('新生默认首保') / 无法解析 均返回 None。
-    背景：导入时 Excel 日期常被读成 int 序列号存库（如 45893），前端 formatDate 会转成
-    2025-08-24 显示，故锁定逻辑必须按同一规则还原年份，否则 pd[:4] 误读为 4589 导致年份比较失效。
-    """
-    if pd is None:
-        return None
-    s = str(pd).strip()
-    if s == '' or s == config.InsuranceStatus.EXTERNAL_PAY_MARKER:
-        return None
-    # YYYY-MM-DD
-    if len(s) >= 5 and s[:4].isdigit() and s[4] == '-':
-        try:
-            return int(s[:4])
-        except ValueError:
-            return None
-    # Excel 日期序列号（与前端 formatDate 的 (num-25569)*86400000 等价）
-    try:
-        serial = float(s)
-        if 10000 < serial < 100000:  # 合理序列号范围（约 1927~2137 年）
-            d = datetime(1899, 12, 30) + timedelta(days=serial)
-            return d.year
-    except (ValueError, TypeError, OverflowError):
-        pass
-    return None
-
-
-def _student_batch(s):
-    """审批列表用：计算学生当前年级批次（第几年），返回 1~3 或 None。"""
-    return compute_insurance_batch(s.get('grade'), s.get('enrollment_year'))
-
-
-def _annotate_xueping_lock(s):
-    """审批页：计算学生“按计划办理学平险”按钮是否应锁定，以及锁定原因提示。
-
-    锁定条件（任一即锁）：
-      1) 已交实习就业险（hasInternDate）——该生已走完第3年流程，无需再办学平险；
-      2) 学平险缴费日期为「新生默认首保」占位标记（且实习未交）——提示先去登记页录第2期真实日期；
-      3) 主管标记“YYYY年度学平险已办结”且 YYYY >= 学平险缴费日期年份——同年（或回溯跨边界）已办完，无需重复办理。
-         仅当 标记年份 < 缴费日期年份（即已录入下一年真实日期）时才放行，允许办理第2年学平险。
-
-    flag 年份 = current_school_year()（学年基准，过 9/1 升年）；缴费日期年份取其前4位。
-    年份既不相等也不小于（如回溯跨学年边界导致 标记年 > 缴费年）时按锁定处理（安全侧），避免误放行重复办理。
-    后端为唯一真源，前端仅读取 xueping_locked / xueping_lock_hint，避免前后端解析不一致。
-    """
-    flag = s.get('supervisor_flag')
-    pd = s.get('student_insurance_pay_date')
-    has_intern = not _is_blank(s.get('internship_insurance_pay_date'))
-    pay_external = (pd == config.InsuranceStatus.EXTERNAL_PAY_MARKER)
-    # 同年（或标记年更大）学平险已办结
-    flag_year = config.InsuranceStatus.parse_flag_year(flag)
-    is_xp_done = config.InsuranceStatus.done_type(flag) == 'xueping'
-    pay_year = _pay_date_year(pd)
-    xp_done_lock = bool(
-        is_xp_done and flag_year is not None and pay_year is not None and flag_year >= pay_year
-    )
-    locked = bool(has_intern or pay_external or xp_done_lock)
-    if has_intern:
-        hint = '该生已交实习就业险，无需再办理学平险'
-    elif pay_external:
-        hint = '请录入该生2期学平险缴费日期'
-    elif xp_done_lock:
-        hint = f'该生{flag_year}年度学平险已办结，无需重复办理'
-    else:
-        hint = None
-    s['xueping_locked'] = locked
-    s['xueping_lock_hint'] = hint
-
-
-@bp.route('/api/insurance/approve-tree')
-@auth.finance_chief_required
-def api_insurance_approve_tree():
-    """保险审批tree相关接口。"""
-    search = request.args.get('search', '').strip()
-
-    conditions = [
-        "s.is_deleted = 0",
-        "(s.registration_status IS NULL OR s.registration_status != '毕业')",
-        "((s.student_insurance_pay_date IS NOT NULL AND s.student_insurance_pay_date != '') OR (s.internship_insurance_pay_date IS NOT NULL AND s.internship_insurance_pay_date != '') OR (s.supervisor_flag IS NULL OR s.supervisor_flag = ''))",
-        f"(s.supervisor_flag IS NULL OR s.supervisor_flag = '' OR (s.supervisor_flag NOT IN ('{config.InsuranceStatus.PENDING_XUEPING}', '{config.InsuranceStatus.EXEMPT}', '{config.InsuranceStatus.PENDING_INTERN}') AND s.supervisor_flag NOT LIKE '%实习就业险%办结%'))"
-    ]
-    params = []
-
-    if search:
-        conditions.append('(s.name LIKE ? OR s.student_no LIKE ? OR s.id_card LIKE ? OR s.name_pinyin LIKE ?)')
-        like = f'%{search}%'
-        params.extend([like, like, like, like])
-
-    where = ' AND '.join(conditions)
-
-    rows = models.get_db().execute(
-        f'''SELECT s.id, s.name, s.student_no, s.id_card, s.grade, s.admin_class,
-                   s.major, s.enrollment_year, s.school,
-                   s.student_insurance_pay_date, s.student_insurance_expiry,
-                   s.student_insurance_no, s.insurance_premium,
-                   s.internship_insurance_pay_date, s.supervisor_flag,
-                   s.declaration_date
-            FROM students s
-            WHERE {where}
-            ORDER BY
-                CASE WHEN s.student_insurance_expiry IS NULL OR s.student_insurance_expiry = ''
-                     THEN '9999-99-99'
-                     ELSE s.student_insurance_expiry
-                END ASC,
-                s.admin_class, s.name''',
-        params
-    ).fetchall()
-
-    students = [dict(r) for r in rows]
-
-    # 第3年学生不再办学平险，只审批已缴纳实习就业险的；
-    # 第2年提前办实习险的特殊学生不受影响（本过滤仅针对第3年）。
-    # batch=1 空标记学生（外部参保）虽无缴费日期，也需在审批页显示，由主管确认。
-    students = [s for s in students
-                if (not (_student_batch(s) == 3 and _is_blank(s.get('internship_insurance_pay_date'))))
-                and ((not _is_blank(s.get('student_insurance_pay_date')) or not _is_blank(s.get('internship_insurance_pay_date')))
-                     or (_student_batch(s) == 1 and _is_blank(s.get('supervisor_flag'))))]
-
-    # 后端计算“按计划办理学平险”按钮锁定状态与提示，随学生数据下发（前端仅读取）
-    for s in students:
-        _annotate_xueping_lock(s)
-        s['batch'] = _student_batch(s)
-
-    tree = {}
-    for s in students:
-        expiry = s.get('student_insurance_expiry') or '未设置到期时间'
-        if expiry not in tree:
-            tree[expiry] = []
-        tree[expiry].append(s)
-
-    return jsonify({'tree': tree})
-
-
-@bp.route('/api/insurance/approve-single', methods=['POST'])
-@auth.finance_chief_required
-def api_insurance_approve_single():
-    """保险审批single相关接口（旧版，已下线）。"""
-    return jsonify({'success': False,
-                    'message': '旧版保险审批接口已下线，请使用新版审批接口'}), 410
-    data = request.get_json()
-    if not data:
-        return jsonify({'error': '无效数据'}), 400
-
-    student_id = data.get('student_id')
-    action = data.get('action', 'approve')
-
-    if not student_id:
-        return jsonify({'error': '缺少学生ID'}), 400
-    if action not in ('approve', 'reject', 'internship'):
-        return jsonify({'error': '操作无效'}), 400
-
-    if action == 'approve':
-        flag_value = config.InsuranceStatus.PENDING_XUEPING
-    elif action == 'internship':
-        flag_value = config.InsuranceStatus.PENDING_INTERN
-    else:
-        flag_value = config.InsuranceStatus.EXEMPT
-
-    fields = {'supervisor_flag': flag_value}
-    # batch=1 空标记学生经审批确认参保(外部)：补占位缴费日期，进入待办页（与正常流一致）
-    if action == 'approve':
-        cur = models.get_db().execute(
-            'SELECT grade, enrollment_year, student_insurance_pay_date FROM students WHERE id = ?',
-            (student_id,)
-        ).fetchone()
-        if cur and compute_insurance_batch(cur['grade'], cur['enrollment_year']) == 1 \
-           and _is_blank(cur['student_insurance_pay_date']):
-            fields['student_insurance_pay_date'] = config.InsuranceStatus.EXTERNAL_PAY_MARKER
-
-    try:
-        models.update_student_insurance(student_id, fields)
-        return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@bp.route('/api/insurance/approve-summary')
-@auth.finance_chief_required
-def api_insurance_approve_summary():
-    """保险审批汇总相关接口。"""
-    conn = models.get_db()
-
-    rows = conn.execute(
-        '''SELECT s.school, s.supervisor_flag, COUNT(*) as cnt
-           FROM students s
-           WHERE s.is_deleted = 0
-             AND s.supervisor_flag LIKE '%办结%'
-           GROUP BY s.school, s.supervisor_flag
-           ORDER BY s.school, s.supervisor_flag'''
-    ).fetchall()
-
-    # 按 school_types 动态初始化分组，新增学校类别也能显示汇总
-    by_school = {st['code']: {'students': [], 'interns': [], 'total': 0}
-                 for st in models.get_school_types()}
-
-    for r in rows:
-        school = r[0]
-        if school not in by_school:
-            by_school[school] = {'students': [], 'interns': [], 'total': 0}
-        flag = r[1]
-        count = r[2]
-        kind = '学平险' if '学平险' in flag else '实习就业险'
-
-        detail = {
-            'id': r[1],
-            'label': flag,
-            'kind': kind,
-            'count': count
-        }
-
-        if kind == '学平险':
-            by_school[school]['students'].append(detail)
-        else:
-            by_school[school]['interns'].append(detail)
-        by_school[school]['total'] += count
-
-    return jsonify({
-        'schools': {str(k): v for k, v in by_school.items()},
-        'grand_total': sum(v['total'] for v in by_school.values())
-    })
-
-
-@bp.route('/api/insurance/approve', methods=['POST'])
-@auth.finance_chief_required
-def api_insurance_approve():
-    """保险审批相关接口（旧版，已下线）。"""
-    return jsonify({'success': False,
-                    'message': '旧版保险审批接口已下线，请使用新版审批接口'}), 410
-    data = request.get_json()
-    if not data:
-        return jsonify({'error': '无效数据'}), 400
-
-    student_ids = data.get('student_ids', [])
-    action = data.get('action', 'approve')
-
-    if not student_ids:
-        return jsonify({'error': '请选择学生'}), 400
-
-    if action not in ('approve', 'reject', 'internship'):
-        return jsonify({'error': '操作无效'}), 400
-
-    if action == 'approve':
-        flag_value = config.InsuranceStatus.PENDING_XUEPING
-    elif action == 'internship':
-        flag_value = config.InsuranceStatus.PENDING_INTERN
-    else:
-        flag_value = config.InsuranceStatus.EXEMPT
-
-    try:
-        if action == 'approve':
-            # 逐人处理：batch=1 空标记补占位缴费日期
-            done = 0
-            for sid in student_ids:
-                cur = models.get_db().execute(
-                    'SELECT grade, enrollment_year, student_insurance_pay_date FROM students WHERE id = ?',
-                    (sid,)
-                ).fetchone()
-                if not cur:
-                    continue
-                f = {'supervisor_flag': flag_value}
-                if compute_insurance_batch(cur['grade'], cur['enrollment_year']) == 1 \
-                   and _is_blank(cur['student_insurance_pay_date']):
-                    f['student_insurance_pay_date'] = config.InsuranceStatus.EXTERNAL_PAY_MARKER
-                models.update_student_insurance(sid, f)
-                done += 1
-            return jsonify({'success': True, 'count': done})
-        else:
-            models.batch_update_student_insurance(student_ids, {'supervisor_flag': flag_value})
-            return jsonify({'success': True, 'count': len(student_ids)})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@bp.route('/insurance/todo')
-@auth.login_required
-def insurance_todo():
-    """旧版待办页已下线，统一重定向到新版新生首保页。"""
-    return redirect(url_for('insurance.insurance_first'))
-
-
-@bp.route('/api/insurance/todo/export')
-@auth.insurance_officer_required
-def api_insurance_todo_export():
-    """保险待办导出相关接口。尊重当前搜索筛选（与待办列表一致）。"""
-    search = request.args.get('search', '').strip()
-
-    conditions = [
-        's.is_deleted = 0',
-        "(s.registration_status IS NULL OR s.registration_status != '毕业')",
-        f"s.supervisor_flag IN ('{config.InsuranceStatus.PENDING_XUEPING}', '{config.InsuranceStatus.PENDING_INTERN}')"
-    ]
-    params = []
-    if search:
-        conditions.append('(s.name LIKE ? OR s.student_no LIKE ? OR s.id_card LIKE ? OR s.name_pinyin LIKE ?)')
-        like = f'%{search}%'
-        params.extend([like, like, like, like])
-
-    where = ' AND '.join(conditions)
-
-    conn = models.get_db()
-    rows = conn.execute(
-        f'''SELECT s.* FROM students s
-            WHERE {where}
-            ORDER BY s.school, s.admin_class, s.name''',
-        params
-    ).fetchall()
-
-    students = [dict(r) for r in rows]
-
-    visible_fields = auth.get_visible_fields()
-    export_fields = None if visible_fields == ['*'] else visible_fields
-
-    for student in students:
-        student['age'] = utils.calculate_age(student.get('birth_date'))
-
-    wb = utils.export_students_to_excel(students, export_fields)
-    output = BytesIO()
-    wb.save(output)
-    output.seek(0)
-
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M')
-    filename = f'保险待办导出_{timestamp}.xlsx'
-
-    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                     as_attachment=True, download_name=filename)
-
-
-@bp.route('/api/insurance/todo-tree')
-@auth.insurance_officer_required
-def api_insurance_todo_tree():
-    """保险待办tree相关接口。"""
-    search = request.args.get('search', '').strip()
-
-    conditions = [
-        's.is_deleted = 0',
-        "(s.registration_status IS NULL OR s.registration_status != '毕业')",
-        f"s.supervisor_flag IN ('{config.InsuranceStatus.PENDING_XUEPING}', '{config.InsuranceStatus.PENDING_INTERN}')"
-    ]
-    params = []
-
-    if search:
-        conditions.append('(s.name LIKE ? OR s.student_no LIKE ? OR s.id_card LIKE ? OR s.name_pinyin LIKE ?)')
-        like = f'%{search}%'
-        params.extend([like, like, like, like])
-
-    where = ' AND '.join(conditions)
-
-    rows = models.get_db().execute(
-        f'''SELECT s.id, s.name, s.student_no, s.id_card, s.grade, s.admin_class,
-                   s.major, s.enrollment_year, s.school,
-                   s.student_insurance_pay_date, s.student_insurance_expiry,
-                   s.student_insurance_no, s.insurance_premium,
-                   s.internship_insurance_pay_date, s.supervisor_flag,
-                   s.declaration_date
-            FROM students s
-            WHERE {where}
-            ORDER BY s.school, s.admin_class, s.name''',
-        params
-    ).fetchall()
-
-    students = [dict(r) for r in rows]
-
-    # 按 school_types 动态初始化分组，新增学校类别也能归入待办树
-    schools = {st['code']: [] for st in models.get_school_types()}
-    for s in students:
-        school = s.get('school')
-        if school not in schools:
-            schools[school] = []
-        schools[school].append(s)
-
-    return jsonify({'students_by_school': schools})
-
-
-@bp.route('/api/insurance/complete', methods=['POST'])
-@auth.insurance_officer_required
-def api_insurance_complete():
-    """保险完成相关接口（旧版，已下线）。
-
-    支持两种模式：
-    - 统一模式：传 student_ids + 可选的 student_insurance_no / student_insurance_expiry（全批套用）。
-    - 逐人模式：传 items=[{student_id, student_insurance_no, student_insurance_expiry}]（实习/学平常每人一单）。
-    实习就业险学生（supervisor_flag=按计划办理实习就业险）无论哪种模式都不写保单号/到期。
-    """
-    return jsonify({'success': False,
-                    'message': '旧版保险办结接口已下线，请使用新版办结接口'}), 410
-    data = request.get_json()
-    if not data:
-        return jsonify({'error': '无效数据'}), 400
-
-    student_ids = data.get('student_ids', [])
-    items = data.get('items')  # 逐人模式可选
-    student_insurance_no = data.get('student_insurance_no', '').strip()
-    student_insurance_expiry = utils.normalize_date_string(data.get('student_insurance_expiry', '').strip())
-
-    if not student_ids and not items:
-        return jsonify({'error': '请选择学生'}), 400
-
-    # 年份来源：取系统学年基准（9 月起始，见 insurance_domain.current_school_year），
-    # 而非点击当天的 datetime.now().year —— 避免 clerk 在跨年时把上一学年的批次
-    # 误标成本年前缀。
-    year = insurance_domain.current_school_year()
-
-    try:
-        if items:
-            target_map = {}
-            for it in items:
-                sid = it.get('student_id')
-                if sid is None:
-                    continue
-                target_map[sid] = it
-            id_list = list(target_map.keys())
-        else:
-            id_list = student_ids
-            target_map = None
-
-        done = 0
-        for sid in id_list:
-            cur = models.get_db().execute(
-                'SELECT supervisor_flag FROM students WHERE id = ?', (sid,)
-            ).fetchone()
-            if not cur:
-                continue
-
-            is_intern = (cur[0] == config.InsuranceStatus.PENDING_INTERN)
-            flag_done = config.InsuranceStatus.done_intern(year) if is_intern else config.InsuranceStatus.done_xueping(year)
-            fields = {'supervisor_flag': flag_done}
-
-            # 实习就业险系统无保单号/到期字段，绝不写
-            if not is_intern:
-                if target_map:
-                    it = target_map.get(sid, {})
-                    no = (it.get('student_insurance_no') or '').strip()
-                    ex = utils.normalize_date_string((it.get('student_insurance_expiry') or '').strip())
-                else:
-                    no, ex = student_insurance_no, student_insurance_expiry
-                if no:
-                    fields['student_insurance_no'] = no
-                if ex:
-                    fields['student_insurance_expiry'] = ex
-
-            models.update_student_insurance(sid, fields)
-            done += 1
-        return jsonify({'success': True, 'count': done})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+# ============================================================
+# 旧版代码已停用：审批 / 待办 / 办结旧接口及其辅助函数（approve-tree、approve-single、approve-summary、approve、todo、todo/export、todo-tree、complete）
+# ============================================================
+# def _pay_date_year(pd):
+#     """从学平险缴费日期提取年份，兼容 'YYYY-MM-DD' 字符串 与 Excel 日期序列号（如 45893）。
+#
+#     空值 / 外部占位标记('新生默认首保') / 无法解析 均返回 None。
+#     背景：导入时 Excel 日期常被读成 int 序列号存库（如 45893），前端 formatDate 会转成
+#     2025-08-24 显示，故锁定逻辑必须按同一规则还原年份，否则 pd[:4] 误读为 4589 导致年份比较失效。
+#     """
+#     if pd is None:
+#         return None
+#     s = str(pd).strip()
+#     if s == '' or s == config.InsuranceStatus.EXTERNAL_PAY_MARKER:
+#         return None
+#     # YYYY-MM-DD
+#     if len(s) >= 5 and s[:4].isdigit() and s[4] == '-':
+#         try:
+#             return int(s[:4])
+#         except ValueError:
+#             return None
+#     # Excel 日期序列号（与前端 formatDate 的 (num-25569)*86400000 等价）
+#     try:
+#         serial = float(s)
+#         if 10000 < serial < 100000:  # 合理序列号范围（约 1927~2137 年）
+#             d = datetime(1899, 12, 30) + timedelta(days=serial)
+#             return d.year
+#     except (ValueError, TypeError, OverflowError):
+#         pass
+#     return None
+#
+#
+# def _student_batch(s):
+#     """审批列表用：计算学生当前年级批次（第几年），返回 1~3 或 None。"""
+#     return compute_insurance_batch(s.get('grade'), s.get('enrollment_year'))
+#
+#
+# def _annotate_xueping_lock(s):
+#     """审批页：计算学生“按计划办理学平险”按钮是否应锁定，以及锁定原因提示。
+#
+#     锁定条件（任一即锁）：
+#       1) 已交实习就业险（hasInternDate）——该生已走完第3年流程，无需再办学平险；
+#       2) 学平险缴费日期为「新生默认首保」占位标记（且实习未交）——提示先去登记页录第2期真实日期；
+#       3) 主管标记“YYYY年度学平险已办结”且 YYYY >= 学平险缴费日期年份——同年（或回溯跨边界）已办完，无需重复办理。
+#          仅当 标记年份 < 缴费日期年份（即已录入下一年真实日期）时才放行，允许办理第2年学平险。
+#
+#     flag 年份 = current_school_year()（学年基准，过 9/1 升年）；缴费日期年份取其前4位。
+#     年份既不相等也不小于（如回溯跨学年边界导致 标记年 > 缴费年）时按锁定处理（安全侧），避免误放行重复办理。
+#     后端为唯一真源，前端仅读取 xueping_locked / xueping_lock_hint，避免前后端解析不一致。
+#     """
+#     flag = s.get('supervisor_flag')
+#     pd = s.get('student_insurance_pay_date')
+#     has_intern = not _is_blank(s.get('internship_insurance_pay_date'))
+#     pay_external = (pd == config.InsuranceStatus.EXTERNAL_PAY_MARKER)
+#     # 同年（或标记年更大）学平险已办结
+#     flag_year = config.InsuranceStatus.parse_flag_year(flag)
+#     is_xp_done = config.InsuranceStatus.done_type(flag) == 'xueping'
+#     pay_year = _pay_date_year(pd)
+#     xp_done_lock = bool(
+#         is_xp_done and flag_year is not None and pay_year is not None and flag_year >= pay_year
+#     )
+#     locked = bool(has_intern or pay_external or xp_done_lock)
+#     if has_intern:
+#         hint = '该生已交实习就业险，无需再办理学平险'
+#     elif pay_external:
+#         hint = '请录入该生2期学平险缴费日期'
+#     elif xp_done_lock:
+#         hint = f'该生{flag_year}年度学平险已办结，无需重复办理'
+#     else:
+#         hint = None
+#     s['xueping_locked'] = locked
+#     s['xueping_lock_hint'] = hint
+#
+#
+# @bp.route('/api/insurance/approve-tree')
+# @auth.finance_chief_required
+# def api_insurance_approve_tree():
+#     """保险审批tree相关接口。"""
+#     search = request.args.get('search', '').strip()
+#
+#     conditions = [
+#         "s.is_deleted = 0",
+#         "(s.registration_status IS NULL OR s.registration_status != '毕业')",
+#         "((s.student_insurance_pay_date IS NOT NULL AND s.student_insurance_pay_date != '') OR (s.internship_insurance_pay_date IS NOT NULL AND s.internship_insurance_pay_date != '') OR (s.supervisor_flag IS NULL OR s.supervisor_flag = ''))",
+#         f"(s.supervisor_flag IS NULL OR s.supervisor_flag = '' OR (s.supervisor_flag NOT IN ('{config.InsuranceStatus.PENDING_XUEPING}', '{config.InsuranceStatus.EXEMPT}', '{config.InsuranceStatus.PENDING_INTERN}') AND s.supervisor_flag NOT LIKE '%实习就业险%办结%'))"
+#     ]
+#     params = []
+#
+#     if search:
+#         conditions.append('(s.name LIKE ? OR s.student_no LIKE ? OR s.id_card LIKE ? OR s.name_pinyin LIKE ?)')
+#         like = f'%{search}%'
+#         params.extend([like, like, like, like])
+#
+#     where = ' AND '.join(conditions)
+#
+#     rows = models.get_db().execute(
+#         f'''SELECT s.id, s.name, s.student_no, s.id_card, s.grade, s.admin_class,
+#                    s.major, s.enrollment_year, s.school,
+#                    s.student_insurance_pay_date, s.student_insurance_expiry,
+#                    s.student_insurance_no, s.insurance_premium,
+#                    s.internship_insurance_pay_date, s.supervisor_flag,
+#                    s.declaration_date
+#             FROM students s
+#             WHERE {where}
+#             ORDER BY
+#                 CASE WHEN s.student_insurance_expiry IS NULL OR s.student_insurance_expiry = ''
+#                      THEN '9999-99-99'
+#                      ELSE s.student_insurance_expiry
+#                 END ASC,
+#                 s.admin_class, s.name''',
+#         params
+#     ).fetchall()
+#
+#     students = [dict(r) for r in rows]
+#
+#     # 第3年学生不再办学平险，只审批已缴纳实习就业险的；
+#     # 第2年提前办实习险的特殊学生不受影响（本过滤仅针对第3年）。
+#     # batch=1 空标记学生（外部参保）虽无缴费日期，也需在审批页显示，由主管确认。
+#     students = [s for s in students
+#                 if (not (_student_batch(s) == 3 and _is_blank(s.get('internship_insurance_pay_date'))))
+#                 and ((not _is_blank(s.get('student_insurance_pay_date')) or not _is_blank(s.get('internship_insurance_pay_date')))
+#                      or (_student_batch(s) == 1 and _is_blank(s.get('supervisor_flag'))))]
+#
+#     # 后端计算“按计划办理学平险”按钮锁定状态与提示，随学生数据下发（前端仅读取）
+#     for s in students:
+#         _annotate_xueping_lock(s)
+#         s['batch'] = _student_batch(s)
+#
+#     tree = {}
+#     for s in students:
+#         expiry = s.get('student_insurance_expiry') or '未设置到期时间'
+#         if expiry not in tree:
+#             tree[expiry] = []
+#         tree[expiry].append(s)
+#
+#     return jsonify({'tree': tree})
+#
+#
+# @bp.route('/api/insurance/approve-single', methods=['POST'])
+# @auth.finance_chief_required
+# def api_insurance_approve_single():
+#     """保险审批single相关接口（旧版，已下线）。"""
+#     return jsonify({'success': False,
+#                     'message': '旧版保险审批接口已下线，请使用新版审批接口'}), 410
+#     data = request.get_json()
+#     if not data:
+#         return jsonify({'error': '无效数据'}), 400
+#
+#     student_id = data.get('student_id')
+#     action = data.get('action', 'approve')
+#
+#     if not student_id:
+#         return jsonify({'error': '缺少学生ID'}), 400
+#     if action not in ('approve', 'reject', 'internship'):
+#         return jsonify({'error': '操作无效'}), 400
+#
+#     if action == 'approve':
+#         flag_value = config.InsuranceStatus.PENDING_XUEPING
+#     elif action == 'internship':
+#         flag_value = config.InsuranceStatus.PENDING_INTERN
+#     else:
+#         flag_value = config.InsuranceStatus.EXEMPT
+#
+#     fields = {'supervisor_flag': flag_value}
+#     # batch=1 空标记学生经审批确认参保(外部)：补占位缴费日期，进入待办页（与正常流一致）
+#     if action == 'approve':
+#         cur = models.get_db().execute(
+#             'SELECT grade, enrollment_year, student_insurance_pay_date FROM students WHERE id = ?',
+#             (student_id,)
+#         ).fetchone()
+#         if cur and compute_insurance_batch(cur['grade'], cur['enrollment_year']) == 1 \
+#            and _is_blank(cur['student_insurance_pay_date']):
+#             fields['student_insurance_pay_date'] = config.InsuranceStatus.EXTERNAL_PAY_MARKER
+#
+#     try:
+#         models.update_student_insurance(student_id, fields)
+#         return jsonify({'success': True})
+#     except Exception as e:
+#         return jsonify({'error': str(e)}), 500
+#
+#
+# @bp.route('/api/insurance/approve-summary')
+# @auth.finance_chief_required
+# def api_insurance_approve_summary():
+#     """保险审批汇总相关接口。"""
+#     conn = models.get_db()
+#
+#     rows = conn.execute(
+#         '''SELECT s.school, s.supervisor_flag, COUNT(*) as cnt
+#            FROM students s
+#            WHERE s.is_deleted = 0
+#              AND s.supervisor_flag LIKE '%办结%'
+#            GROUP BY s.school, s.supervisor_flag
+#            ORDER BY s.school, s.supervisor_flag'''
+#     ).fetchall()
+#
+#     # 按 school_types 动态初始化分组，新增学校类别也能显示汇总
+#     by_school = {st['code']: {'students': [], 'interns': [], 'total': 0}
+#                  for st in models.get_school_types()}
+#
+#     for r in rows:
+#         school = r[0]
+#         if school not in by_school:
+#             by_school[school] = {'students': [], 'interns': [], 'total': 0}
+#         flag = r[1]
+#         count = r[2]
+#         kind = '学平险' if '学平险' in flag else '实习就业险'
+#
+#         detail = {
+#             'id': r[1],
+#             'label': flag,
+#             'kind': kind,
+#             'count': count
+#         }
+#
+#         if kind == '学平险':
+#             by_school[school]['students'].append(detail)
+#         else:
+#             by_school[school]['interns'].append(detail)
+#         by_school[school]['total'] += count
+#
+#     return jsonify({
+#         'schools': {str(k): v for k, v in by_school.items()},
+#         'grand_total': sum(v['total'] for v in by_school.values())
+#     })
+#
+#
+# @bp.route('/api/insurance/approve', methods=['POST'])
+# @auth.finance_chief_required
+# def api_insurance_approve():
+#     """保险审批相关接口（旧版，已下线）。"""
+#     return jsonify({'success': False,
+#                     'message': '旧版保险审批接口已下线，请使用新版审批接口'}), 410
+#     data = request.get_json()
+#     if not data:
+#         return jsonify({'error': '无效数据'}), 400
+#
+#     student_ids = data.get('student_ids', [])
+#     action = data.get('action', 'approve')
+#
+#     if not student_ids:
+#         return jsonify({'error': '请选择学生'}), 400
+#
+#     if action not in ('approve', 'reject', 'internship'):
+#         return jsonify({'error': '操作无效'}), 400
+#
+#     if action == 'approve':
+#         flag_value = config.InsuranceStatus.PENDING_XUEPING
+#     elif action == 'internship':
+#         flag_value = config.InsuranceStatus.PENDING_INTERN
+#     else:
+#         flag_value = config.InsuranceStatus.EXEMPT
+#
+#     try:
+#         if action == 'approve':
+#             # 逐人处理：batch=1 空标记补占位缴费日期
+#             done = 0
+#             for sid in student_ids:
+#                 cur = models.get_db().execute(
+#                     'SELECT grade, enrollment_year, student_insurance_pay_date FROM students WHERE id = ?',
+#                     (sid,)
+#                 ).fetchone()
+#                 if not cur:
+#                     continue
+#                 f = {'supervisor_flag': flag_value}
+#                 if compute_insurance_batch(cur['grade'], cur['enrollment_year']) == 1 \
+#                    and _is_blank(cur['student_insurance_pay_date']):
+#                     f['student_insurance_pay_date'] = config.InsuranceStatus.EXTERNAL_PAY_MARKER
+#                 models.update_student_insurance(sid, f)
+#                 done += 1
+#             return jsonify({'success': True, 'count': done})
+#         else:
+#             models.batch_update_student_insurance(student_ids, {'supervisor_flag': flag_value})
+#             return jsonify({'success': True, 'count': len(student_ids)})
+#     except Exception as e:
+#         return jsonify({'error': str(e)}), 500
+#
+#
+# @bp.route('/insurance/todo')
+# @auth.login_required
+# def insurance_todo():
+#     """旧版待办页已下线，统一重定向到新版新生首保页。"""
+#     return redirect(url_for('insurance.insurance_first'))
+#
+#
+# @bp.route('/api/insurance/todo/export')
+# @auth.insurance_officer_required
+# def api_insurance_todo_export():
+#     """保险待办导出相关接口。尊重当前搜索筛选（与待办列表一致）。"""
+#     search = request.args.get('search', '').strip()
+#
+#     conditions = [
+#         's.is_deleted = 0',
+#         "(s.registration_status IS NULL OR s.registration_status != '毕业')",
+#         f"s.supervisor_flag IN ('{config.InsuranceStatus.PENDING_XUEPING}', '{config.InsuranceStatus.PENDING_INTERN}')"
+#     ]
+#     params = []
+#     if search:
+#         conditions.append('(s.name LIKE ? OR s.student_no LIKE ? OR s.id_card LIKE ? OR s.name_pinyin LIKE ?)')
+#         like = f'%{search}%'
+#         params.extend([like, like, like, like])
+#
+#     where = ' AND '.join(conditions)
+#
+#     conn = models.get_db()
+#     rows = conn.execute(
+#         f'''SELECT s.* FROM students s
+#             WHERE {where}
+#             ORDER BY s.school, s.admin_class, s.name''',
+#         params
+#     ).fetchall()
+#
+#     students = [dict(r) for r in rows]
+#
+#     visible_fields = auth.get_visible_fields()
+#     export_fields = None if visible_fields == ['*'] else visible_fields
+#
+#     for student in students:
+#         student['age'] = utils.calculate_age(student.get('birth_date'))
+#
+#     wb = utils.export_students_to_excel(students, export_fields)
+#     output = BytesIO()
+#     wb.save(output)
+#     output.seek(0)
+#
+#     timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+#     filename = f'保险待办导出_{timestamp}.xlsx'
+#
+#     return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+#                      as_attachment=True, download_name=filename)
+#
+#
+# @bp.route('/api/insurance/todo-tree')
+# @auth.insurance_officer_required
+# def api_insurance_todo_tree():
+#     """保险待办tree相关接口。"""
+#     search = request.args.get('search', '').strip()
+#
+#     conditions = [
+#         's.is_deleted = 0',
+#         "(s.registration_status IS NULL OR s.registration_status != '毕业')",
+#         f"s.supervisor_flag IN ('{config.InsuranceStatus.PENDING_XUEPING}', '{config.InsuranceStatus.PENDING_INTERN}')"
+#     ]
+#     params = []
+#
+#     if search:
+#         conditions.append('(s.name LIKE ? OR s.student_no LIKE ? OR s.id_card LIKE ? OR s.name_pinyin LIKE ?)')
+#         like = f'%{search}%'
+#         params.extend([like, like, like, like])
+#
+#     where = ' AND '.join(conditions)
+#
+#     rows = models.get_db().execute(
+#         f'''SELECT s.id, s.name, s.student_no, s.id_card, s.grade, s.admin_class,
+#                    s.major, s.enrollment_year, s.school,
+#                    s.student_insurance_pay_date, s.student_insurance_expiry,
+#                    s.student_insurance_no, s.insurance_premium,
+#                    s.internship_insurance_pay_date, s.supervisor_flag,
+#                    s.declaration_date
+#             FROM students s
+#             WHERE {where}
+#             ORDER BY s.school, s.admin_class, s.name''',
+#         params
+#     ).fetchall()
+#
+#     students = [dict(r) for r in rows]
+#
+#     # 按 school_types 动态初始化分组，新增学校类别也能归入待办树
+#     schools = {st['code']: [] for st in models.get_school_types()}
+#     for s in students:
+#         school = s.get('school')
+#         if school not in schools:
+#             schools[school] = []
+#         schools[school].append(s)
+#
+#     return jsonify({'students_by_school': schools})
+#
+#
+# @bp.route('/api/insurance/complete', methods=['POST'])
+# @auth.insurance_officer_required
+# def api_insurance_complete():
+#     """保险完成相关接口（旧版，已下线）。
+#
+#     支持两种模式：
+#     - 统一模式：传 student_ids + 可选的 student_insurance_no / student_insurance_expiry（全批套用）。
+#     - 逐人模式：传 items=[{student_id, student_insurance_no, student_insurance_expiry}]（实习/学平常每人一单）。
+#     实习就业险学生（supervisor_flag=按计划办理实习就业险）无论哪种模式都不写保单号/到期。
+#     """
+#     return jsonify({'success': False,
+#                     'message': '旧版保险办结接口已下线，请使用新版办结接口'}), 410
+#     data = request.get_json()
+#     if not data:
+#         return jsonify({'error': '无效数据'}), 400
+#
+#     student_ids = data.get('student_ids', [])
+#     items = data.get('items')  # 逐人模式可选
+#     student_insurance_no = data.get('student_insurance_no', '').strip()
+#     student_insurance_expiry = utils.normalize_date_string(data.get('student_insurance_expiry', '').strip())
+#
+#     if not student_ids and not items:
+#         return jsonify({'error': '请选择学生'}), 400
+#
+#     # 年份来源：取系统学年基准（9 月起始，见 insurance_domain.current_school_year），
+#     # 而非点击当天的 datetime.now().year —— 避免 clerk 在跨年时把上一学年的批次
+#     # 误标成本年前缀。
+#     year = insurance_domain.current_school_year()
+#
+#     try:
+#         if items:
+#             target_map = {}
+#             for it in items:
+#                 sid = it.get('student_id')
+#                 if sid is None:
+#                     continue
+#                 target_map[sid] = it
+#             id_list = list(target_map.keys())
+#         else:
+#             id_list = student_ids
+#             target_map = None
+#
+#         done = 0
+#         for sid in id_list:
+#             cur = models.get_db().execute(
+#                 'SELECT supervisor_flag FROM students WHERE id = ?', (sid,)
+#             ).fetchone()
+#             if not cur:
+#                 continue
+#
+#             is_intern = (cur[0] == config.InsuranceStatus.PENDING_INTERN)
+#             flag_done = config.InsuranceStatus.done_intern(year) if is_intern else config.InsuranceStatus.done_xueping(year)
+#             fields = {'supervisor_flag': flag_done}
+#
+#             # 实习就业险系统无保单号/到期字段，绝不写
+#             if not is_intern:
+#                 if target_map:
+#                     it = target_map.get(sid, {})
+#                     no = (it.get('student_insurance_no') or '').strip()
+#                     ex = utils.normalize_date_string((it.get('student_insurance_expiry') or '').strip())
+#                 else:
+#                     no, ex = student_insurance_no, student_insurance_expiry
+#                 if no:
+#                     fields['student_insurance_no'] = no
+#                 if ex:
+#                     fields['student_insurance_expiry'] = ex
+#
+#             models.update_student_insurance(sid, fields)
+#             done += 1
+#         return jsonify({'success': True, 'count': done})
+#     except Exception as e:
+#         return jsonify({'error': str(e)}), 500
 
 
 @bp.route('/api/insurance/init-preview', methods=['POST'])

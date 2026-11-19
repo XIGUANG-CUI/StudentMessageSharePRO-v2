@@ -748,6 +748,9 @@ def migrate_insurance_v3(conn):
 # 从未投保老生收敛（历史脏数据修复）
 # ============================================================
 REMARK_AUTO_UNINSURED = 'auto_uninsured'
+# 睡眠池激活留痕：目标批次记录 / 为补齐历史批次写入的放弃记录
+REMARK_SLEEP_ACTIVATED = 'sleep_activated'
+REMARK_SLEEP_ACTIVATED_HISTORY = 'sleep_activated_history'
 
 
 def has_real_xueping_data(record):
@@ -769,12 +772,14 @@ def repair_never_insured_xueping(conn, current_year=None):
     却永远无法推进到实习就业险。
 
     判定（全部满足才处理，谨慎对待旧数据）：
-      1) 未删除、未毕业、非托管；
+      1) 未删除、未毕业；
       2) 主管标记为空或「不参保」，且无保单号 / 到期日（缴费日期不作为投保凭证，
          因历史上出现过空占位被批量误填统一缴费日期的脏数据）；
       3) 无实习就业险记录（已有则说明走过保险流程，不做推断）；
       4) 学平险记录只可能停留在「待审批 / 放弃」，且没有保单号 / 到期日；
       5) 当前批次已越过计划首保批次（仍在首保学年的学生不处理）。
+      6) 睡眠池已人工激活的学生一律跳过（remark=sleep_activated*），避免把
+         待审批的激活记录重新置为「放弃」。
     处理：仅把「学年已到达」的计划内学平险批次置为 exempt（remark=auto_uninsured），
     并清空 pay_date / premium（这些学生从未投保，缴费日期只可能是误填）；
     不删除记录、不改写保单号/到期日等真实凭证；未到学年的批次留待下次启动继续收敛。
@@ -791,7 +796,6 @@ def repair_never_insured_xueping(conn, current_year=None):
            FROM students s
            WHERE COALESCE(s.is_deleted, 0) = 0
              AND COALESCE(s.registration_status, '') != '毕业'
-             AND COALESCE(s.attendance_status, '') != '托管'
              AND COALESCE(TRIM(s.supervisor_flag), '') IN ('', ?)
              AND COALESCE(TRIM(s.student_insurance_no), '') = ''
              AND COALESCE(TRIM(s.student_insurance_expiry), '') = ''
@@ -814,6 +818,9 @@ def repair_never_insured_xueping(conn, current_year=None):
             continue                    # 仍处于首保学年：属正常待办，不自动放弃
 
         records = rec_map.get(s['id'], [])
+        if any((r.get('remark') or '').startswith(REMARK_SLEEP_ACTIVATED)
+               for r in records):
+            continue                    # 睡眠池已人工激活：交由审批流程，不自动放弃
         if any(r['insurance_type'] == INSURANCE_TYPE_INTERN for r in records):
             continue                    # 已有实习险记录：不推断
         xueping_records = [r for r in records
@@ -1757,14 +1764,13 @@ _POOL_STUDENT_COLUMNS = '''
 
 def _pool_student_conditions(search=None, school=None, grade=None,
                              admin_class=None, major=None):
-    """池的公共学生筛选条件（排除软删除、已毕业与托管学生）。
+    """池的公共学生筛选条件（排除软删除与已毕业学生）。
 
-    托管学生不参加学平险业务，与毕业/已删除学生同等排除。
+    托管学生照常参加保险业务，不再排除。
     """
     conditions = [
         'COALESCE(s.is_deleted, 0) = 0',
         "(s.registration_status IS NULL OR s.registration_status != '毕业')",
-        "(s.attendance_status IS NULL OR s.attendance_status != '托管')",
     ]
     params = []
     if search:
@@ -2278,6 +2284,308 @@ def pool_summary(conn, today=None, current_year=None):
         'push': len(query_push_pool(conn, current_year)),
         'intern': len(query_intern_pool(conn, today=today)),
     }
+
+
+# ============================================================
+# 睡眠池：已过首保学年、零有效投保记录的学生（人工激活）
+# ============================================================
+# 「有效投保」状态：任一即说明已真实进入保险流程，不属于睡眠池。
+_INSURANCE_EVIDENCE_STATUSES = (
+    InsuranceStatus.PENDING_PAY, InsuranceStatus.PAID,
+    InsuranceStatus.APPROVED, InsuranceStatus.EXPORTED,
+    InsuranceStatus.DONE, InsuranceStatus.PENDING_RENEWAL,
+)
+_INSURANCE_EVIDENCE_FIELDS = ('policy_no', 'expiry_date', 'pay_date', 'premium')
+
+
+def _has_insurance_evidence(records):
+    """是否已有有效投保痕迹（状态或保单/缴费/保费任一非空）。
+
+    仅由「从未投保」收敛写入的 exempt 记录（remark=auto_uninsured 且字段全空）
+    不算有效投保，避免把睡眠池学生误判为已参保。
+    """
+    for rec in records:
+        if rec['status'] in _INSURANCE_EVIDENCE_STATUSES:
+            return True
+        if any((rec.get(field) or '').strip() for field in _INSURANCE_EVIDENCE_FIELDS):
+            return True
+    return False
+
+
+def _sleep_target(plan, now_batch):
+    """睡眠池激活目标：当前学平批次；已到实习学年则为实习批次。"""
+    xueping_steps = [p for p in plan if p['insurance_type'] == INSURANCE_TYPE_XUEPING]
+    intern_step = next(
+        (p for p in plan if p['insurance_type'] == INSURANCE_TYPE_INTERN), None)
+    if not xueping_steps or not intern_step:
+        return None
+    if now_batch >= intern_step['batch_no']:
+        return intern_step
+    target = next((p for p in xueping_steps if p['batch_no'] == now_batch), None)
+    if target is None:
+        target = max((p for p in xueping_steps if p['batch_no'] <= now_batch),
+                     key=lambda p: p['batch_no'], default=None)
+    return target
+
+
+def _sleep_candidate(student, records, current_year):
+    """判定学生是否属于睡眠池；属于则返回定位信息，否则返回 None。"""
+    if any(r['insurance_type'] == INSURANCE_TYPE_INTERN for r in records):
+        return None                     # 已进入实习险阶段：业务终了
+    if any((r.get('remark') or '').startswith(REMARK_SLEEP_ACTIVATED)
+           for r in records):
+        return None                     # 已人工激活：进入审批流程
+    if _has_insurance_evidence(records):
+        return None                     # 已有有效投保记录
+
+    plan = build_plan(student.get('enrollment_year'), student.get('grade'),
+                      current_year)
+    xueping_steps = [p for p in plan
+                     if p['insurance_type'] == INSURANCE_TYPE_XUEPING]
+    if not xueping_steps:
+        return None
+    first_batch = xueping_steps[0]['batch_no']
+    now_batch = batch_now(student.get('enrollment_year'), student.get('grade'),
+                          current_year)
+    if now_batch <= first_batch:
+        return None                     # 仍在首保学年：走正常首保流程
+
+    # 与续保池不重叠：下一个未了结的学平批次已到学年 → 由续保流程接管
+    seen_batches = [r['batch_no'] for r in records
+                    if r['insurance_type'] == INSURANCE_TYPE_XUEPING]
+    last_seen = max(seen_batches, default=0)
+    next_due = next((p for p in xueping_steps if p['batch_no'] > last_seen), None)
+    if next_due is not None and next_due['batch_no'] <= now_batch:
+        return None
+
+    # 与推送池不重叠：学平险计划全部了结且已到实习学年 → 由推送流程接管
+    terminal = [r for r in records
+                if r['insurance_type'] == INSURANCE_TYPE_XUEPING
+                and r['status'] in XUEPING_TERMINAL_STATUSES]
+    last_terminal = max(terminal, key=lambda r: r['batch_no'], default=None)
+    last_xueping = max(p['batch_no'] for p in xueping_steps)
+    intern_step = next(
+        (p for p in plan if p['insurance_type'] == INSURANCE_TYPE_INTERN), None)
+    if (last_terminal is not None and last_terminal['batch_no'] >= last_xueping
+            and intern_step is not None and now_batch >= intern_step['batch_no']):
+        return None
+
+    target = _sleep_target(plan, now_batch)
+    if target is None:
+        return None
+    return {
+        'plan': plan,
+        'first_batch': first_batch,
+        'last_xueping_batch': last_xueping,
+        'batch_now': now_batch,
+        'target': target,
+    }
+
+
+def query_sleep_pool(conn, current_year=None, **filters):
+    """睡眠池列表：已过首保学年、零有效投保记录的学生。"""
+    if current_year is None:
+        current_year = current_school_year()
+    students = _pool_students(conn, **filters)
+    rec_map = _records_map(conn, [s['id'] for s in students])
+
+    items = []
+    for s in students:
+        info = _sleep_candidate(s, rec_map.get(s['id'], []), current_year)
+        if not info:
+            continue
+        target = info['target']
+        item = _pool_item(s, target)
+        item.update({
+            'record_id': None,
+            'status': 'sleeping',
+            'status_label': '睡眠中',
+            'batch_now': info['batch_now'],
+            'first_batch': info['first_batch'],
+            'last_xueping_batch': info['last_xueping_batch'],
+            'target_type_label': ('实习就业险'
+                                  if target['insurance_type'] == INSURANCE_TYPE_INTERN
+                                  else '学平险'),
+        })
+        items.append(item)
+    _sort_pool_items(items)
+    return items
+
+
+def query_sleep_activated(conn, **filters):
+    """睡眠池「已激活待审批」：激活后尚未审批的保险记录。"""
+    students = _pool_students(conn, **filters)
+    rec_map = _records_map(conn, [s['id'] for s in students])
+
+    allowed = (InsuranceStatus.PENDING_APPROVE, InsuranceStatus.PAID)
+    items = []
+    for s in students:
+        for rec in rec_map.get(s['id'], []):
+            if not (rec.get('remark') or '').startswith(REMARK_SLEEP_ACTIVATED):
+                continue
+            if rec['status'] not in allowed:
+                continue
+            step = {
+                'batch_no': rec['batch_no'],
+                'insurance_type': rec['insurance_type'],
+                'stage': (STAGE_PUSH if rec['insurance_type'] == INSURANCE_TYPE_INTERN
+                          else STAGE_RENEWAL),
+            }
+            item = _pool_item(s, step, rec)
+            item['activated_at'] = rec.get('updated_at') or ''
+            items.append(item)
+    items.sort(key=lambda r: (str(r.get('grade') or ''),
+                              str(r.get('admin_class') or ''),
+                              str(r.get('name') or '')))
+    return items
+
+
+def activate_sleep_student(conn, student_id, pay_date, premium='', operator='',
+                           current_year=None):
+    """睡眠池人工激活：补齐历史放弃记录，并把目标批次置为待审批。
+
+    目标批次由系统按「当前学年」自动定位，不接受人工指定：
+      - 未到实习学年 → 当前学平批次；
+      - 已到实习学年 → 实习批次。
+    """
+    if current_year is None:
+        current_year = current_school_year()
+    pay_date = normalize_insurance_date(pay_date)
+    if not pay_date:
+        raise InsuranceTransitionError('请填写合法的缴费日期')
+
+    cur = conn.execute(
+        'SELECT id, id_card, grade, enrollment_year FROM students '
+        'WHERE id = ? AND COALESCE(is_deleted, 0) = 0', (student_id,))
+    student = _row_to_dict(cur, cur.fetchone())
+    if not student:
+        raise InsuranceTransitionError('学生不存在')
+
+    records = get_student_records(conn, student_id)
+    info = _sleep_candidate(student, records, current_year)
+    if not info:
+        raise InsuranceTransitionError('该学生当前不在睡眠池')
+    target = info['target']
+    start = start_year(student.get('enrollment_year'), student.get('grade'))
+    premium = (premium or '').strip()
+
+    # 目标之前的计划内学平批次补「放弃」，已存在记录不覆盖
+    history_ids = []
+    insert_cursor = conn.cursor()
+    for step in info['plan']:
+        if step['insurance_type'] != INSURANCE_TYPE_XUEPING:
+            continue
+        if step['batch_no'] >= target['batch_no']:
+            continue
+        if _record_for_batch(conn, student_id, step['batch_no'],
+                             INSURANCE_TYPE_XUEPING):
+            continue
+        _insert_record(
+            insert_cursor, student_id, student.get('id_card'),
+            _school_year(start, step['batch_no']), step['batch_no'],
+            INSURANCE_TYPE_XUEPING, InsuranceStatus.EXEMPT,
+            remark=REMARK_SLEEP_ACTIVATED_HISTORY)
+        rec = _record_for_batch(conn, student_id, step['batch_no'],
+                                INSURANCE_TYPE_XUEPING)
+        if rec:
+            history_ids.append(rec['id'])
+
+    existing = _record_for_batch(conn, student_id, target['batch_no'],
+                                 target['insurance_type'])
+    before = json.loads(snapshot_record(existing)) if existing else None
+
+    if existing:
+        fields = {
+            'status': InsuranceStatus.PENDING_APPROVE,
+            'pay_date': pay_date,
+            'remark': REMARK_SLEEP_ACTIVATED,
+            'completed_at': '',
+        }
+        if premium:
+            fields['premium'] = premium
+        _update_record(conn, existing['id'], **fields)
+        target_rec = get_record(conn, existing['id'])
+    else:
+        _insert_record(
+            insert_cursor, student_id, student.get('id_card'),
+            _school_year(start, target['batch_no']), target['batch_no'],
+            target['insurance_type'], InsuranceStatus.PENDING_APPROVE,
+            pay_date=pay_date, premium=premium,
+            remark=REMARK_SLEEP_ACTIVATED)
+        target_rec = _record_for_batch(conn, student_id, target['batch_no'],
+                                       target['insurance_type'])
+        if target_rec is None:
+            raise InsuranceTransitionError('激活失败：目标批次记录创建失败')
+
+    log_operation(
+        conn, target_rec, 'sleep_activate',
+        (existing or {}).get('status', ''), InsuranceStatus.PENDING_APPROVE,
+        {'target_batch': target['batch_no'],
+         'target_type': target['insurance_type'],
+         'pay_date': pay_date,
+         'premium': premium,
+         'target_created': existing is None,
+         'history_record_ids': history_ids,
+         'before': before},
+        operator=operator)
+    sync_student_snapshot(conn, student_id)
+    return get_record(conn, target_rec['id'])
+
+
+def approve_sleep_activation(conn, record_id, operator=''):
+    """睡眠池「已激活待审批」审批通过（仅限睡眠池激活记录）。"""
+    rec = get_record(conn, record_id)
+    if not rec:
+        raise InsuranceTransitionError('保险记录不存在')
+    if not (rec.get('remark') or '').startswith(REMARK_SLEEP_ACTIVATED):
+        raise InsuranceTransitionError('该记录不是睡眠池激活记录')
+    return approve(conn, record_id, operator=operator)
+
+
+def revert_sleep_activation(conn, record_id, operator=''):
+    """撤销睡眠池激活：删除本次补齐记录，并还原目标记录原快照。
+
+    仅允许目标记录仍处于「待审批 / 已审批待导出」时撤销；
+    已导出或已办结需先走撤销中心回滚导出批次。
+    """
+    rec = get_record(conn, record_id)
+    if not rec:
+        raise InsuranceTransitionError('保险记录不存在')
+    if not (rec.get('remark') or '').startswith(REMARK_SLEEP_ACTIVATED):
+        raise InsuranceTransitionError('该记录不是睡眠池激活记录')
+    _require_record(rec, (InsuranceStatus.PENDING_APPROVE,
+                          InsuranceStatus.APPROVED))
+
+    row = conn.execute(
+        "SELECT payload FROM insurance_operation_logs "
+        "WHERE record_id = ? AND action = 'sleep_activate' "
+        "ORDER BY id DESC LIMIT 1", (record_id,)).fetchone()
+    payload = json.loads(row['payload'] or '{}') if row else {}
+    history_ids = payload.get('history_record_ids') or []
+    before = payload.get('before') or None
+    from_status = rec['status']
+
+    if payload.get('target_created') or not before:
+        log_operation(conn, rec, 'sleep_revert', from_status, '',
+                      {'deleted_target': True,
+                       'history_record_ids': history_ids}, operator=operator)
+        conn.execute('DELETE FROM insurance_records WHERE id = ?', (record_id,))
+        restored = ''
+    else:
+        fields = {k: before.get(k, '') for k in _IMPORT_RESTORE_FIELDS}
+        _update_record(conn, record_id, **fields)
+        restored = fields.get('status', '')
+        log_operation(conn, rec, 'sleep_revert', from_status, restored,
+                      {'deleted_target': False,
+                       'history_record_ids': history_ids}, operator=operator)
+
+    for hid in history_ids:
+        conn.execute(
+            'DELETE FROM insurance_records WHERE id = ? AND remark = ?',
+            (hid, REMARK_SLEEP_ACTIVATED_HISTORY))
+
+    sync_student_snapshot(conn, rec['student_id'])
+    return {'record_id': record_id, 'restored_status': restored}
 
 
 # ============================================================

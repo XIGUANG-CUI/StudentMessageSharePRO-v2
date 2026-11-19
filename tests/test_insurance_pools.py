@@ -150,19 +150,27 @@ class TestFirstPool:
         _add_student(conn, '已毕业', registration_status='毕业')
         assert query_first_pool(conn, current_year=2026) == []
 
-    def test_managed_attendance_excluded(self, conn):
-        """在校状态为「托管」的学生不参加学平险业务，同等排除。"""
+    def test_managed_attendance_included(self, conn):
+        """在校状态为「托管」的学生照常参加学平险业务。"""
         _add_student(conn, '托管生', attendance_status='托管')
-        assert query_first_pool(conn, current_year=2026) == []
+        assert len(query_first_pool(conn, current_year=2026)) == 1
 
-    def test_managed_excluded_from_renewal_and_push(self, conn):
-        sid = _add_student(conn, '托管生', attendance_status='托管')
-        _add_record(conn, sid, status=S.DONE, batch_no=1,
+    def test_managed_included_in_renewal_and_push(self, conn):
+        """托管学生照常进入续保池与推送池。"""
+        renewal = _add_student(conn, '托管续保', attendance_status='托管',
+                               grade='2025', enrollment_year=2025)
+        _add_record(conn, renewal, status=S.DONE, batch_no=1,
                     expiry_date='2026-11-20')
-        _add_record(conn, sid, status=S.DONE, batch_no=2)
-        assert query_renewal_pool(conn, today=date(2026, 11, 7),
-                                  current_year=2026) == []
-        assert query_push_pool(conn, current_year=2026) == []
+        items = query_renewal_pool(conn, today=date(2026, 11, 7),
+                                   current_year=2026)
+        assert [i['id'] for i in items] == [renewal]
+
+        push = _add_student(conn, '托管推送', attendance_status='托管',
+                            grade='2024', enrollment_year=2024)
+        _add_record(conn, push, status=S.DONE, batch_no=1)
+        _add_record(conn, push, status=S.DONE, batch_no=2)
+        items = query_push_pool(conn, current_year=2026)
+        assert [i['id'] for i in items] == [push]
 
     def test_search_and_school_filter(self, conn):
         _add_student(conn, '张三', school='1')
@@ -517,6 +525,207 @@ class TestNeverInsuredRepair:
                 for r in ins.get_student_records(conn, sid)}
         assert recs == {2: S.EXEMPT, 3: S.EXEMPT}
         assert len(query_push_pool(conn, current_year=2026)) == 1
+
+
+# ============================================================
+# ⑥ 睡眠池：零有效投保记录学生的人工激活
+# ============================================================
+class TestSleepPool:
+    @staticmethod
+    def _sleeping_student(conn, name='睡眠生'):
+        """推迟注册学生：第 3 学年，1-3 年均为「从未投保」放弃记录。"""
+        sid = _add_student(conn, name, grade='2026', enrollment_year=2024)
+        for batch in (1, 2, 3):
+            _add_record(conn, sid, status=S.EXEMPT, batch_no=batch)
+        conn.execute(
+            'UPDATE insurance_records SET remark = ? WHERE student_id = ?',
+            (ins.REMARK_AUTO_UNINSURED, sid))
+        conn.commit()
+        return sid
+
+    def test_deferred_waiting_next_year_included(self, conn):
+        sid = self._sleeping_student(conn)
+        items = ins.query_sleep_pool(conn, current_year=2026)
+        assert [i['id'] for i in items] == [sid]
+        item = items[0]
+        assert item['batch_now'] == 3
+        assert item['first_batch'] == 1
+        assert item['batch_no'] == 3
+        assert item['target_type_label'] == '学平险'
+        assert item['status_label'] == '睡眠中'
+
+    def test_first_year_and_renewal_window_excluded(self, conn):
+        _add_student(conn, '新生')                    # 仍在首保学年
+        renewal = _add_student(conn, '续保窗口', grade='2025',
+                               enrollment_year=2025)
+        _add_record(conn, renewal, status=S.EXEMPT, batch_no=1)
+        conn.execute(
+            'UPDATE insurance_records SET remark = ? WHERE student_id = ?',
+            (ins.REMARK_AUTO_UNINSURED, renewal))
+        conn.commit()
+        assert ins.query_sleep_pool(conn, current_year=2026) == []
+
+    def test_insurance_evidence_excluded(self, conn):
+        sid = self._sleeping_student(conn, '有保单')
+        conn.execute(
+            "UPDATE insurance_records SET policy_no = 'P-1' "
+            'WHERE student_id = ? AND batch_no = 2', (sid,))
+        conn.commit()
+        assert ins.query_sleep_pool(conn, current_year=2026) == []
+
+    def test_intern_record_excluded(self, conn):
+        sid = self._sleeping_student(conn, '有实习')
+        _add_record(conn, sid, insurance_type='intern', status=S.EXEMPT,
+                    batch_no=5)
+        assert ins.query_sleep_pool(conn, current_year=2026) == []
+
+    def test_activate_marks_pending_and_skips_repair(self, conn):
+        sid = self._sleeping_student(conn)
+        rec = ins.activate_sleep_student(conn, sid, '2026-10-01', '120',
+                                         operator='tester', current_year=2026)
+        conn.commit()
+        assert rec['status'] == S.PENDING_APPROVE
+        assert rec['remark'] == ins.REMARK_SLEEP_ACTIVATED
+        assert rec['pay_date'] == '2026-10-01'
+        assert rec['premium'] == '120'
+        assert rec['batch_no'] == 3
+
+        assert ins.query_sleep_pool(conn, current_year=2026) == []
+        activated = ins.query_sleep_activated(conn)
+        assert [i['record_id'] for i in activated] == [rec['id']]
+
+        # 自动收敛不得把待审批的激活记录重新置为「放弃」
+        stats = ins.repair_never_insured_xueping(conn, current_year=2026)
+        assert stats['students'] == 0
+        assert ins.get_record(conn, rec['id'])['status'] == S.PENDING_APPROVE
+
+    def test_activate_requires_valid_pay_date(self, conn):
+        sid = self._sleeping_student(conn)
+        with pytest.raises(ins.InsuranceTransitionError):
+            ins.activate_sleep_student(conn, sid, '', current_year=2026)
+        with pytest.raises(ins.InsuranceTransitionError):
+            ins.activate_sleep_student(conn, sid, '2026-02-30',
+                                       current_year=2026)
+
+    def test_activate_rejects_non_sleeping_student(self, conn):
+        sid = _add_student(conn, '正常新生')
+        with pytest.raises(ins.InsuranceTransitionError):
+            ins.activate_sleep_student(conn, sid, '2026-10-01',
+                                       current_year=2026)
+
+    def test_approve_moves_out_of_pending(self, conn):
+        sid = self._sleeping_student(conn)
+        rec = ins.activate_sleep_student(conn, sid, '2026-10-01',
+                                         current_year=2026)
+        approved = ins.approve_sleep_activation(conn, rec['id'],
+                                                operator='tester')
+        assert approved['status'] == S.APPROVED
+        assert ins.query_sleep_activated(conn) == []
+
+    def test_revert_restores_exempt_target(self, conn):
+        sid = self._sleeping_student(conn)
+        rec = ins.activate_sleep_student(conn, sid, '2026-10-01',
+                                         current_year=2026)
+        ins.revert_sleep_activation(conn, rec['id'], operator='tester')
+        restored = ins.get_record(conn, rec['id'])
+        assert restored['status'] == S.EXEMPT
+        assert restored['remark'] == ins.REMARK_AUTO_UNINSURED
+        assert restored['pay_date'] == ''
+        assert ins.query_sleep_activated(conn) == []
+        assert len(ins.query_sleep_pool(conn, current_year=2026)) == 1
+
+    def test_revert_deletes_created_records(self, conn):
+        """目标批次原本无记录时：撤销应删除新建目标与补齐的历史记录。"""
+        sid = _add_student(conn, '缺档睡眠', grade='2026', enrollment_year=2024)
+        _add_record(conn, sid, status=S.EXEMPT, batch_no=4,
+                    pay_date='')
+        conn.execute(
+            'UPDATE insurance_records SET remark = ? WHERE student_id = ?',
+            (ins.REMARK_AUTO_UNINSURED, sid))
+        conn.commit()
+
+        rec = ins.activate_sleep_student(conn, sid, '2026-10-01',
+                                         current_year=2026)
+        conn.commit()
+        assert rec['batch_no'] == 3
+        batches = sorted(r['batch_no'] for r in ins.get_student_records(conn, sid))
+        assert batches == [1, 2, 3, 4]
+
+        ins.revert_sleep_activation(conn, rec['id'])
+        conn.commit()
+        assert ins.get_record(conn, rec['id']) is None
+        batches = sorted(r['batch_no'] for r in ins.get_student_records(conn, sid))
+        assert batches == [4]
+
+    def test_revert_rejects_exported(self, conn):
+        sid = self._sleeping_student(conn)
+        rec = ins.activate_sleep_student(conn, sid, '2026-10-01',
+                                         current_year=2026)
+        ins.approve_sleep_activation(conn, rec['id'])
+        conn.execute('UPDATE insurance_records SET status = ? WHERE id = ?',
+                     (S.EXPORTED, rec['id']))
+        conn.commit()
+        with pytest.raises(ins.InsuranceTransitionError):
+            ins.revert_sleep_activation(conn, rec['id'])
+
+
+class TestSleepRoutes:
+    @staticmethod
+    def _login(client):
+        with client.session_transaction() as sess:
+            sess['user_id'] = 1
+            sess['username'] = 'tester'
+            sess['role'] = 'admin'
+
+    @staticmethod
+    def _clean(db_conn):
+        db_conn.execute('DELETE FROM insurance_records')
+        db_conn.execute('DELETE FROM students')
+        db_conn.commit()
+
+    def test_page_list_activate_and_revert(self, client, db_conn):
+        self._clean(db_conn)
+        cur = db_conn.execute(
+            "INSERT INTO students (id_card, name, grade, enrollment_year, school) "
+            "VALUES ('SLEEP-1', '睡眠路由', '2026', 2024, 1)")
+        sid = cur.lastrowid
+        for batch in (1, 2, 3):
+            db_conn.execute(
+                "INSERT INTO insurance_records (student_id, id_card, school_year, "
+                "batch_no, insurance_type, status, remark) "
+                "VALUES (?, 'SLEEP-1', '2026-2027', ?, 'xueping', 'exempt', ?)",
+                (sid, batch, ins.REMARK_AUTO_UNINSURED))
+        db_conn.commit()
+
+        try:
+            self._login(client)
+            assert client.get('/insurance/sleep').status_code == 200
+            with client.session_transaction() as sess:
+                csrf = sess.get('csrf_token', '')
+            headers = {'X-CSRF-Token': csrf}
+            data = client.get('/api/insurance/sleep/list').get_json()
+            assert data['success'] is True
+            assert data['summary']['sleeping'] == 1
+
+            resp = client.post('/api/insurance/sleep/activate',
+                               json={'student_id': sid,
+                                     'pay_date': '2026-10-01'},
+                               headers=headers)
+            assert resp.status_code == 200
+            record_id = resp.get_json()['record']['id']
+
+            data = client.get('/api/insurance/sleep/list').get_json()
+            assert data['summary'] == {'sleeping': 0, 'activated': 1}
+
+            resp = client.post('/api/insurance/sleep/revert',
+                               json={'record_ids': [record_id]},
+                               headers=headers)
+            assert resp.status_code == 200
+            assert resp.get_json()['success'] is True
+        finally:
+            with client.session_transaction() as sess:
+                sess.clear()
+            self._clean(db_conn)
 
 
 # ============================================================

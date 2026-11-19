@@ -1,0 +1,364 @@
+{% extends "base.html" %}
+{% block title %}睡眠池 - 学生数据管理系统{% endblock %}
+{% block head %}
+<style>
+    .sl-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .sl-tab { border: 1px solid #dee2e6; background: #fff; color: #495057; border-radius: 999px;
+              padding: 4px 14px; font-size: 0.82rem; cursor: pointer; }
+    .sl-tab:hover { border-color: #6f42c1; color: #6f42c1; }
+    .sl-tab.active { background: #6f42c1; border-color: #6f42c1; color: #fff; }
+    .sl-tab .sl-tab-count { display: inline-block; margin-left: 4px; font-size: 0.72rem; opacity: .8; }
+    .sl-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+                  background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+    .sl-toolbar .form-control, .sl-toolbar .form-select { font-size: 0.8rem; }
+    .sl-search { width: 220px; }
+    .sl-table-wrap { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; overflow: auto;
+                     max-height: calc(100vh - 300px); }
+    .sl-table-wrap thead th { position: sticky; top: 0; background: #f1f3f5; z-index: 2; font-size: 0.78rem; white-space: nowrap; }
+    .sl-table-wrap td { font-size: 0.8rem; }
+    .sl-batch { display: inline-block; padding: 1px 8px; border-radius: 8px; background: #f0ebff; color: #59359a; font-size: 0.72rem; }
+    .sl-chip { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 0.72rem; white-space: nowrap; }
+    .sl-chip-sleeping { background: #e9ecef; color: #495057; }
+    .sl-chip-pending { background: #fff3cd; color: #856404; }
+    .sl-chip-paid { background: #cff4fc; color: #055160; }
+    .modal-sl .modal-header { background: #6f42c1; color: #fff; border-radius: 5px 5px 0 0; }
+    .modal-sl .modal-header .btn-close { filter: invert(1); }
+</style>
+{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h5 class="mb-0"><i class="bi bi-moon-stars me-2"></i>睡眠池</h5>
+    <span class="text-muted small">已过首保学年且零有效投保记录的学生；激活后进入待审批</span>
+</div>
+
+<div class="sl-tabs">
+    <button type="button" class="sl-tab active" data-tab="sleeping">睡眠池<span class="sl-tab-count" id="slCountSleeping">0</span></button>
+    <button type="button" class="sl-tab" data-tab="activated">已激活待审批<span class="sl-tab-count" id="slCountActivated">0</span></button>
+</div>
+
+<div class="sl-toolbar">
+    <input type="text" class="form-control form-control-sm sl-search" id="slSearch" placeholder="学号 / 姓名 / 拼音 / 身份证号">
+    <select class="form-select form-select-sm" id="slSchool" style="width:120px">
+        <option value="">全部校别</option>
+        {% for st in school_types %}
+        <option value="{{ st.code }}">{{ st.name }}</option>
+        {% endfor %}
+    </select>
+    <select class="form-select form-select-sm" id="slGrade" style="width:110px">
+        <option value="">全部年级</option>
+        {% for g in filter_values.grades %}
+        <option value="{{ g }}">{{ g }}级</option>
+        {% endfor %}
+    </select>
+    <select class="form-select form-select-sm" id="slClass" style="width:120px">
+        <option value="">全部班级</option>
+        {% for c in filter_values.classes %}
+        <option value="{{ c }}">{{ c }}</option>
+        {% endfor %}
+    </select>
+    <select class="form-select form-select-sm" id="slMajor" style="width:140px">
+        <option value="">全部专业</option>
+        {% for mj in filter_values.majors %}
+        <option value="{{ mj }}">{{ mj }}</option>
+        {% endfor %}
+    </select>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="slReset">重置</button>
+    <span class="ms-auto text-muted small">当前学年：{{ current_school_year }}</span>
+</div>
+
+<div class="sl-table-wrap">
+    <table class="table table-sm table-hover align-middle mb-0">
+        <thead id="slHead"></thead>
+        <tbody id="slBody">
+            <tr><td class="text-center text-muted py-4">加载中…</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="modal fade modal-sl" id="slActivateModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title"><i class="bi bi-play-circle me-1"></i>激活睡眠学生</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-2 small text-muted" id="slActivateInfo"></div>
+                <div class="mb-2">
+                    <label class="form-label small mb-1">缴费日期 <span class="text-danger">*</span></label>
+                    <input type="date" class="form-control form-control-sm" id="slPayDate">
+                </div>
+                <div class="mb-1">
+                    <label class="form-label small mb-1">保费金额（可选）</label>
+                    <input type="text" class="form-control form-control-sm" id="slPremium" placeholder="如 120">
+                </div>
+                <div class="form-text">目标批次由系统按当前学年自动定位；激活后需在「已激活待审批」页签审批。</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-sm btn-primary" id="slActivateSave">确认激活</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+    var CAN_MANAGE = {{ can_manage|tojson }};
+    var SCHOOL_NAMES = {
+        {% for st in school_types %}{{ st.code|tojson }}: {{ st.name|tojson }}{% if not loop.last %},{% endif %}{% endfor %}
+    };
+    var KIND_NAMES = { normal: '普通', transfer: '转学生', deferred: '推迟注册' };
+    var state = { tab: 'sleeping', sleeping: [], activated: [] };
+    var activating = null;
+
+    function $(id) { return document.getElementById(id); }
+
+    function esc(v) {
+        return String(v === null || v === undefined ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function schoolName(code) {
+        return SCHOOL_NAMES[code] || code || '';
+    }
+
+    function filters() {
+        return {
+            search: $('slSearch').value.trim(),
+            school: $('slSchool').value,
+            grade: $('slGrade').value,
+            admin_class: $('slClass').value,
+            major: $('slMajor').value
+        };
+    }
+
+    function queryString() {
+        var f = filters(), parts = [];
+        Object.keys(f).forEach(function (key) {
+            if (f[key]) { parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(f[key])); }
+        });
+        return parts.join('&');
+    }
+
+    function statusChip(item) {
+        var cls = item.status === 'pending_approve' ? 'sl-chip-pending'
+            : (item.status === 'paid' ? 'sl-chip-paid' : 'sl-chip-sleeping');
+        return '<span class="sl-chip ' + cls + '">' + esc(item.status_label || '—') + '</span>';
+    }
+
+    function render() {
+        var isSleeping = state.tab === 'sleeping';
+        var rows = isSleeping ? state.sleeping : state.activated;
+        var head = isSleeping
+            ? '<tr><th>姓名</th><th>学号</th><th>身份证号</th><th>校别</th><th>班级</th><th>年级</th>'
+              + '<th>学生类型</th><th>在校状态</th><th>当前批次</th><th>首保批次</th><th>激活目标</th><th>操作</th></tr>'
+            : '<tr><th>姓名</th><th>学号</th><th>身份证号</th><th>校别</th><th>班级</th><th>年级</th>'
+              + '<th>险种</th><th>批次</th><th>缴费日期</th><th>保费</th><th>状态</th><th>操作</th></tr>';
+        $('slHead').innerHTML = head;
+
+        if (!rows.length) {
+            $('slBody').innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">'
+                + (isSleeping ? '暂无睡眠池学生' : '暂无已激活待审批记录') + '</td></tr>';
+            return;
+        }
+
+        $('slBody').innerHTML = rows.map(function (item) {
+            var action = '';
+            if (isSleeping) {
+                if (CAN_MANAGE) {
+                    action = '<button type="button" class="btn btn-sm btn-primary" data-act="activate" data-sid="'
+                        + item.id + '">激活</button>';
+                } else {
+                    action = '<span class="text-muted">—</span>';
+                }
+                return '<tr>'
+                    + '<td>' + esc(item.name) + '</td>'
+                    + '<td>' + esc(item.student_no) + '</td>'
+                    + '<td>' + esc(item.id_card) + '</td>'
+                    + '<td>' + esc(schoolName(item.school)) + '</td>'
+                    + '<td>' + esc(item.admin_class) + '</td>'
+                    + '<td>' + esc(item.grade) + '</td>'
+                    + '<td>' + esc(KIND_NAMES[item.kind] || item.kind) + '</td>'
+                    + '<td>' + esc(item.attendance_status) + '</td>'
+                    + '<td><span class="sl-batch">第' + esc(item.batch_now) + '年</span></td>'
+                    + '<td><span class="sl-batch">第' + esc(item.first_batch) + '年</span></td>'
+                    + '<td>' + esc(item.target_type_label) + '（第' + esc(item.batch_no) + '批）</td>'
+                    + '<td>' + action + '</td>'
+                    + '</tr>';
+            }
+            if (CAN_MANAGE) {
+                action = '<button type="button" class="btn btn-sm btn-success me-1" data-act="approve" data-rid="'
+                    + item.record_id + '">审批通过</button>'
+                    + '<button type="button" class="btn btn-sm btn-outline-danger" data-act="revert" data-rid="'
+                    + item.record_id + '">撤销激活</button>';
+            } else {
+                action = '<span class="text-muted">—</span>';
+            }
+            return '<tr>'
+                + '<td>' + esc(item.name) + '</td>'
+                + '<td>' + esc(item.student_no) + '</td>'
+                + '<td>' + esc(item.id_card) + '</td>'
+                + '<td>' + esc(schoolName(item.school)) + '</td>'
+                + '<td>' + esc(item.admin_class) + '</td>'
+                + '<td>' + esc(item.grade) + '</td>'
+                + '<td>' + (item.insurance_type === 'intern' ? '实习就业险' : '学平险') + '</td>'
+                + '<td><span class="sl-batch">第' + esc(item.batch_no) + '批</span></td>'
+                + '<td>' + esc(item.pay_date || '—') + '</td>'
+                + '<td>' + esc(item.premium || '—') + '</td>'
+                + '<td>' + statusChip(item) + '</td>'
+                + '<td>' + action + '</td>'
+                + '</tr>';
+        }).join('');
+    }
+
+    function updateCounts(summary) {
+        $('slCountSleeping').textContent = summary.sleeping || 0;
+        $('slCountActivated').textContent = summary.activated || 0;
+    }
+
+    function load() {
+        $('slBody').innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">加载中…</td></tr>';
+        fetch('/api/insurance/sleep/list?' + queryString())
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+                if (!data.success) {
+                    showToast(data.message || '加载失败', 'danger');
+                    return;
+                }
+                state.sleeping = data.sleeping || [];
+                state.activated = data.activated || [];
+                updateCounts(data.summary || {});
+                render();
+            })
+            .catch(function () { showToast('加载失败，请稍后重试', 'danger'); });
+    }
+
+    function post(url, payload) {
+        return fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(function (res) { return res.json(); });
+    }
+
+    function findSleeping(studentId) {
+        for (var i = 0; i < state.sleeping.length; i += 1) {
+            if (String(state.sleeping[i].id) === String(studentId)) { return state.sleeping[i]; }
+        }
+        return null;
+    }
+
+    function openActivate(studentId) {
+        var item = findSleeping(studentId);
+        if (!item) { return; }
+        activating = item;
+        $('slActivateInfo').textContent = item.name + '（' + (item.student_no || item.id_card || '')
+            + '）当前第 ' + item.batch_now + ' 年，激活目标：' + item.target_type_label
+            + ' 第 ' + item.batch_no + ' 批';
+        $('slPayDate').value = '';
+        $('slPremium').value = '';
+        new bootstrap.Modal($('slActivateModal')).show();
+    }
+
+    function saveActivate() {
+        if (!activating) { return; }
+        var payDate = $('slPayDate').value;
+        if (!payDate) {
+            showToast('请填写缴费日期', 'warning');
+            return;
+        }
+        $('slActivateSave').disabled = true;
+        post('/api/insurance/sleep/activate', {
+            student_id: activating.id,
+            pay_date: payDate,
+            premium: $('slPremium').value.trim()
+        }).then(function (data) {
+            $('slActivateSave').disabled = false;
+            if (!data.success) {
+                showToast(data.message || '激活失败', 'danger');
+                return;
+            }
+            showToast('激活成功，等待审批', 'success');
+            var modal = bootstrap.Modal.getInstance($('slActivateModal'));
+            if (modal) { modal.hide(); }
+            activating = null;
+            load();
+        }).catch(function () {
+            $('slActivateSave').disabled = false;
+            showToast('激活失败，请稍后重试', 'danger');
+        });
+    }
+
+    function approve(recordId) {
+        showConfirm('确认审批通过该睡眠激活记录？', 'warn').then(function (ok) {
+            if (!ok) { return; }
+            post('/api/insurance/sleep/approve', { record_ids: [recordId] })
+                .then(function (data) {
+                    if (!data.success) {
+                        showToast((data.errors && data.errors[0]) || '审批失败', 'danger');
+                        return;
+                    }
+                    showToast('已审批通过', 'success');
+                    load();
+                })
+                .catch(function () { showToast('审批失败，请稍后重试', 'danger'); });
+        });
+    }
+
+    function revert(recordId) {
+        showConfirm('撤销后本次激活创建/补建的记录将被还原，确认撤销？', 'danger')
+            .then(function (ok) {
+                if (!ok) { return; }
+                post('/api/insurance/sleep/revert', { record_ids: [recordId] })
+                    .then(function (data) {
+                        if (!data.success) {
+                            showToast((data.errors && data.errors[0]) || '撤销失败', 'danger');
+                            return;
+                        }
+                        showToast('已撤销激活', 'success');
+                        load();
+                    });
+            });
+    }
+
+    document.querySelectorAll('.sl-tab').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            document.querySelectorAll('.sl-tab').forEach(function (b) {
+                b.classList.remove('active');
+            });
+            btn.classList.add('active');
+            state.tab = btn.getAttribute('data-tab');
+            render();
+        });
+    });
+
+    $('slBody').addEventListener('click', function (event) {
+        var btn = event.target.closest('button[data-act]');
+        if (!btn) { return; }
+        var act = btn.getAttribute('data-act');
+        if (act === 'activate') { openActivate(btn.getAttribute('data-sid')); }
+        if (act === 'approve') { approve(btn.getAttribute('data-rid')); }
+        if (act === 'revert') { revert(btn.getAttribute('data-rid')); }
+    });
+
+    $('slActivateSave').addEventListener('click', saveActivate);
+    $('slReset').addEventListener('click', function () {
+        ['slSearch', 'slSchool', 'slGrade', 'slClass', 'slMajor'].forEach(function (id) {
+            $(id).value = '';
+        });
+        load();
+    });
+    ['slSchool', 'slGrade', 'slClass', 'slMajor'].forEach(function (id) {
+        $(id).addEventListener('change', load);
+    });
+    $('slSearch').addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') { load(); }
+    });
+
+    load();
+})();
+</script>
+{% endblock %}

@@ -21,6 +21,7 @@
 | 2026-10-23 | 新增学校类别字典化：`school_types` 表 + 服务层 + 字典页「学校类别」页签；学生/查询/统计/毕业/导出引擎/用户权限/保险页面动态化；停用语义与删除保护；导入校验白名单动态化 ⭐ | AI Agent 细节补充 |
 | 2026-11-08 | 保险模块 v3 重构：新增 `insurance_records` 等 5 张表与 `models/insurance.py`，页面由「登记/审批/待办」改为「催缴/首保/续保/推送/办结/记录查询/撤销中心/初始化导入」8 页；业务改为批次计划 + 五类业务池驱动 ⭐ | AI Agent 全量同步 |
 | 2026-11-13 | 同步近期 15 项功能：重点监管学生、档案派遣查询、毕业生查询分页与档案详情、家长关系/备用电话、年级与在校状态调整、导出预览（Excel 网格 + Word 版式）、年级×专业交叉统计提示、多维查询固定表头首列、年份范围 2000-9999、保险各页分页与批次导入撤销 ⭐ | AI Agent 全量同步 |
+| 2026-11-19 | 保险：托管学生解除排除（五池/收敛/登记页同步）；新增睡眠池（零有效投保记录学生人工激活 + 待审批 + 撤销激活）与 startup 收敛保护 ⭐ | AI Agent 需求实现 |
 
 ---
 
@@ -42,7 +43,7 @@ StudentMessageSharePRO-v2/
 │   ├── backup.py              # 备份状态、间隔调整
 │   ├── district_match.py      # 区划匹配（单条/批量/批次记录/历史映射/数据包）
 │   ├── export.py              # 模板导出引擎（含 Excel 网格与 Word 版式预览）
-│   ├── insurance.py           # 保险 8 页面 + 保险 API（池/列表/流转/导入/撤销）
+│   ├── insurance.py           # 保险 9 页面 + 保险 API（池/睡眠池/列表/流转/导入/撤销）
 │   ├── leave_cancel.py        # 销假处理 + 手机端二维码 + 出勤明细导出
 │   ├── lifecycle.py           # 毕业/实习处理、退学、学籍异动（含年级与在校状态调整）
 │   ├── mobile.py              # 手机端出勤点名
@@ -147,7 +148,7 @@ StudentMessageSharePRO-v2/
 
 > 说明：保单查询、多维查询、统计面板、毕业生查询底层均为 `login_required`，对全部登录角色开放；保险三角色在导航栏默认隐藏「多维查询/统计面板」入口（`base.html:140-161`），但直接访问 URL 仍可用。保险角色权限现已按职责区分（`blueprints/insurance.py` 中 `_require_roles_json()` / `_page_roles()`）：财务人员仅催缴，财务主管负责催缴 + 审批 + 续保/推送/办结，保险员负责首保/续保/推送/办结与初始化以外的操作。
 >
-> 旧版保险页面 `/insurance/register`、`/insurance/approve`、`/insurance/todo` 已 302 重定向到新页面；旧版写接口 `/api/insurance/register-single|register-batch`、`/api/insurance/approve-single`、`/api/insurance/approve`、`/api/insurance/complete` 返回 410，已停止写入 `students` 旧字段。
+> 旧版保险代码（页面入口 `/insurance/register`、`/insurance/approve`、`/insurance/todo`，旧接口 `/api/insurance/students`、`register-tree|register-single|register-batch`、`approve-tree|approve-single|approve-summary|approve`、`todo-tree|todo/export|complete` 及其辅助函数）已在 `blueprints/insurance.py` 中**整体注释停用**（两段「旧版代码已停用」标记之间）。对应 URL 不再注册（404），恢复时去掉行首 `# ` 即可。
 
 ### 数据级权限（跨所有角色生效）
 
@@ -465,7 +466,6 @@ StudentMessageSharePRO-v2/
 | `/insurance/records` | GET | 🛡️保险角色装饰器 | 保险记录查询（15 列，每页 100） | 「显示历史批次」开关 + 险种/状态筛选 |
 | `/insurance/revert` | GET | 🛡️admin装饰器 | 撤销中心 | 按学生撤销 / 导出批次 / 操作日志（均分页 20） |
 | `/insurance/query` | GET | 🛡️login装饰器 | 保单查询（只读） | 搜索 + 身份证脱敏 + 到期徽章 |
-| `/insurance/register`、`/insurance/approve`、`/insurance/todo` | GET | — | ⚠️ 旧入口，仅 302 重定向到对应新页面 | 无 |
 
 ### API 路由 — 学生/班级/字典
 
@@ -565,7 +565,6 @@ StudentMessageSharePRO-v2/
 | `/api/insurance/collection/list` | GET | 🛡️finance装饰器 | 催缴列表（`page`/`page_size=20`，仅「已缴费」页签） | fetch |
 | `/api/insurance/intern/list` | GET | 🛡️保险角色 | 办结列表（`page`，仅「已办结」页签） | fetch |
 | `/api/insurance/records/list` | GET | 🛡️保险角色 | 记录查询（`page`/`page_size=100`，`latest_only` 默认 true） | fetch |
-| `/api/insurance/approve` | POST | 🛡️保险角色 | 审批：`action=approve/internship/reject` | showConfirm → fetch POST |
 | `/api/insurance/reject` | POST | 🛡️保险角色 | 本年度不办理（首保） | fetch POST |
 | `/api/insurance/record/payment` | POST | 🛡️finance装饰器 | 登记缴费（只写 pay_date/premium，不改状态） | fetch POST |
 | `/api/insurance/fill-policy` | POST | 🛡️保险角色 | 补录保单（`exported`→`done`，实习险拒绝） | fetch POST |
@@ -583,8 +582,12 @@ StudentMessageSharePRO-v2/
 | `/api/insurance/revert/batches` | GET | 🛡️admin装饰器 | 导出批次列表 | fetch |
 | `/api/insurance/revert/batch` | POST | 🛡️admin装饰器 | 整批撤销导出（`exported`→`approved`，批次 `reversed_at`） | showConfirm → fetch POST |
 | `/api/insurance/revert/logs` | GET | 🛡️admin装饰器 | 操作日志查询（按 action 过滤，分页 20） | fetch |
+| `/api/insurance/sleep/list` | GET | 🛡️保险角色 | 睡眠池（`sleeping`）+ 已激活待审批（`activated`）双页签数据 | fetch |
+| `/api/insurance/sleep/activate` | POST | 🛡️admin+财务主管 | 睡眠池人工激活（`student_id`/`pay_date`/`premium`，目标批次系统自动定位） | fetch POST |
+| `/api/insurance/sleep/approve` | POST | 🛡️admin+财务主管 | 审批睡眠池激活记录（`record_ids` 多选） | fetch POST |
+| `/api/insurance/sleep/revert` | POST | 🛡️admin+财务主管 | 撤销睡眠池激活（还原目标快照、删本次补齐记录） | showConfirm → fetch POST |
 | `/api/insurance/query` | GET | 🛡️login装饰器 | 保单查询（脱敏 + 到期徽章，≤200 条） | fetch |
-| `/api/insurance/students`、`/register-*`、`/approve-tree`、`/todo-tree` | GET/POST | 🛡️角色 | ⚠️ v3 遗留兼容接口，新代码不应再调用 | — |
+| ~~`/api/insurance/students`、`/register-*`、`/approve-*`、`/todo-*`~~ | — | — | 旧版兼容接口已整体注释停用，路由不再注册（404） | — |
 
 ### API 路由 — 模板导出引擎 ⭐新增
 
@@ -790,11 +793,13 @@ StudentMessageSharePRO-v2/
 - **撤销逻辑**：`re.search(r'\[实习处理：原始在校状态=(.+?)\]', remark)` 解析恢复
 - **排除条件**：`remark NOT LIKE '%[实习处理：%'`
 
-### 18. 保险模块（v3：记录 + 批次计划 + 五类业务池）
-- **位置**：`blueprints/insurance.py`（8 页面 + API）、`models/insurance.py`（DDL/计划引擎/池/流转/导入/撤销）、`services/insurance_service.py`（Excel 解析与导入）
+### 18. 保险模块（v3：记录 + 批次计划 + 五类业务池 + 睡眠池）
+- **位置**：`blueprints/insurance.py`（9 页面 + API）、`models/insurance.py`（DDL/计划引擎/池/流转/导入/撤销）、`services/insurance_service.py`（Excel 解析与导入）
 - **数据模型**：`insurance_records` 一行 = 某生某批次某险种；唯一键 `(student_id, batch_no, insurance_type)`；终态 `done`/`exempt`
 - **批次计划 `build_plan()`**：普通生 1 学平 → 2 学平 → 3 实习；转学生首保批次 = offset+1，之后直接实习（跳过续保）；推迟生按 `DEFERRED_PLAN` 增加学平学年；`school_year` 统一 `YYYY-(YYYY+1)`
-- **五类业务池**：first / renewal / collection / push / intern，统一 `_pool_student_conditions()`（排除软删除、毕业、托管）
+- **五类业务池**：first / renewal / collection / push / intern，统一 `_pool_student_conditions()`（排除软删除、毕业；**托管学生照常入池**）
+- **睡眠池（第 6 个池）**：`query_sleep_pool()` 承接「已过首保学年、零有效投保记录」学生（`query_sleep_activated()` 列出激活后待审批记录）。入池需同时满足：越过首保批次、无实习险记录、无保单号/到期/缴费/保费且状态不属有效投保、无 `sleep_activated*` 留痕；下一个未了结学平批次未到学年（否则归续保），未到「学平全终态 + 实习学年」（否则归推送）。`activate_sleep_student()` 按 `batch_now` 自动定位目标批次（未到实习学年取当前学平批次，否则实习批次），为目标之前批次补 `exempt`（remark=`sleep_activated_history`，已存在不覆盖），目标记录置 `pending_approve` + 缴费日期（remark=`sleep_activated`），`approve_sleep_activation()` 审批、`revert_sleep_activation()` 依据 `sleep_activate` 日志快照还原（仅 pending_approve/approved 可撤销）
+- **startup 收敛保护**：`repair_never_insured_xueping()` 跳过任何含 `sleep_activated*` 记录的学生，避免把待审批激活记录重新置为 `exempt`
 - **状态流转**：`approve` → approved；`record_payment` 只写缴费不改状态；`export` → exported（实习直接 done）；`fill_policy` → done（实习拒绝）；`renewal/start` 建 approved；`exempt_*` → exempt；每次流转写 `insurance_operation_logs` 并由 `sync_student_snapshot()` 投影回 students 旧字段
 - **保险角色全量视图**：`auth.py` `_is_insurance_role()` 使 `apply_permission_filters()` 返回空 dict
 
