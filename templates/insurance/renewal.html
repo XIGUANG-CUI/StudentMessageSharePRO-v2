@@ -154,6 +154,7 @@
             <tr><td colspan="14" class="text-center text-muted py-4">加载中…</td></tr>
         </tbody>
     </table>
+    <ul class="pagination pagination-sm justify-content-center my-2 d-none" id="irnPoolPager"></ul>
 </div>
 
 <div class="irn-table-wrap d-none" id="irnStageWrap">
@@ -177,6 +178,7 @@
             <tr><td colspan="11" class="text-center text-muted py-4">加载中…</td></tr>
         </tbody>
     </table>
+    <ul class="pagination pagination-sm justify-content-center my-2 d-none" id="irnStagePager"></ul>
 </div>
 
 <div class="modal fade" id="irnPolicyModal" tabindex="-1">
@@ -213,8 +215,10 @@
     var items = [];
     var selected = {};
     var poolCollapsed = {};
+    var poolPage = 1;
     var stageItems = [];
     var stageSelected = {};
+    var stagePage = 1;
     var policyTargets = null;
 
     var schoolMap = {};
@@ -363,19 +367,20 @@
         var body = $('irnBody');
         if (!items.length) {
             body.innerHTML = '<tr><td colspan="14" class="text-center text-muted py-4">当前没有需要续保的学生</td></tr>';
+            InsurancePager.mount($('irnPoolPager'), 1, 1, function () {});
             return;
         }
-        var html = '';
+        var rowHtml = [];
         POOL_GROUPS.forEach(function (group) {
             var rows = items.filter(function (s) { return (s.urgency || 'due') === group.key; });
             if (!rows.length) { return; }
             // 大分组（已过期/待到期/到期日待补）默认折叠，点击展开
             var gKey = 'g:' + group.key;
             var gOpen = poolCollapsed[gKey];
-            html += '<tr class="irn-group ' + group.cls + '" data-fold="' + esc(gKey) + '"><td colspan="14">'
+            rowHtml.push('<tr class="irn-group ' + group.cls + '" data-fold="' + esc(gKey) + '"><td colspan="14">'
                 + '<i class="bi ' + (gOpen ? 'bi-caret-down-fill' : 'bi-caret-right-fill') + ' me-1"></i>'
                 + '<strong>' + group.label + '</strong> '
-                + '<span class="opacity-75">' + rows.length + ' 人</span></td></tr>';
+                + '<span class="opacity-75">' + rows.length + ' 人</span></td></tr>');
             if (!gOpen) { return; }
             // 组内按当前到期日期折叠（未填写排最后），同样默认折叠
             var byDate = {};
@@ -387,17 +392,23 @@
                 var list = byDate[d];
                 var key = group.key + '|' + d;
                 var dOpen = poolCollapsed[key];
-                html += '<tr class="irn-fold-head" data-fold="' + esc(key) + '">'
+                rowHtml.push('<tr class="irn-fold-head" data-fold="' + esc(key) + '">'
                     + '<td colspan="14" style="padding-left:24px">'
                     + '<i class="bi ' + (dOpen ? 'bi-caret-down-fill' : 'bi-caret-right-fill') + ' me-1"></i>'
                     + '到期日 ' + esc(d)
-                    + ' <span class="opacity-75">' + list.length + ' 人</span></td></tr>';
+                    + ' <span class="opacity-75">' + list.length + ' 人</span></td></tr>');
                 if (dOpen) {
-                    list.forEach(function (s) { html += poolRow(s, group.rowCls); });
+                    list.forEach(function (s) { rowHtml.push(poolRow(s, group.rowCls)); });
                 }
             });
         });
-        body.innerHTML = html;
+        var pg = InsurancePager.clamp(rowHtml.length, poolPage);
+        poolPage = pg.page;
+        body.innerHTML = rowHtml.slice(pg.start, pg.end).join('');
+        InsurancePager.mount($('irnPoolPager'), pg.page, pg.pages, function (p) {
+            poolPage = p;
+            renderPool();
+        });
     }
 
     function renderStage() {
@@ -405,10 +416,13 @@
         var body = $('irnStageBody');
         if (!stageItems.length) {
             body.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4">暂无已进入参保的续保记录</td></tr>';
+            InsurancePager.mount($('irnStagePager'), 1, 1, function () {});
             return;
         }
         var html = '';
-        stageItems.forEach(function (s) {
+        var pg = InsurancePager.clamp(stageItems.length, stagePage);
+        stagePage = pg.page;
+        stageItems.slice(pg.start, pg.end).forEach(function (s) {
             var checked = stageSelected[s.record_id] ? ' checked' : '';
             var action = '<span class="text-muted">—</span>';
             if (s.source_status === 'approved') {
@@ -431,6 +445,10 @@
                 + '</tr>';
         });
         body.innerHTML = html;
+        InsurancePager.mount($('irnStagePager'), pg.page, pg.pages, function (p) {
+            stagePage = p;
+            renderStage();
+        });
     }
 
     function switchView(next) {
@@ -451,6 +469,8 @@
     }
 
     function load() {
+        poolPage = 1;
+        stagePage = 1;
         if (view === 'stage') {
             fetch('/api/insurance/renewal/stage?' + queryString())
                 .then(function (r) { return r.json(); })

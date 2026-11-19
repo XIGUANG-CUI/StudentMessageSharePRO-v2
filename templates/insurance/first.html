@@ -259,10 +259,18 @@
         return parts.join('&');
     }
 
+    function clientRows() {
+        var pages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+        if (pager.page > pages) { pager.page = pages; }
+        if (pager.page < 1) { pager.page = 1; }
+        pager.pages = pages;
+        return items.slice((pager.page - 1) * PAGE_SIZE, pager.page * PAGE_SIZE);
+    }
+
     function renderPager() {
         var box = $('ifPager');
         var list = $('ifPagerList');
-        if (currentStatus !== 'done' || pager.pages <= 1) {
+        if (pager.pages <= 1) {
             box.classList.add('d-none');
             list.innerHTML = '';
             return;
@@ -296,7 +304,12 @@
                 var tgt = Number(a.getAttribute('data-p'));
                 if (!tgt || tgt === cur || tgt < 1 || tgt > total) { return; }
                 pager.page = tgt;
-                load();
+                if (currentStatus === 'done') {
+                    load();
+                } else {
+                    render();
+                    renderPager();
+                }
             });
         });
     }
@@ -318,11 +331,13 @@
     function render() {
         var body = $('ifBody');
         if (!items.length) {
+            pager.pages = 1;
             body.innerHTML = '<tr><td colspan="14" class="text-center text-muted py-4">暂无学生</td></tr>';
             return;
         }
+        var rows = currentStatus === 'done' ? items : clientRows();
         var html = '';
-        items.forEach(function (s) {
+        rows.forEach(function (s) {
             var checked = selected[s.id] ? ' checked' : '';
             html += '<tr data-sid="' + s.id + '">'
                 + '<td><input type="checkbox" class="if-row-check" data-sid="' + s.id + '"' + checked + '></td>'

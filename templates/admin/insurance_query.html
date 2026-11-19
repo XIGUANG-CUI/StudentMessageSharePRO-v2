@@ -227,8 +227,64 @@
         if (e.key === 'Enter') doSearch();
     });
 
-    window.doSearch = function() {
-        var keyword = document.getElementById('iqKeyword').value.trim();
+    var queryState = { keyword: '', page: 1, pageSize: 20 };
+
+    function renderResult(data) {
+        var area = document.getElementById('iqResultArea');
+        if (!data.students || data.students.length === 0) {
+            area.innerHTML = '<div class="iq-empty"><i class="bi bi-inbox"></i><div class="iq-empty-title">未找到匹配的保单信息</div><div>请尝试更换搜索条件或检查输入是否正确</div></div>';
+            return;
+        }
+
+        var html = '<div class="iq-count-bar"><i class="bi bi-check-circle-fill text-success"></i>共找到 <strong>' + data.count + '</strong> 条保单记录'
+            + '<span class="text-muted small ms-2">第 ' + data.page + ' / ' + data.pages + ' 页</span></div>';
+        html += '<div class="iq-card"><div class="table-responsive"><table class="iq-table"><thead><tr>';
+        html += '<th>姓名</th><th>身份证号码</th><th>班级</th><th>年级</th><th>保单号</th><th>保险到期时间</th><th>缴费日期</th><th>主管标记</th>';
+        html += '</tr></thead><tbody>';
+
+        data.students.forEach(function(s) {
+            var expiry = s.student_insurance_expiry || '';
+            var expiryBadge = '';
+            if (!expiry) {
+                expiryBadge = '<span class="iq-badge iq-badge-none">未登记</span>';
+            } else {
+                var expTs = parseDate(expiry);
+                if (expTs === null) {
+                    // 无法解析的格式：中性展示，不误判为「有效」或「已过期」
+                    expiryBadge = '<span class="iq-badge iq-badge-none"><i class="bi bi-question-circle me-1"></i>' + expiry + '（格式异常）</span>';
+                } else if (expTs < startOfToday()) {
+                    expiryBadge = '<span class="iq-badge iq-badge-expired"><i class="bi bi-exclamation-triangle me-1"></i>' + expiry + '</span>';
+                } else {
+                    expiryBadge = '<span class="iq-badge iq-badge-active"><i class="bi bi-check-circle me-1"></i>' + expiry + '</span>';
+                }
+            }
+
+            var insuranceNo = s.student_insurance_no || '<span class="text-muted">-</span>';
+            var payDate = s.student_insurance_pay_date || '-';
+            var supervisorFlag = s.supervisor_flag || '-';
+
+            html += '<tr>';
+            html += '<td><span class="iq-name">' + (s.name || '-') + '</span></td>';
+            html += '<td><span class="iq-idcard">' + maskIdCard(s.id_card) + '</span></td>';
+            html += '<td>' + (s.admin_class || '-') + '</td>';
+            html += '<td>' + (s.grade || '-') + '</td>';
+            html += '<td>' + insuranceNo + '</td>';
+            html += '<td>' + expiryBadge + '</td>';
+            html += '<td>' + payDate + '</td>';
+            html += '<td>' + supervisorFlag + '</td>';
+            html += '</tr>';
+        });
+
+        html += '</tbody></table></div></div>';
+        html += '<ul class="pagination pagination-sm justify-content-center mt-3 mb-0 d-none" id="iqPager"></ul>';
+        area.innerHTML = html;
+        InsurancePager.mount(document.getElementById('iqPager'), data.page, data.pages, function(p) {
+            queryState.page = p;
+            loadQuery();
+        });
+    }
+
+    function loadQuery() {
         var area = document.getElementById('iqResultArea');
 
         if (_abortController) _abortController.abort();
@@ -237,7 +293,9 @@
         area.innerHTML = '<div class="iq-loading"><div class="spinner-border text-primary mb-2" role="status"></div><div>正在查询保单信息…</div></div>';
 
         var params = new URLSearchParams();
-        if (keyword) params.set('keyword', keyword);
+        if (queryState.keyword) params.set('keyword', queryState.keyword);
+        params.set('page', queryState.page);
+        params.set('page_size', queryState.pageSize);
 
         fetch('/api/insurance/query?' + params.toString(), {
             signal: _abortController.signal
@@ -246,57 +304,17 @@
             if (!r.ok) throw new Error('查询失败');
             return r.json();
         })
-        .then(function(data) {
-            if (!data.students || data.students.length === 0) {
-                area.innerHTML = '<div class="iq-empty"><i class="bi bi-inbox"></i><div class="iq-empty-title">未找到匹配的保单信息</div><div>请尝试更换搜索条件或检查输入是否正确</div></div>';
-                return;
-            }
-
-            var html = '<div class="iq-count-bar"><i class="bi bi-check-circle-fill text-success"></i>共找到 <strong>' + data.count + '</strong> 条保单记录</div>';
-            html += '<div class="iq-card"><div class="table-responsive"><table class="iq-table"><thead><tr>';
-            html += '<th>姓名</th><th>身份证号码</th><th>班级</th><th>年级</th><th>保单号</th><th>保险到期时间</th><th>缴费日期</th><th>主管标记</th>';
-            html += '</tr></thead><tbody>';
-
-            data.students.forEach(function(s) {
-                var expiry = s.student_insurance_expiry || '';
-                var expiryBadge = '';
-                if (!expiry) {
-                    expiryBadge = '<span class="iq-badge iq-badge-none">未登记</span>';
-                } else {
-                    var expTs = parseDate(expiry);
-                    if (expTs === null) {
-                        // 无法解析的格式：中性展示，不误判为「有效」或「已过期」
-                        expiryBadge = '<span class="iq-badge iq-badge-none"><i class="bi bi-question-circle me-1"></i>' + expiry + '（格式异常）</span>';
-                    } else if (expTs < startOfToday()) {
-                        expiryBadge = '<span class="iq-badge iq-badge-expired"><i class="bi bi-exclamation-triangle me-1"></i>' + expiry + '</span>';
-                    } else {
-                        expiryBadge = '<span class="iq-badge iq-badge-active"><i class="bi bi-check-circle me-1"></i>' + expiry + '</span>';
-                    }
-                }
-
-                var insuranceNo = s.student_insurance_no || '<span class="text-muted">-</span>';
-                var payDate = s.student_insurance_pay_date || '-';
-                var supervisorFlag = s.supervisor_flag || '-';
-
-                html += '<tr>';
-                html += '<td><span class="iq-name">' + (s.name || '-') + '</span></td>';
-                html += '<td><span class="iq-idcard">' + maskIdCard(s.id_card) + '</span></td>';
-                html += '<td>' + (s.admin_class || '-') + '</td>';
-                html += '<td>' + (s.grade || '-') + '</td>';
-                html += '<td>' + insuranceNo + '</td>';
-                html += '<td>' + expiryBadge + '</td>';
-                html += '<td>' + payDate + '</td>';
-                html += '<td>' + supervisorFlag + '</td>';
-                html += '</tr>';
-            });
-
-            html += '</tbody></table></div></div>';
-            area.innerHTML = html;
-        })
+        .then(renderResult)
         .catch(function(err) {
             if (err.name === 'AbortError') return;
             area.innerHTML = '<div class="iq-empty"><i class="bi bi-exclamation-triangle text-danger"></i><div class="iq-empty-title">查询失败</div><div>' + err.message + '</div></div>';
         });
+    }
+
+    window.doSearch = function() {
+        queryState.keyword = document.getElementById('iqKeyword').value.trim();
+        queryState.page = 1;
+        loadQuery();
     };
 
     window.resetSearch = function() {

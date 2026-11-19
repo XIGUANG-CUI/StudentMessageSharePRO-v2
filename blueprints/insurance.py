@@ -35,8 +35,10 @@ def admin_insurance_query():
 @bp.route('/api/insurance/query')
 @auth.login_required
 def api_insurance_query():
-    """保险查询相关接口。"""
+    """保险查询相关接口（服务端分页，每页默认 20 条）。"""
     keyword = request.args.get('keyword', '').strip()
+    page = max(1, request.args.get('page', 1, type=int))
+    page_size = min(max(request.args.get('page_size', 20, type=int), 1), 100)
 
     conn = models.get_db()
     base_where = ["s.is_deleted = 0"]
@@ -58,6 +60,12 @@ def api_insurance_query():
 
     where = ' AND '.join(base_where)
 
+    total = conn.execute(
+        f'SELECT COUNT(*) FROM students s WHERE {where}', params
+    ).fetchone()[0]
+    pages = max(1, (total + page_size - 1) // page_size)
+    page = min(page, pages)
+
     rows = conn.execute(
         f'''SELECT s.id, s.name, s.id_card, s.admin_class, s.grade,
                    s.student_insurance_no, s.student_insurance_expiry,
@@ -67,13 +75,19 @@ def api_insurance_query():
             ORDER BY CASE WHEN s.student_insurance_expiry IS NULL OR s.student_insurance_expiry = '' THEN 1 ELSE 0 END,
                      s.student_insurance_expiry ASC,
                      s.grade DESC, s.admin_class, s.name
-            LIMIT 200''',
-        params
+            LIMIT ? OFFSET ?''',
+        params + [page_size, (page - 1) * page_size]
     ).fetchall()
     conn.close()
 
     students = [dict(r) for r in rows]
-    return jsonify({'students': students, 'count': len(students)})
+    return jsonify({
+        'students': students,
+        'count': total,
+        'page': page,
+        'pages': pages,
+        'page_size': page_size
+    })
 
 
 # ============================================================
@@ -2156,7 +2170,9 @@ def insurance_init_preview():
     rows, errors = insurance_service.parse_insurance_excel(f)
     if errors:
         return jsonify({'success': False, 'errors': errors}), 400
-    return jsonify(insurance_service.preview_insurance_import(rows))
+    page = max(1, request.form.get('page', 1, type=int))
+    page_size = min(max(request.form.get('page_size', 20, type=int), 1), 100)
+    return jsonify(insurance_service.preview_insurance_import(rows, page=page, page_size=page_size))
 
 
 @bp.route('/insurance/init', methods=['GET', 'POST'])

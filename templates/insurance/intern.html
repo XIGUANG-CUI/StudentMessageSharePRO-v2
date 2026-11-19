@@ -140,10 +140,18 @@
         return parts.join('&');
     }
 
+    function clientRows() {
+        var pages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+        if (pager.page > pages) { pager.page = pages; }
+        if (pager.page < 1) { pager.page = 1; }
+        pager.pages = pages;
+        return items.slice((pager.page - 1) * PAGE_SIZE, pager.page * PAGE_SIZE);
+    }
+
     function renderPager() {
         var box = $('iinPager');
         var list = $('iinPagerList');
-        if (currentTab !== 'done' || pager.pages <= 1) {
+        if (pager.pages <= 1) {
             box.classList.add('d-none');
             list.innerHTML = '';
             return;
@@ -177,7 +185,12 @@
                 var tgt = Number(a.getAttribute('data-p'));
                 if (!tgt || tgt === cur || tgt < 1 || tgt > total) { return; }
                 pager.page = tgt;
-                load();
+                if (currentTab === 'done') {
+                    load();
+                } else {
+                    render();
+                    renderPager();
+                }
             });
         });
     }
@@ -198,13 +211,14 @@
         }
 
         if (!items.length) {
+            pager.pages = 1;
             body.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">暂无记录</td></tr>';
             bindCheckAll();
             return;
         }
 
         var html = '';
-        items.forEach(function (s) {
+        (currentTab === 'done' ? items : clientRows()).forEach(function (s) {
             var check = currentTab === 'pending'
                 ? '<td><input type="checkbox" class="iin-row-check" data-rid="' + s.record_id + '"'
                   + (selected[s.record_id] ? ' checked' : '') + '></td>'

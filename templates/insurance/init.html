@@ -36,9 +36,9 @@
     </div>
 
     <div id="iiPreview" class="d-none mt-3">
-        <h6>试算结果 (<span id="iiRowCount">0</span> 行，仅显示前 20 行)</h6>
+        <h6>试算结果 (<span id="iiRowCount">0</span> 行，每页 20 行)</h6>
         <div id="iiPreviewSummary" class="mb-2"></div>
-        <div class="table-responsive" style="max-height: 360px;">
+        <div class="table-responsive">
             <table class="table table-sm table-bordered align-middle">
                 <thead>
                     <tr>
@@ -54,6 +54,7 @@
                 <tbody id="iiPreviewBody"></tbody>
             </table>
         </div>
+        <ul class="pagination pagination-sm justify-content-center mt-2 mb-0 d-none" id="iiPreviewPager"></ul>
         <div class="form-text mb-2">
             动作：新建 / 更新 / 无变化；被拒绝的行会显示原因，导入时自动跳过。
         </div>
@@ -166,10 +167,20 @@
         if (file) handleFile(file);
     });
 
+    var previewPage = 1;
+
     function handleFile(file) {
         pendingFile = file;
+        previewPage = 1;
+        loadPreview();
+    }
+
+    function loadPreview() {
+        if (!pendingFile) { return; }
         var fd = new FormData();
-        fd.append('file', file);
+        fd.append('file', pendingFile);
+        fd.append('page', previewPage);
+        fd.append('page_size', 20);
 
         document.getElementById('iiRowCount').textContent = '解析中…';
         document.getElementById('iiPreview').classList.remove('d-none');
@@ -229,6 +240,10 @@
                       '<td class="small">' + (notes.join('') || '') + '</td>' +
                       '</tr>';
               }).join('');
+              InsurancePager.mount(document.getElementById('iiPreviewPager'), data.page, data.pages, function(p) {
+                  previewPage = p;
+                  loadPreview();
+              });
           })
           .catch(function(err) {
               alert('预览失败: ' + err.message);

@@ -109,6 +109,7 @@
             <tr><td colspan="10" class="text-center text-muted py-4">加载中…</td></tr>
         </tbody>
     </table>
+    <ul class="pagination pagination-sm justify-content-center my-2 d-none" id="ipsPager"></ul>
 </div>
 {% endblock %}
 {% block scripts %}
@@ -117,6 +118,7 @@
     var items = [];
     var selected = {};
     var collapsed = {};
+    var page = 1;
 
     var schoolMap = {};
     {% for st in school_types %}schoolMap[{{ st.code|tojson }}] = {{ st.name|tojson }};{% endfor %}
@@ -174,6 +176,7 @@
         var body = $('ipsBody');
         if (!items.length) {
             body.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">暂无待推送学生</td></tr>';
+            InsurancePager.mount($('ipsPager'), 1, 1, function () {});
             return;
         }
         // 年级 → 班级 两级分组，可折叠
@@ -191,32 +194,38 @@
             G.classes[c].push(s);
             G.count += 1;
         });
-        var html = '';
+        var rowHtml = [];
         gradeOrder.forEach(function (g) {
             var G = grades[g];
             // 年级 / 班级分组默认折叠，点击展开
             var gKey = 'g:' + g;
             var gOpen = collapsed[gKey];
-            html += '<tr class="ips-group ips-group-grade" data-fold="' + esc(gKey) + '">'
+            rowHtml.push('<tr class="ips-group ips-group-grade" data-fold="' + esc(gKey) + '">'
                 + '<td colspan="10">'
                 + '<i class="bi ' + (gOpen ? 'bi-caret-down-fill' : 'bi-caret-right-fill') + ' me-1"></i>'
                 + '<strong>' + esc(g === '未填写' ? g : g + '级') + '</strong>'
-                + ' <span class="opacity-75">' + G.count + ' 人</span></td></tr>';
+                + ' <span class="opacity-75">' + G.count + ' 人</span></td></tr>');
             if (!gOpen) { return; }
             G.classOrder.forEach(function (c) {
                 var rows = G.classes[c];
                 var cKey = gKey + '|c:' + c;
                 var cOpen = collapsed[cKey];
-                html += '<tr class="ips-group ips-group-class" data-fold="' + esc(cKey) + '">'
+                rowHtml.push('<tr class="ips-group ips-group-class" data-fold="' + esc(cKey) + '">'
                     + '<td colspan="10" style="padding-left:24px">'
                     + '<i class="bi ' + (cOpen ? 'bi-caret-down-fill' : 'bi-caret-right-fill') + ' me-1"></i>'
                     + esc(c)
-                    + ' <span class="opacity-75">' + rows.length + ' 人</span></td></tr>';
+                    + ' <span class="opacity-75">' + rows.length + ' 人</span></td></tr>');
                 if (!cOpen) { return; }
-                rows.forEach(function (s) { html += poolRow(s); });
+                rows.forEach(function (s) { rowHtml.push(poolRow(s)); });
             });
         });
-        body.innerHTML = html;
+        var pg = InsurancePager.clamp(rowHtml.length, page);
+        page = pg.page;
+        body.innerHTML = rowHtml.slice(pg.start, pg.end).join('');
+        InsurancePager.mount($('ipsPager'), pg.page, pg.pages, function (p) {
+            page = p;
+            render();
+        });
     }
 
     function renderUpcoming(u) {
@@ -262,6 +271,7 @@
     }
 
     function load() {
+        page = 1;
         fetch('/api/insurance/push/list?' + queryString())
             .then(function (r) { return r.json(); })
             .then(function (data) {

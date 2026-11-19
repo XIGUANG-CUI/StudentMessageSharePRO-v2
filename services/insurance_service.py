@@ -471,12 +471,16 @@ def _diff_records(old, new):
     return changes
 
 
-def preview_insurance_import(rows, limit=20):
-    """预览导入：真实执行后回滚（SAVEPOINT），返回逐行 diff 与校验结果。"""
+def preview_insurance_import(rows, page=1, page_size=20):
+    """预览导入：真实执行后回滚（SAVEPOINT），返回逐行 diff 与校验结果（按页返回）。"""
     conn = models.get_db()
     items = []
     summary = {'total': len(rows), 'ok': 0, 'reject': 0, 'warn': 0,
                'created': 0, 'updated': 0, 'unchanged': 0}
+    pages = max(1, (len(rows) + page_size - 1) // page_size)
+    page = min(max(1, page), pages)
+    start = (page - 1) * page_size
+    end = start + page_size
 
     for i, row in enumerate(rows, 1):
         id_card = (row.get('身份证号') or '').strip()
@@ -533,12 +537,13 @@ def preview_insurance_import(rows, limit=20):
         elif not item['error']:
             summary['unchanged'] += 1
 
-        if len(items) < limit:
+        if start < i <= end:
             items.append(item)
 
     return {'success': True, 'columns': IMPORT_COLUMNS,
             'total': len(rows), 'summary': summary,
-            'preview': items, 'errors': []}
+            'preview': items, 'errors': [],
+            'page': page, 'pages': pages, 'page_size': page_size}
 
 
 def _run_import(rows, progress_dict, progress_id, file_name='', operator=''):

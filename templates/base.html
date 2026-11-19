@@ -307,6 +307,7 @@
     };
     </script>
     <script src="{{ url_for('static', filename='js/main.js') }}?v={{ js_version }}"></script>
+    <script src="{{ url_for('static', filename='js/insurance_pager.js') }}?v={{ js_version }}"></script>
     {% block scripts %}{% endblock %}
 
     {% if session.role == 'admin' %}

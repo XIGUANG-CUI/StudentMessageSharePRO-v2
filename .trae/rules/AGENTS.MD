@@ -69,6 +69,7 @@ StudentMessageSharePRO-v2/
 │   ├── main.js                # Toast/确认弹窗/safeJSON/validatePhone/CSRF 注入
 │   ├── insurance_status.js    # 保险状态常量镜像（保险各页共用）
 │   ├── insurance_common.js    # 保险批量选择组件
+│   ├── insurance_pager.js     # 保险列表通用前端分页（每页 20 条，base.html 全局引入）
 │   ├── district_match.js      # 区划匹配前端
 │   └── card_reader.js         # WebSocket 读卡
 ├── static/vendor/             # docx-preview.min.js / jszip.min.js（Word 预览，本地依赖）
@@ -458,14 +459,14 @@ StudentMessageSharePRO-v2/
 |---|---|---|---|---|
 | `/insurance/init` | GET/POST | 🛡️admin装饰器 | 初始化导入（上传→试算预览→后台导入→撤销本次导入） | daemon 线程 + 进度弹窗 + 失败清单 CSV |
 | `/insurance/init/template` | GET | 🛡️admin装饰器 | 下载导入模板（按「学生×计划批次」展开并预填现值） | openpyxl 生成 9 列 |
-| `/insurance/first` | GET | 🛡️保险角色装饰器 | 新生首保 | 5 页签（待办理/待导出/待补保单/已完成/不办理）+ 批量操作 |
-| `/insurance/renewal` | GET | 🛡️保险角色装饰器 | 学平险续保 | 到期预览横幅 + 待续保/已进入参保 + 到期前 15/30/60/90 天 |
-| `/insurance/collection` | GET | 🛡️finance装饰器 | 保费催缴 | 待缴费/已缴费（分页 20）+ 批量录入缴费 + 分险种导出 |
-| `/insurance/push` | GET | 🛡️保险角色装饰器 | 就业险推送 | 推送至续保/推送至实习险/放弃实习险 |
-| `/insurance/intern` | GET | 🛡️保险角色装饰器 | 就业险办结 | 待办结/已办结（分页 20）+ 审批通过 + 导出办结 |
+| `/insurance/first` | GET | 🛡️保险角色装饰器 | 新生首保 | 5 页签（待办理/待导出/待补保单/已完成/不办理）+ 批量操作 + 分页 20 |
+| `/insurance/renewal` | GET | 🛡️保险角色装饰器 | 学平险续保 | 到期预览横幅 + 待续保/已进入参保（分页 20）+ 到期前 15/30/60/90 天 |
+| `/insurance/collection` | GET | 🛡️finance装饰器 | 保费催缴 | 待缴费/已缴费（均分页 20）+ 批量录入缴费 + 分险种导出 |
+| `/insurance/push` | GET | 🛡️保险角色装饰器 | 就业险推送 | 年级/班级树 + 分页 20 + 推送至续保/推送至实习险/放弃实习险 |
+| `/insurance/intern` | GET | 🛡️保险角色装饰器 | 就业险办结 | 待办结/已办结（均分页 20）+ 审批通过 + 导出办结 |
 | `/insurance/records` | GET | 🛡️保险角色装饰器 | 保险记录查询（15 列，每页 100） | 「显示历史批次」开关 + 险种/状态筛选 |
 | `/insurance/revert` | GET | 🛡️admin装饰器 | 撤销中心 | 按学生撤销 / 导出批次 / 操作日志（均分页 20） |
-| `/insurance/query` | GET | 🛡️login装饰器 | 保单查询（只读） | 搜索 + 身份证脱敏 + 到期徽章 |
+| `/insurance/query` | GET | 🛡️login装饰器 | 保单查询（只读） | 搜索 + 服务端分页 20 + 身份证脱敏 + 到期徽章 |
 
 ### API 路由 — 学生/班级/字典
 
