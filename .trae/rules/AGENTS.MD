@@ -22,6 +22,7 @@
 | 2026-11-08 | 保险模块 v3 重构：新增 `insurance_records` 等 5 张表与 `models/insurance.py`，页面由「登记/审批/待办」改为「催缴/首保/续保/推送/办结/记录查询/撤销中心/初始化导入」8 页；业务改为批次计划 + 五类业务池驱动 ⭐ | AI Agent 全量同步 |
 | 2026-11-13 | 同步近期 15 项功能：重点监管学生、档案派遣查询、毕业生查询分页与档案详情、家长关系/备用电话、年级与在校状态调整、导出预览（Excel 网格 + Word 版式）、年级×专业交叉统计提示、多维查询固定表头首列、年份范围 2000-9999、保险各页分页与批次导入撤销 ⭐ | AI Agent 全量同步 |
 | 2026-11-19 | 保险：托管学生解除排除（五池/收敛/登记页同步）；新增睡眠池（零有效投保记录学生人工激活 + 待审批 + 撤销激活）与 startup 收敛保护 ⭐ | AI Agent 需求实现 |
+| 2026-11-20 | 保险：新增「提前缴费（预缴）」——催缴页集中入口，学平险续保批次/实习就业险/睡眠学生激活三场景提前登记缴费日期，目标批次预建记录、撤销可回滚 ⭐ | AI Agent 需求实现 |
 
 ---
 
@@ -107,7 +108,7 @@ StudentMessageSharePRO-v2/
 | `user` | 只读查询 + 统计面板，字段/学校/年级按 `*_visible` 限制 | 查询页 `/user/query` | 字段过滤+脱敏 |
 | `attendance` | 仅手机端出勤点名，按 `grade_visible` 限制可见年级 | 年级选择 `/mobile/grades` | 仅出勤相关字段 |
 | `finance_chief` ⭐ | 财务主管：保费催缴 + 新生首保/续保/实习险审批 + 续保/推送/办结 + 多维查询 | 保费催缴 `/insurance/collection` | 全量数据视图 |
-| `finance_staff` ⭐ | 财务人员：保费催缴（登记缴费） + 多维查询 | 保费催缴 `/insurance/collection` | 全量数据视图 |
+| `finance_staff` ⭐ | 财务人员：保费催缴（登记缴费 + 提前缴费预缴） + 多维查询 | 保费催缴 `/insurance/collection` | 全量数据视图 |
 | `insurance_officer` ⭐ | 保险员：新生首保/续保/推送/办结 + 多维查询 | 新生首保 `/insurance/first` | 全量数据视图 |
 
 > **权限生效位置**：`auth.py:6-74`（6个装饰器函数），保险角色通过 `auth.py:158` 的 `_is_insurance_role()` 绕过 `check_school_permission()` / `check_grade_permission()` 的学校/年级限制。
@@ -461,7 +462,7 @@ StudentMessageSharePRO-v2/
 | `/insurance/init/template` | GET | 🛡️admin装饰器 | 下载导入模板（按「学生×计划批次」展开并预填现值） | openpyxl 生成 9 列 |
 | `/insurance/first` | GET | 🛡️保险角色装饰器 | 新生首保 | 5 页签（待办理/待导出/待补保单/已完成/不办理）+ 批量操作 + 分页 20 |
 | `/insurance/renewal` | GET | 🛡️保险角色装饰器 | 学平险续保 | 到期预览横幅 + 待续保/已进入参保（分页 20）+ 到期前 15/30/60/90 天 |
-| `/insurance/collection` | GET | 🛡️finance装饰器 | 保费催缴 | 待缴费/已缴费（均分页 20）+ 批量录入缴费 + 分险种导出 |
+| `/insurance/collection` | GET | 🛡️finance装饰器 | 保费催缴 | 待缴费/已缴费（均分页 20）+ 批量录入缴费 + 提前缴费（预缴）弹窗 + 分险种导出 |
 | `/insurance/push` | GET | 🛡️保险角色装饰器 | 就业险推送 | 年级/班级树 + 分页 20 + 推送至续保/推送至实习险/放弃实习险 |
 | `/insurance/intern` | GET | 🛡️保险角色装饰器 | 就业险办结 | 待办结/已办结（均分页 20）+ 审批通过 + 导出办结 |
 | `/insurance/records` | GET | 🛡️保险角色装饰器 | 保险记录查询（15 列，每页 100） | 「显示历史批次」开关 + 险种/状态筛选 |
@@ -587,6 +588,10 @@ StudentMessageSharePRO-v2/
 | `/api/insurance/sleep/activate` | POST | 🛡️admin+财务主管 | 睡眠池人工激活（`student_id`/`pay_date`/`premium`，目标批次系统自动定位） | fetch POST |
 | `/api/insurance/sleep/approve` | POST | 🛡️admin+财务主管 | 审批睡眠池激活记录（`record_ids` 多选） | fetch POST |
 | `/api/insurance/sleep/revert` | POST | 🛡️admin+财务主管 | 撤销睡眠池激活（还原目标快照、删本次补齐记录） | showConfirm → fetch POST |
+| `/api/insurance/prepay/candidates` | GET | 🛡️admin+财务主管+财务人员 | 提前缴费候选（关键词搜索或年级/班级，展开「学生×可缴目标」，服务端分页 50） | 弹窗查询 |
+| `/api/insurance/prepay` | POST | 🛡️admin+财务主管+财务人员 | 单条提前缴费（`student_id`/`batch_no`/`insurance_type`/`pay_date`/`premium`） | fetch POST |
+| `/api/insurance/prepay/batch` | POST | 🛡️admin+财务主管+财务人员 | 批量提前缴费（统一或逐条缴费日期/保费，汇总成功/失败） | 弹窗多选 → fetch POST |
+| `/api/insurance/prepay/cancel` | POST | 🛡️admin+财务主管+财务人员 | 撤销预缴（财务人员仅本人且未推进；主管可撤销已审批待导出，只清缴费） | showConfirm → fetch POST |
 | `/api/insurance/query` | GET | 🛡️login装饰器 | 保单查询（脱敏 + 到期徽章，≤200 条） | fetch |
 | ~~`/api/insurance/students`、`/register-*`、`/approve-*`、`/todo-*`~~ | — | — | 旧版兼容接口已整体注释停用，路由不再注册（404） | — |
 
@@ -803,6 +808,7 @@ StudentMessageSharePRO-v2/
 - **startup 收敛保护**：`repair_never_insured_xueping()` 跳过任何含 `sleep_activated*` 记录的学生，避免把待审批激活记录重新置为 `exempt`
 - **状态流转**：`approve` → approved；`record_payment` 只写缴费不改状态；`export` → exported（实习直接 done）；`fill_policy` → done（实习拒绝）；`renewal/start` 建 approved；`exempt_*` → exempt；每次流转写 `insurance_operation_logs` 并由 `sync_student_snapshot()` 投影回 students 旧字段
 - **保险角色全量视图**：`auth.py` `_is_insurance_role()` 使 `apply_permission_filters()` 返回空 dict
+- **提前缴费（预缴）**：催缴页「提前缴费」弹窗集中录入，不新增状态，目标批次预建/复用记录——学平险续保置 `pending_renewal`、实习就业险置 `pending_approve`、睡眠学生复用 `activate_sleep_student()` 自动激活；`prepay()` 要求缴费日期合法且不晚于今天，学平险上一批必须已办结/放弃，实习险最多提前一个学年，首保批次不支持（走首保流程）；重复同日期幂等、不同日期报「先撤销预缴」；`cancel_prepay()` 依据 `prepay` 日志回滚（新建记录删除、复用记录清缴费并还原备注，睡眠激活走 `revert_sleep_activation`）；`sync_student_snapshot()` 不投影 `pending_renewal` 的缴费日期，`query_collection_stage()` 将已预缴的待续保记录放入「已缴费」页签并标 `is_prepaid`，`query_renewal_pool()` 不因实习险预缴占位记录排除学生
 
 ### 19. 模板驱动数据导出引擎
 - **位置**：`blueprints/export.py` + `templates/admin/export_engine.html` + `static/vendor/docx-preview.min.js`

@@ -11,6 +11,8 @@
     .irn-table-wrap thead th { position: sticky; top: 0; background: #f1f3f5; z-index: 2; font-size: 0.78rem; white-space: nowrap; }
     .irn-table-wrap td { font-size: 0.8rem; }
     .irn-batch { display: inline-block; padding: 1px 8px; border-radius: 8px; background: #f0ebff; color: #59359a; font-size: 0.72rem; }
+    .irn-prepaid { display: inline-block; margin-left: 4px; padding: 1px 8px; border-radius: 8px;
+                   background: #d1e7dd; color: #0f5132; font-size: 0.72rem; }
     .irn-days { font-weight: 600; }
     .irn-days.warn { color: #dc3545; }
     .irn-days.soon { color: #fd7e14; }
@@ -343,7 +345,8 @@
             + '<td>' + esc(s.grade) + '</td>'
             + '<td>' + esc(s.attendance_status) + '</td>'
             + '<td><span class="irn-batch">第' + (s.previous_batch_no || '?') + '年</span></td>'
-            + '<td><span class="irn-batch">第' + (s.batch_no || '?') + '年</span></td>'
+            + '<td><span class="irn-batch">第' + (s.batch_no || '?') + '年</span>'
+            + (s.is_prepaid ? '<span class="irn-prepaid">已预缴</span>' : '') + '</td>'
             + '<td>' + esc(s.target_school_year) + '</td>'
             + '<td>' + esc(s.policy_no) + '</td>'
             + '<td>' + esc(s.expiry_date) + '</td>'

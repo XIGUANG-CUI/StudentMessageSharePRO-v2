@@ -745,7 +745,7 @@ def api_insurance_sleep_list():
 
 
 @bp.route('/api/insurance/sleep/activate', methods=['POST'])
-@_json_roles('admin', 'finance_chief')
+@_json_roles('admin', 'finance_chief', 'finance_staff')
 def api_insurance_sleep_activate():
     """激活睡眠池学生：按当前学年自动定位目标批次。"""
     data = request.get_json(silent=True) or {}
@@ -1536,6 +1536,135 @@ def api_insurance_collection_pay():
         conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
     return jsonify({'success': True, 'count': done, 'skipped': skipped})
+
+
+# ============================================================
+# 提前缴费（预缴）：候选查询 / 单条 / 批量 / 撤销
+# ============================================================
+@bp.route('/api/insurance/prepay/candidates')
+def api_insurance_prepay_candidates():
+    """提前缴费候选：关键词搜索或按年级/班级筛选，服务端分页 50 条。"""
+    err = _require_roles_json('admin', 'finance_chief', 'finance_staff')
+    if err:
+        return err
+    search = (request.args.get('search') or '').strip()
+    grade = (request.args.get('grade') or '').strip()
+    admin_class = (request.args.get('admin_class') or '').strip()
+    if not search and not grade and not admin_class:
+        return jsonify({'success': False,
+                        'message': '请输入关键词，或先选择年级 / 班级'}), 400
+    try:
+        page = int(request.args.get('page', 1))
+    except (TypeError, ValueError):
+        page = 1
+    data = insurance_domain.query_prepay_candidates(
+        models.get_db(), search=search, grade=grade, admin_class=admin_class,
+        page=page, page_size=50)
+    return jsonify({'success': True, 'items': data['items'],
+                    'total': data['total'], 'page': data['page'],
+                    'pages': data['pages'], 'page_size': data['page_size']})
+
+
+@bp.route('/api/insurance/prepay', methods=['POST'])
+def api_insurance_prepay():
+    """登记单条提前缴费。"""
+    err = _require_roles_json('admin', 'finance_chief', 'finance_staff')
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    try:
+        student_id = int(data.get('student_id'))
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': '学生参数无效'}), 400
+
+    conn = models.get_db()
+    try:
+        result = insurance_domain.prepay(
+            conn, student_id, data.get('batch_no'), data.get('insurance_type'),
+            (data.get('pay_date') or '').strip(),
+            (data.get('premium') or '').strip(),
+            operator=session.get('username', ''))
+        conn.commit()
+    except insurance_domain.InsuranceTransitionError as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({'success': True, 'created': result['created'],
+                    'sleep': result['sleep'], 'record': result['record']})
+
+
+@bp.route('/api/insurance/prepay/batch', methods=['POST'])
+def api_insurance_prepay_batch():
+    """批量提前缴费：支持统一缴费日期/保费，或逐条指定。"""
+    err = _require_roles_json('admin', 'finance_chief', 'finance_staff')
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    shared_date = (data.get('pay_date') or '').strip()
+    shared_premium = (data.get('premium') or '').strip()
+    items = data.get('items') or []
+    if not items:
+        return jsonify({'success': False, 'message': '请选择学生'}), 400
+
+    conn = models.get_db()
+    operator = session.get('username', '')
+    done = created = sleeping = 0
+    errors = []
+    try:
+        for item in items:
+            try:
+                result = insurance_domain.prepay(
+                    conn, int(item.get('student_id')),
+                    item.get('batch_no'), item.get('insurance_type'),
+                    (item.get('pay_date') or shared_date).strip(),
+                    (item.get('premium') or shared_premium or '').strip(),
+                    operator=operator)
+                done += 1
+                if result['created']:
+                    created += 1
+                if result['sleep']:
+                    sleeping += 1
+            except Exception as e:
+                errors.append(str(e))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({'success': not errors, 'count': done, 'created': created,
+                    'sleep': sleeping, 'skipped': len(errors),
+                    'errors': errors[:20]})
+
+
+@bp.route('/api/insurance/prepay/cancel', methods=['POST'])
+def api_insurance_prepay_cancel():
+    """撤销提前缴费：财务人员仅能撤销本人未推进的记录。"""
+    err = _require_roles_json('admin', 'finance_chief', 'finance_staff')
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    try:
+        record_id = int(data.get('record_id'))
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': '记录参数无效'}), 400
+
+    role = session.get('role')
+    conn = models.get_db()
+    try:
+        result = insurance_domain.cancel_prepay(
+            conn, record_id,
+            operator=session.get('username', ''),
+            is_supervisor=role in ('admin', 'finance_chief'))
+        conn.commit()
+    except insurance_domain.InsuranceTransitionError as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({'success': True, 'deleted': result['deleted'],
+                    'sleep': result['sleep']})
 
 
 # ============================================================

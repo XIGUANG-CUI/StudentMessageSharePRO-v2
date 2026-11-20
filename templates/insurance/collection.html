@@ -32,6 +32,14 @@
     .modal-icl .modal-header .btn-close { filter: invert(1); }
     .icl-pager { margin-top: 8px; }
     .icl-pager .pagination { margin-bottom: 2px; }
+    .icl-prepaid { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 6px;
+                   background: #fff3cd; color: #8a6d1c; font-size: 0.7rem; }
+    .icp-table-wrap { border: 1px solid #dee2e6; border-radius: 8px; overflow: auto;
+                      max-height: 360px; }
+    .icp-table-wrap thead th { position: sticky; top: 0; background: #f1f3f5; z-index: 2;
+                               font-size: 0.78rem; white-space: nowrap; }
+    .icp-table-wrap td { font-size: 0.8rem; }
+    .icp-hint { font-size: 0.72rem; color: #6c757d; }
 </style>
 {% endblock %}
 {% block content %}
@@ -82,6 +90,9 @@
         <button type="button" class="btn btn-sm btn-success" id="iclPayBatch">
             <i class="bi bi-check2-square me-1"></i>批量录入缴费
         </button>
+        <button type="button" class="btn btn-sm btn-outline-success" id="iclPrepayBtn">
+            <i class="bi bi-lightning-charge me-1"></i>提前缴费
+        </button>
         <button type="button" class="btn btn-sm btn-outline-primary" id="iclExportBtn">
             <i class="bi bi-download me-1"></i>导出待缴费名单（分险种）
         </button>
@@ -103,6 +114,86 @@
     </nav>
     <div class="text-center text-muted mt-1">
         <small>每页 20 条</small>
+    </div>
+</div>
+
+<!-- 提前缴费弹窗：缴费日期提前录入，目标批次由系统按计划自动定位 -->
+<div class="modal fade" id="iclPrepayModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h6 class="modal-title"><i class="bi bi-lightning-charge me-1"></i>提前缴费（预缴）</h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-light border small mb-2">
+                    学平险需上一批已办结（或放弃）才可预缴下一批；实习就业险最多提前一个学年。
+                    睡眠学生预缴后自动激活并进入待审批。首保批次的缴费仍在首保审批环节登记。
+                </div>
+                <div class="row g-2 mb-2 align-items-center">
+                    <div class="col-auto">
+                        <input type="text" class="form-control form-control-sm" id="icpSearch"
+                               style="width:220px" placeholder="学号 / 姓名 / 拼音 / 身份证号">
+                    </div>
+                    <div class="col-auto">
+                        <select class="form-select form-select-sm" id="icpGrade" style="width:110px">
+                            <option value="">全部年级</option>
+                            {% for g in filter_values.grades %}
+                            <option value="{{ g }}">{{ g }}级</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <select class="form-select form-select-sm" id="icpClass" style="width:120px">
+                            <option value="">全部班级</option>
+                            {% for c in filter_values.classes %}
+                            <option value="{{ c }}">{{ c }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <button type="button" class="btn btn-sm btn-primary" id="icpQueryBtn">
+                            <i class="bi bi-search me-1"></i>查询
+                        </button>
+                    </div>
+                    <div class="col-auto icp-hint">关键词为空时请先选择年级或班级</div>
+                </div>
+                <div class="icp-table-wrap">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th style="width:36px"><input type="checkbox" id="icpCheckAll"></th>
+                                <th>姓名</th><th>学号</th><th>班级</th><th>年级</th>
+                                <th>险种</th><th>批次</th><th>说明</th>
+                            </tr>
+                        </thead>
+                        <tbody id="icpBody">
+                            <tr><td colspan="8" class="text-center text-muted py-3">
+                                请输入关键词，或选择年级 / 班级后查询
+                            </td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mt-2">
+                    <div class="d-flex gap-2 align-items-center">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="icpPrev">上一页</button>
+                        <span class="text-muted small" id="icpPageInfo">第 0 / 0 页</span>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="icpNext">下一页</button>
+                        <span class="text-muted small" id="icpTotalInfo"></span>
+                    </div>
+                    <div class="d-flex gap-2 align-items-center">
+                        <span class="text-muted small">缴费日期</span>
+                        <input type="date" class="form-control form-control-sm icl-date" id="icpPayDate">
+                        <span class="text-muted small">保费(选填)</span>
+                        <input type="text" class="form-control form-control-sm" id="icpPremium"
+                               style="width:100px" placeholder="如 100">
+                        <button type="button" class="btn btn-sm btn-success" id="icpSubmit">
+                            <i class="bi bi-check2-square me-1"></i>确认预缴
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -253,16 +344,21 @@
         return '<tr>' + base
             + '<td>' + typeBadge(s.insurance_type) + '</td>'
             + '<td>第' + (s.batch_no || '?') + '年</td>'
-            + '<td>' + esc(s.pay_date) + '</td>'
+            + '<td>' + esc(s.pay_date)
+                + (s.is_prepaid ? '<span class="icl-prepaid">预缴</span>' : '') + '</td>'
             + '<td>' + esc(s.policy_no) + '</td>'
             + '<td>' + esc(s.expiry_date) + '</td>'
+            + '<td>' + (s.is_prepaid
+                ? '<button type="button" class="btn btn-sm btn-outline-danger icl-prepay-cancel" data-rid="'
+                    + s.record_id + '">撤销预缴</button>'
+                : '') + '</td>'
             + '</tr>';
     }
 
     function render() {
         var head = $('iclHead');
         var body = $('iclBody');
-        var colspan = currentTab === 'pending' ? 13 : 11;
+        var colspan = currentTab === 'pending' ? 13 : 12;
         if (currentTab === 'pending') {
             head.innerHTML = '<tr>'
                 + '<th style="width:36px"><input type="checkbox" id="iclCheckAll"></th>'
@@ -271,7 +367,7 @@
         } else {
             head.innerHTML = '<tr>'
                 + '<th>姓名</th><th>学号</th><th>校别</th><th>班级</th><th>年级</th><th>在校状态</th>'
-                + '<th>险种</th><th>批次</th><th>缴费日期</th><th>保单号</th><th>到期日期</th></tr>';
+                + '<th>险种</th><th>批次</th><th>缴费日期</th><th>保单号</th><th>到期日期</th><th style="width:100px">操作</th></tr>';
         }
 
         if (!items.length) {
@@ -379,6 +475,20 @@
     });
 
     $('iclBody').addEventListener('click', function (e) {
+        var cancelBtn = e.target.closest('.icl-prepay-cancel');
+        if (cancelBtn) {
+            var crid = cancelBtn.getAttribute('data-rid');
+            showConfirm('确认撤销该笔提前缴费？撤销后需重新登记。', 'warn').then(function (ok) {
+                if (!ok) { return; }
+                postJSON('/api/insurance/prepay/cancel', { record_id: Number(crid) })
+                    .then(function (data) {
+                        if (!data.success) { toast(data.message || '撤销失败', 'error'); return; }
+                        toast('已撤销提前缴费', 'success');
+                        load();
+                    });
+            });
+            return;
+        }
         var btn = e.target.closest('.icl-pay-one');
         if (!btn) { return; }
         var rid = btn.getAttribute('data-rid');
@@ -401,16 +511,19 @@
         if (!ids.length) { toast('请先选择学生', 'error'); return; }
         var payDate = $('iclBatchDate').value;
         if (!payDate) { toast('请先选择统一缴费日期', 'error'); return; }
-        if (!confirm('确认将选中的 ' + ids.length + ' 条记录缴费日期设为 ' + payDate + '？')) { return; }
-        postJSON('/api/insurance/collection/pay', {
-            record_ids: ids.map(Number),
-            pay_date: payDate
-        }).then(function (data) {
-            if (!data.success) { toast(data.message || '录入失败', 'error'); return; }
-            toast('已录入 ' + data.count + ' 条' + (data.skipped ? '，跳过 ' + data.skipped + ' 条' : ''), 'success');
-            selected = {};
-            load();
-        });
+        showConfirm('确认将选中的 ' + ids.length + ' 条记录缴费日期设为 ' + payDate + '？', 'warn')
+            .then(function (ok) {
+                if (!ok) { return; }
+                postJSON('/api/insurance/collection/pay', {
+                    record_ids: ids.map(Number),
+                    pay_date: payDate
+                }).then(function (data) {
+                    if (!data.success) { toast(data.message || '录入失败', 'error'); return; }
+                    toast('已录入 ' + data.count + ' 条' + (data.skipped ? '，跳过 ' + data.skipped + ' 条' : ''), 'success');
+                    selected = {};
+                    load();
+                });
+            });
     });
 
     $('iclExportBtn').addEventListener('click', function () {
@@ -444,6 +557,149 @@
                 toast('已导出待缴费名单（学平险/实习就业险分表）', 'success');
             })
             .catch(function (err) { toast(err.message || '导出失败', 'error'); });
+    });
+
+    // ===== 提前缴费（预缴）弹窗 =====
+    var prepay = { items: [], selected: {}, page: 1, pages: 1, total: 0 };
+
+    function prepayKey(s) {
+        return s.id + '-' + s.batch_no + '-' + s.insurance_type;
+    }
+
+    function prepayQuery(page) {
+        var search = $('icpSearch').value.trim();
+        var grade = $('icpGrade').value;
+        var cls = $('icpClass').value;
+        if (!search && !grade && !cls) {
+            toast('请输入关键词，或先选择年级 / 班级', 'error');
+            return;
+        }
+        var parts = ['page=' + (page || 1)];
+        if (search) { parts.push('search=' + encodeURIComponent(search)); }
+        if (grade) { parts.push('grade=' + encodeURIComponent(grade)); }
+        if (cls) { parts.push('admin_class=' + encodeURIComponent(cls)); }
+        fetch('/api/insurance/prepay/candidates?' + parts.join('&'))
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.success) { toast(data.message || '查询失败', 'error'); return; }
+                prepay.items = data.items || [];
+                prepay.page = data.page || 1;
+                prepay.pages = data.pages || 1;
+                prepay.total = data.total || 0;
+                var keep = {};
+                prepay.items.forEach(function (s) {
+                    if (prepay.selected[prepayKey(s)]) {
+                        keep[prepayKey(s)] = prepay.selected[prepayKey(s)];
+                    }
+                });
+                prepay.selected = keep;
+                renderPrepay();
+            })
+            .catch(function () { toast('查询失败', 'error'); });
+    }
+
+    function renderPrepay() {
+        var body = $('icpBody');
+        $('icpPageInfo').textContent = '第 ' + (prepay.pages ? prepay.page : 0)
+            + ' / ' + (prepay.pages || 0) + ' 页';
+        $('icpTotalInfo').textContent = prepay.total ? ('共 ' + prepay.total + ' 个可缴目标') : '';
+        $('icpPrev').disabled = prepay.page <= 1;
+        $('icpNext').disabled = prepay.page >= prepay.pages;
+        if (!prepay.items.length) {
+            body.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">没有符合条件的可预缴学生</td></tr>';
+            return;
+        }
+        var html = '';
+        prepay.items.forEach(function (s) {
+            var key = prepayKey(s);
+            var checked = prepay.selected[key] ? ' checked' : '';
+            html += '<tr>'
+                + '<td><input type="checkbox" class="icp-row-check" data-key="' + esc(key) + '"' + checked + '></td>'
+                + '<td class="fw-semibold">' + esc(s.name) + '</td>'
+                + '<td>' + esc(s.student_no) + '</td>'
+                + '<td>' + esc(s.admin_class) + '</td>'
+                + '<td>' + esc(s.grade) + '</td>'
+                + '<td>' + esc(s.type_label) + '</td>'
+                + '<td>' + esc(s.target_label) + '</td>'
+                + '<td class="icp-hint">' + esc(s.hint || '') + '</td>'
+                + '</tr>';
+        });
+        body.innerHTML = html;
+    }
+
+    $('iclPrepayBtn').addEventListener('click', function () {
+        prepay = { items: [], selected: {}, page: 1, pages: 1, total: 0 };
+        $('icpSearch').value = '';
+        $('icpGrade').value = $('iclGrade').value || '';
+        $('icpClass').value = $('iclClass').value || '';
+        $('icpPayDate').value = $('iclBatchDate').value || '';
+        $('icpPremium').value = '';
+        $('icpCheckAll').checked = false;
+        $('icpBody').innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">'
+            + '请输入关键词，或选择年级 / 班级后查询</td></tr>';
+        $('icpPageInfo').textContent = '第 0 / 0 页';
+        $('icpTotalInfo').textContent = '';
+        bootstrap.Modal.getOrCreateInstance($('iclPrepayModal')).show();
+        if ($('icpSearch').value || $('icpGrade').value || $('icpClass').value) {
+            prepayQuery(1);
+        }
+    });
+
+    $('icpQueryBtn').addEventListener('click', function () { prepayQuery(1); });
+    $('icpSearch').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { prepayQuery(1); }
+    });
+    $('icpGrade').addEventListener('change', function () { prepayQuery(1); });
+    $('icpClass').addEventListener('change', function () { prepayQuery(1); });
+    $('icpPrev').addEventListener('click', function () { prepayQuery(prepay.page - 1); });
+    $('icpNext').addEventListener('click', function () { prepayQuery(prepay.page + 1); });
+
+    $('icpCheckAll').addEventListener('change', function () {
+        var checked = this.checked;
+        prepay.items.forEach(function (s) {
+            var key = prepayKey(s);
+            if (checked) { prepay.selected[key] = s; } else { delete prepay.selected[key]; }
+        });
+        renderPrepay();
+    });
+
+    $('icpBody').addEventListener('change', function (e) {
+        var box = e.target.closest('.icp-row-check');
+        if (!box) { return; }
+        var key = box.getAttribute('data-key');
+        if (box.checked) {
+            var found = prepay.items.filter(function (s) { return prepayKey(s) === key; })[0];
+            if (found) { prepay.selected[key] = found; }
+        } else {
+            delete prepay.selected[key];
+        }
+    });
+
+    $('icpSubmit').addEventListener('click', function () {
+        var keys = Object.keys(prepay.selected);
+        if (!keys.length) { toast('请先勾选学生', 'error'); return; }
+        var payDate = $('icpPayDate').value;
+        if (!payDate) { toast('请选择缴费日期', 'error'); return; }
+        var premium = $('icpPremium').value.trim();
+        var list = keys.map(function (k) {
+            var s = prepay.selected[k];
+            return { student_id: s.id, batch_no: s.batch_no,
+                     insurance_type: s.insurance_type, pay_date: payDate,
+                     premium: premium };
+        });
+        postJSON('/api/insurance/prepay/batch', { items: list }).then(function (data) {
+            if (!data.count) {
+                toast((data.errors && data.errors[0]) || data.message || '预缴失败', 'error');
+                return;
+            }
+            var msg = '已预缴 ' + data.count + ' 条'
+                + (data.sleep ? '（睡眠学生已激活 ' + data.sleep + ' 人）' : '');
+            if (data.skipped) { msg += '，失败 ' + data.skipped + ' 条'; }
+            toast(msg, data.skipped ? 'error' : 'success');
+            prepay.selected = {};
+            bootstrap.Modal.getOrCreateInstance($('iclPrepayModal')).hide();
+            load();
+        });
     });
 
     load();

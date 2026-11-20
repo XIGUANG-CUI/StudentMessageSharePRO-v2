@@ -1101,9 +1101,10 @@ def _latest_nonempty(conn, student_id, insurance_type, field):
     row = conn.execute(
         f'''SELECT {field} FROM insurance_records
             WHERE student_id = ? AND insurance_type = ?
+              AND status <> ?
               AND COALESCE({field}, '') <> ''
             ORDER BY batch_no DESC, id DESC LIMIT 1''',
-        (student_id, insurance_type)
+        (student_id, insurance_type, InsuranceStatus.PENDING_RENEWAL)
     ).fetchone()
     return (row[0] if row else '') or ''
 
@@ -1113,6 +1114,8 @@ def sync_student_snapshot(conn, student_id):
 
     每个字段独立取「最近一次非空值」：续保刚创建的空记录不会把
     现有保单号/缴费日期/到期日期清空，历史缴费日期也能保留到被新值覆盖。
+    待续保（pending_renewal）的提前缴费不投影到学生快照，避免旧页面把
+    「下一批预缴日期」误当成当前保单的缴费日期。
     """
     xp = get_latest_record(conn, student_id, INSURANCE_TYPE_XUEPING)
     it = get_latest_record(conn, student_id, INSURANCE_TYPE_INTERN)
@@ -1790,15 +1793,19 @@ _POOL_STUDENT_COLUMNS = '''
 
 
 def _pool_student_conditions(search=None, school=None, grade=None,
-                             admin_class=None, major=None):
+                             admin_class=None, major=None, exclude_dropout=False):
     """池的公共学生筛选条件（排除软删除与已毕业学生）。
 
     托管学生照常参加保险业务，不再排除。
+    exclude_dropout=True 时额外排除退学 / 退学办结（提前缴费候选用）。
     """
     conditions = [
         'COALESCE(s.is_deleted, 0) = 0',
         "(s.registration_status IS NULL OR s.registration_status != '毕业')",
     ]
+    if exclude_dropout:
+        conditions.append(
+            "COALESCE(s.attendance_status, '') NOT IN ('退学', '退学办结')")
     params = []
     if search:
         like = f'%{search}%'
@@ -1816,10 +1823,10 @@ def _pool_student_conditions(search=None, school=None, grade=None,
 
 
 def _pool_students(conn, search=None, school=None, grade=None,
-                   admin_class=None, major=None):
+                   admin_class=None, major=None, exclude_dropout=False):
     """池的公共学生底表：排除软删除与已毕业学生。"""
     conditions, params = _pool_student_conditions(
-        search, school, grade, admin_class, major)
+        search, school, grade, admin_class, major, exclude_dropout=exclude_dropout)
     sql = (f'SELECT {_POOL_STUDENT_COLUMNS} FROM students s WHERE '
            + ' AND '.join(conditions)
            + ' ORDER BY s.grade, s.admin_class, s.name')
@@ -1851,6 +1858,22 @@ def _find_record(rec_map, student_id, batch_no, insurance_type):
         if rec['batch_no'] == batch_no and rec['insurance_type'] == insurance_type:
             return rec
     return None
+
+
+def _prepaid_ids(conn, record_ids):
+    """批量查询哪些记录存在提前缴费日志（用于「预缴」徽标）。"""
+    ids = [int(i) for i in record_ids if i]
+    result = set()
+    for start in range(0, len(ids), 500):      # 规避 SQLite 变量上限
+        chunk = ids[start:start + 500]
+        placeholders = ','.join('?' * len(chunk))
+        rows = conn.execute(
+            f"SELECT DISTINCT record_id FROM insurance_operation_logs "
+            f"WHERE action = 'prepay' AND record_id IN ({placeholders})",
+            chunk
+        ).fetchall()
+        result.update(r[0] for r in rows)
+    return result
 
 
 def _days_left(expiry_date, today):
@@ -2070,8 +2093,10 @@ def query_renewal_pool(conn, today=None, window_days=30,
     items = []
     for sid, student in students.items():
         records = records_by_student.get(sid, [])
-        # 已进入实习就业险阶段（任何状态）说明业务已终了，不再续保
-        if any(r['insurance_type'] == INSURANCE_TYPE_INTERN for r in records):
+        # 已进入实习就业险阶段说明业务已终了，不再续保；
+        # 仅提前缴费建立的实习占位记录不算进入实习阶段。
+        if (any(r['insurance_type'] == INSURANCE_TYPE_INTERN for r in records)
+                and not _intern_prepay_only(records)):
             continue
 
         terminal = _xueping_terminal(records)
@@ -2143,6 +2168,9 @@ def query_renewal_pool(conn, today=None, window_days=30,
         str(r.get('admin_class') or ''),
         str(r.get('name') or ''),
     ))
+    prepaid = _prepaid_ids(conn, [i.get('record_id') for i in items])
+    for item in items:
+        item['is_prepaid'] = item.get('record_id') in prepaid
     return items
 
 
@@ -2613,6 +2641,349 @@ def revert_sleep_activation(conn, record_id, operator=''):
 
 
 # ============================================================
+# 提前缴费（预缴）
+# ============================================================
+# 提前缴费语义：学生尚未进入办理环节（或刚到达）时先登记缴费日期。
+# 目标批次预建记录：学平险续保 → 待续保（pending_renewal），
+# 实习就业险 → 待审批（pending_approve）。后续流程接续时只推进状态，
+# 不覆盖已登记的缴费日期；睡眠学生预缴即自动激活并进入待审批。
+PREPAY_REMARK = 'prepay'
+_PREPAY_CANCEL_STATUSES = (InsuranceStatus.PENDING_RENEWAL,
+                           InsuranceStatus.PENDING_APPROVE)
+
+
+def _prepay_student(conn, student_id):
+    cur = conn.execute(
+        '''SELECT id, id_card, name, student_no, school, grade, enrollment_year,
+                  admin_class, major, attendance_status, registration_status
+           FROM students
+           WHERE id = ? AND COALESCE(is_deleted, 0) = 0''',
+        (student_id,))
+    return _row_to_dict(cur, cur.fetchone())
+
+
+def _intern_prepay_only(records):
+    """实习记录是否仅为提前缴费占位（尚未审批/导出）。
+
+    这类记录不代表「已进入实习阶段、保险业务终了」，续保池不能因此排除该生。
+    """
+    interns = [r for r in records if r['insurance_type'] == INSURANCE_TYPE_INTERN]
+    if not interns:
+        return False
+    return all(r['status'] == InsuranceStatus.PENDING_APPROVE
+               and (r.get('remark') or '') == PREPAY_REMARK for r in interns)
+
+
+def _prepay_xueping_target(student, records, current_year):
+    """下一批可预缴的学平险续保批次；不满足条件返回 None。"""
+    if any(r['insurance_type'] == INSURANCE_TYPE_INTERN
+           and (r.get('remark') or '') != PREPAY_REMARK for r in records):
+        return None
+    plan = build_plan(student.get('enrollment_year'), student.get('grade'), current_year)
+    steps = [p for p in plan if p['insurance_type'] == INSURANCE_TYPE_XUEPING]
+    if not steps:
+        return None
+    xp = [r for r in records if r['insurance_type'] == INSURANCE_TYPE_XUEPING]
+    terminal = [r for r in xp if r['status'] in XUEPING_TERMINAL_STATUSES]
+    if not terminal:
+        return None                     # 没有已了结批次：走首保或睡眠激活流程
+    latest = max(terminal, key=lambda r: r['batch_no'])
+    step = next((p for p in steps if p['batch_no'] > latest['batch_no']), None)
+    if step is None or step['stage'] != STAGE_RENEWAL:
+        return None                     # 首保批次 / 计划内学平险已全部办完
+    previous = next((r for r in xp if r['batch_no'] == step['batch_no'] - 1), None)
+    # 上一批必须已了结（办结或放弃），才允许提前缴纳下一批
+    if previous is None or previous['status'] not in XUEPING_TERMINAL_STATUSES:
+        return None
+    existing = next((r for r in xp if r['batch_no'] == step['batch_no']), None)
+    if existing is not None:
+        if existing['status'] not in _PREPAY_CANCEL_STATUSES:
+            return None
+        if (existing.get('pay_date') or '').strip():
+            return None                 # 已登记缴费，不再作为候选
+    return {'step': step, 'record': existing}
+
+
+def _prepay_intern_target(student, records, current_year):
+    """可预缴的实习就业险批次（最多提前一个学年）；不满足条件返回 None。"""
+    plan = build_plan(student.get('enrollment_year'), student.get('grade'), current_year)
+    step = next((p for p in plan if p['insurance_type'] == INSURANCE_TYPE_INTERN), None)
+    if step is None:
+        return None
+    if not any(r['insurance_type'] == INSURANCE_TYPE_XUEPING for r in records):
+        return None                     # 无任何学平险记录：应先走首保/睡眠激活流程
+    reached = batch_now(student.get('enrollment_year'), student.get('grade'),
+                        current_year)
+    if reached < step['batch_no'] - 1:
+        return None                     # 最多提前一个学年缴费
+    existing = next((r for r in records
+                     if r['insurance_type'] == INSURANCE_TYPE_INTERN
+                     and r['batch_no'] == step['batch_no']), None)
+    if existing is not None:
+        if existing['status'] != InsuranceStatus.PENDING_APPROVE:
+            return None                 # 已审批/已导出等走催缴登记
+        if (existing.get('pay_date') or '').strip():
+            return None
+    return {'step': step, 'record': existing}
+
+
+def prepay_targets(student, records, current_year=None):
+    """该生当前可提前缴费的目标列表（同一学生可能同时有两个目标）。"""
+    if current_year is None:
+        current_year = current_school_year()
+    if (student.get('attendance_status') or '') in ('退学', '退学办结'):
+        return []
+    if (student.get('registration_status') or '') == '毕业':
+        return []
+
+    sleep_info = _sleep_candidate(student, records, current_year)
+    if sleep_info:
+        target = sleep_info['target']
+        return [{'batch_no': target['batch_no'],
+                 'insurance_type': target['insurance_type'],
+                 'stage': target['stage'],
+                 'sleep': True, 'record': None}]
+
+    targets = []
+    xp = _prepay_xueping_target(student, records, current_year)
+    if xp:
+        targets.append({'batch_no': xp['step']['batch_no'],
+                        'insurance_type': xp['step']['insurance_type'],
+                        'stage': xp['step']['stage'],
+                        'sleep': False, 'record': xp['record']})
+    it = _prepay_intern_target(student, records, current_year)
+    if it:
+        targets.append({'batch_no': it['step']['batch_no'],
+                        'insurance_type': it['step']['insurance_type'],
+                        'stage': it['step']['stage'],
+                        'sleep': False, 'record': it['record']})
+    return targets
+
+
+def _prepay_reject_reason(student, records, current_year, batch_no, insurance_type):
+    """目标不可预缴时的说明文案。"""
+    plan = build_plan(student.get('enrollment_year'), student.get('grade'), current_year)
+    step = next((p for p in plan
+                 if p['batch_no'] == batch_no and p['insurance_type'] == insurance_type),
+                None)
+    if step is None:
+        return '该批次不在保险计划内'
+    if step['stage'] == STAGE_FIRST:
+        return '首保批次的缴费在首保审批环节登记，请走首保流程或初始化导入'
+    if insurance_type == INSURANCE_TYPE_INTERN:
+        reached = batch_now(student.get('enrollment_year'), student.get('grade'),
+                            current_year)
+        if reached < step['batch_no'] - 1:
+            return '尚未到实习就业险缴费时间（最多提前一个学年）'
+        return '该学生实习就业险已登记缴费或已进入后续流程'
+    xp = [r for r in records if r['insurance_type'] == INSURANCE_TYPE_XUEPING]
+    previous = next((r for r in xp if r['batch_no'] == batch_no - 1), None)
+    if previous is None or previous['status'] not in XUEPING_TERMINAL_STATUSES:
+        return '上一批学平险尚未办结，暂不能提前缴纳该批次'
+    return '该批次学平险已登记缴费或已进入后续流程'
+
+
+def query_prepay_candidates(conn, search='', grade='', admin_class='',
+                            page=1, page_size=50, current_year=None):
+    """提前缴费候选：按学生筛选后展开为「学生 × 可缴目标」行，服务端分页。"""
+    if current_year is None:
+        current_year = current_school_year()
+    students = _pool_students(conn, search=search or None, grade=grade or None,
+                              admin_class=admin_class or None,
+                              exclude_dropout=True)
+    rec_map = _records_map(conn, [s['id'] for s in students])
+
+    rows = []
+    for s in students:
+        for t in prepay_targets(s, rec_map.get(s['id'], []), current_year):
+            record = t['record'] or {}
+            row = dict(s)
+            row.update({
+                'batch_no': t['batch_no'],
+                'insurance_type': t['insurance_type'],
+                'stage': t['stage'],
+                'sleep': t['sleep'],
+                'record_id': record.get('id'),
+                'record_status': record.get('status', ''),
+                'type_label': ('学平险' if t['insurance_type'] == INSURANCE_TYPE_XUEPING
+                               else '实习就业险'),
+                'target_label': f"第{t['batch_no']}年",
+                'hint': ('睡眠学生：预缴后自动激活并进入待审批' if t['sleep']
+                         else ''),
+            })
+            rows.append(row)
+    _sort_pool_items(rows)
+
+    total = len(rows)
+    try:
+        page_size = int(page_size or 50)
+    except (TypeError, ValueError):
+        page_size = 50
+    page_size = max(1, min(page_size, 200))
+    pages = max(1, (total + page_size - 1) // page_size)
+    try:
+        page = int(page or 1)
+    except (TypeError, ValueError):
+        page = 1
+    page = min(max(1, page), pages)
+    start = (page - 1) * page_size
+    return {'items': rows[start:start + page_size], 'total': total,
+            'page': page, 'pages': pages, 'page_size': page_size}
+
+
+def prepay(conn, student_id, batch_no, insurance_type, pay_date, premium='',
+           operator='', current_year=None, today=None):
+    """登记提前缴费：目标批次预建/复用记录并写入缴费日期。
+
+    返回 {'record': 记录, 'created': 是否新建, 'sleep': 是否走睡眠激活}。
+    同一批次同一日期重复提交视为幂等（返回 created=False），
+    不同日期须先撤销预缴，避免覆盖真实缴费记录。
+    """
+    if current_year is None:
+        current_year = current_school_year()
+    today = today or date.today()
+    normalized = normalize_insurance_date(pay_date)
+    if not normalized:
+        raise InsuranceTransitionError('请填写合法的缴费日期')
+    if normalized > today.isoformat():
+        raise InsuranceTransitionError('缴费日期不能晚于今天')
+    if insurance_type not in (INSURANCE_TYPE_XUEPING, INSURANCE_TYPE_INTERN):
+        raise InsuranceTransitionError('险种参数无效')
+    try:
+        batch_no = int(batch_no)
+    except (TypeError, ValueError):
+        raise InsuranceTransitionError('批次参数无效')
+
+    student = _prepay_student(conn, student_id)
+    if not student:
+        raise InsuranceTransitionError('学生不存在')
+    records = get_student_records(conn, student_id)
+    # 幂等 / 冲突检查：同一批次已有预缴日期时不再定位目标（目标会因已缴费被排除）
+    pending = next((r for r in records
+                    if r['batch_no'] == batch_no
+                    and r['insurance_type'] == insurance_type), None)
+    if pending is not None and (pending.get('pay_date') or '').strip():
+        current_pay = pending['pay_date'].strip()
+        if pending['status'] in _PREPAY_CANCEL_STATUSES:
+            if current_pay == normalized:
+                return {'record': pending, 'created': False, 'sleep': False}
+            raise InsuranceTransitionError(
+                f'该批次已登记缴费日期 {current_pay}，如需修改请先撤销预缴')
+    target = next((t for t in prepay_targets(student, records, current_year)
+                   if t['batch_no'] == batch_no
+                   and t['insurance_type'] == insurance_type), None)
+    if target is None:
+        raise InsuranceTransitionError(
+            _prepay_reject_reason(student, records, current_year,
+                                  batch_no, insurance_type))
+
+    premium = (premium or '').strip()
+    if target['sleep']:
+        rec = activate_sleep_student(conn, student_id, normalized, premium,
+                                     operator=operator, current_year=current_year)
+        log_operation(conn, rec, 'prepay', rec['status'], rec['status'],
+                      {'sleep': True, 'batch_no': batch_no,
+                       'pay_date': normalized, 'premium': premium},
+                      operator=operator)
+        return {'record': rec, 'created': True, 'sleep': True}
+
+    existing = target['record']
+    if existing is not None:
+        current_pay = (existing.get('pay_date') or '').strip()
+        if current_pay:
+            if current_pay == normalized:
+                return {'record': existing, 'created': False, 'sleep': False}
+            raise InsuranceTransitionError(
+                f'该批次已登记缴费日期 {current_pay}，如需修改请先撤销预缴')
+        fields = {'pay_date': normalized}
+        if premium:
+            fields['premium'] = premium
+        _update_record(conn, existing['id'], **fields)
+        log_operation(conn, existing, 'prepay', existing['status'], existing['status'],
+                      {'created': False,
+                       'prev_remark': existing.get('remark') or '',
+                       'prev_premium': existing.get('premium') or '',
+                       'batch_no': batch_no, 'pay_date': normalized,
+                       'premium': premium},
+                      operator=operator)
+        sync_student_snapshot(conn, student_id)
+        return {'record': get_record(conn, existing['id']),
+                'created': False, 'sleep': False}
+
+    start = start_year(student.get('enrollment_year'), student.get('grade'))
+    status = (InsuranceStatus.PENDING_RENEWAL
+              if insurance_type == INSURANCE_TYPE_XUEPING
+              else InsuranceStatus.PENDING_APPROVE)
+    conn.execute(
+        '''INSERT INTO insurance_records
+           (student_id, id_card, school_year, batch_no, insurance_type, status,
+            pay_date, premium, remark)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+        (student_id, student.get('id_card') or '', _school_year(start, batch_no),
+         batch_no, insurance_type, status, normalized, premium, PREPAY_REMARK))
+    new_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+    rec = get_record(conn, new_id)
+    log_operation(conn, rec, 'prepay', '', status,
+                  {'created': True, 'prev_remark': '', 'prev_premium': '',
+                   'batch_no': batch_no, 'pay_date': normalized,
+                   'premium': premium},
+                  operator=operator)
+    sync_student_snapshot(conn, student_id)
+    return {'record': rec, 'created': True, 'sleep': False}
+
+
+def cancel_prepay(conn, record_id, operator='', is_supervisor=False):
+    """撤销提前缴费：新建的记录删除，复用记录清空缴费并还原备注。
+
+    finance_staff 仅能撤销本人录入且尚未推进（待续保/待审批）的预缴；
+    admin / finance_chief 可撤销已推进到「已审批待导出」的预缴（只清缴费）。
+    """
+    rec = get_record(conn, record_id)
+    if not rec:
+        raise InsuranceTransitionError('保险记录不存在')
+    row = conn.execute(
+        "SELECT payload, operator FROM insurance_operation_logs "
+        "WHERE record_id = ? AND action = 'prepay' ORDER BY id DESC LIMIT 1",
+        (record_id,)).fetchone()
+    if not row:
+        raise InsuranceTransitionError('该记录不是提前缴费记录')
+    payload = json.loads(row['payload'] or '{}')
+
+    if not is_supervisor:
+        if (row['operator'] or '') != (operator or ''):
+            raise InsuranceTransitionError('只能撤销本人录入的提前缴费')
+        if rec['status'] not in _PREPAY_CANCEL_STATUSES:
+            raise InsuranceTransitionError('该记录已进入后续流程，请先回退保险流程')
+    elif rec['status'] not in _PREPAY_CANCEL_STATUSES + (InsuranceStatus.APPROVED,):
+        raise InsuranceTransitionError('该记录已进入后续流程，请先回退保险流程')
+
+    if payload.get('sleep'):
+        result = revert_sleep_activation(conn, record_id, operator=operator)
+        return {'record_id': record_id, 'deleted': True, 'sleep': True,
+                'restored_status': result.get('restored_status', '')}
+
+    advanced = rec['status'] not in _PREPAY_CANCEL_STATUSES
+    if payload.get('created') and not advanced:
+        log_operation(conn, rec, 'prepay_cancel', rec['status'], 'deleted',
+                      {'batch_no': rec['batch_no'],
+                       'pay_date': rec.get('pay_date') or ''}, operator=operator)
+        conn.execute('DELETE FROM insurance_records WHERE id = ?', (record_id,))
+        sync_student_snapshot(conn, rec['student_id'])
+        return {'record_id': record_id, 'deleted': True, 'sleep': False,
+                'restored_status': ''}
+
+    _update_record(conn, record_id, pay_date='',
+                   premium=payload.get('prev_premium') or '',
+                   remark=payload.get('prev_remark') or '')
+    log_operation(conn, rec, 'prepay_cancel', rec['status'], rec['status'],
+                  {'batch_no': rec['batch_no'],
+                   'pay_date': rec.get('pay_date') or ''}, operator=operator)
+    sync_student_snapshot(conn, rec['student_id'])
+    return {'record_id': record_id, 'deleted': False, 'sleep': False,
+            'restored_status': rec['status']}
+
+
+# ============================================================
 # 首保页（P3）：全状态视图 + 按计划补建记录
 # ============================================================
 def ensure_record(conn, student_id, batch_no,
@@ -2883,8 +3254,9 @@ def query_collection_stage(conn, paid=False, insurance_types=None,
         for rec in rec_map.get(s['id'], []):
             if rec['status'] == InsuranceStatus.EXEMPT:
                 continue
-            if rec['status'] == InsuranceStatus.PENDING_RENEWAL:
-                continue    # 待续保尚未进入参保流程，不催缴
+            if (rec['status'] == InsuranceStatus.PENDING_RENEWAL
+                    and not (rec.get('pay_date') or '').strip()):
+                continue    # 待续保且未预缴，尚未进入参保流程，不催缴
             if types is not None and rec['insurance_type'] not in types:
                 continue
             if rec['insurance_type'] == INSURANCE_TYPE_XUEPING:
@@ -2912,6 +3284,9 @@ def query_collection_stage(conn, paid=False, insurance_types=None,
             item['source_status'] = rec['status']
             item['status_label'] = '待缴费' if not has_paid else '已缴费'
             items.append(item)
+    prepaid = _prepaid_ids(conn, [i.get('record_id') for i in items])
+    for item in items:
+        item['is_prepaid'] = item.get('record_id') in prepaid
     _sort_pool_items(items)
     return items
 
