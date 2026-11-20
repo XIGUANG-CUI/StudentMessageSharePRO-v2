@@ -2340,14 +2340,14 @@ def _has_insurance_evidence(records):
 
 
 def _sleep_target(plan, now_batch):
-    """睡眠池激活目标：当前学平批次；已到实习学年则为实习批次。"""
+    """睡眠池激活目标：当前学平批次。
+
+    已到实习学年的学生由推送流程接管（_sleep_candidate 已排除），
+    因此睡眠池激活只可能落在学平批次上，不存在实习批次目标。
+    """
     xueping_steps = [p for p in plan if p['insurance_type'] == INSURANCE_TYPE_XUEPING]
-    intern_step = next(
-        (p for p in plan if p['insurance_type'] == INSURANCE_TYPE_INTERN), None)
-    if not xueping_steps or not intern_step:
+    if not xueping_steps:
         return None
-    if now_batch >= intern_step['batch_no']:
-        return intern_step
     target = next((p for p in xueping_steps if p['batch_no'] == now_batch), None)
     if target is None:
         target = max((p for p in xueping_steps if p['batch_no'] <= now_batch),
@@ -2430,9 +2430,7 @@ def query_sleep_pool(conn, current_year=None, **filters):
             'batch_now': info['batch_now'],
             'first_batch': info['first_batch'],
             'last_xueping_batch': info['last_xueping_batch'],
-            'target_type_label': ('实习就业险'
-                                  if target['insurance_type'] == INSURANCE_TYPE_INTERN
-                                  else '学平险'),
+            'target_type_label': '学平险',
         })
         items.append(item)
     _sort_pool_items(items)
@@ -2472,8 +2470,7 @@ def activate_sleep_student(conn, student_id, pay_date, premium='', operator='',
     """睡眠池人工激活：补齐历史放弃记录，并把目标批次置为待审批。
 
     目标批次由系统按「当前学年」自动定位，不接受人工指定：
-      - 未到实习学年 → 当前学平批次；
-      - 已到实习学年 → 实习批次。
+    只落在当前学平批次；已到实习学年的学生由推送流程接管，不会进入睡眠池。
     """
     if current_year is None:
         current_year = current_school_year()
