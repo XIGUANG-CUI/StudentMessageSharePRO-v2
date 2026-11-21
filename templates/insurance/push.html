@@ -322,10 +322,10 @@
         render();
     });
 
-    $('ipsRenewalBtn').addEventListener('click', function () {
+    $('ipsRenewalBtn').addEventListener('click', async function () {
         var ids = Object.keys(selected);
         if (!ids.length) { toast('请先选择学生', 'error'); return; }
-        if (!confirm('确认将选中的 ' + ids.length + ' 名学生推送至续保（保单到期后进入待续保名单）？')) { return; }
+        if (!await showConfirm('确认将选中的 ' + ids.length + ' 名学生推送至续保（保单到期后进入待续保名单）？')) { return; }
         fetch('/api/insurance/push/renewal', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -344,10 +344,10 @@
         }).catch(function () { toast('推送失败', 'error'); });
     });
 
-    $('ipsPushBtn').addEventListener('click', function () {
+    $('ipsPushBtn').addEventListener('click', async function () {
         var ids = Object.keys(selected);
         if (!ids.length) { toast('请先选择学生', 'error'); return; }
-        if (!confirm('确认将选中的 ' + ids.length + ' 名学生推送至实习就业险？')) { return; }
+        if (!await showConfirm('确认将选中的 ' + ids.length + ' 名学生推送至实习就业险？')) { return; }
         fetch('/api/insurance/push/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -366,12 +366,12 @@
         }).catch(function () { toast('推送失败', 'error'); });
     });
 
-    $('ipsExemptBtn').addEventListener('click', function () {
+    $('ipsExemptBtn').addEventListener('click', async function () {
         var ids = Object.keys(selected);
         if (!ids.length) { toast('请先选择学生', 'error'); return; }
-        if (!confirm('确认放弃选中的 ' + ids.length + ' 名学生「实习就业险」？\n\n' +
+        if (!await showConfirm('确认放弃选中的 ' + ids.length + ' 名学生「实习就业险」？' +
                 '实习就业险是该生最后一个保险批次，放弃后该生不再进入续保 / 推送 / 催缴名单，' +
-                '全部保险业务终了。')) { return; }
+                '全部保险业务终了。', 'danger')) { return; }
         fetch('/api/insurance/push/exempt', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

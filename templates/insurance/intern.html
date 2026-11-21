@@ -314,10 +314,10 @@
         if (box.checked) { selected[rid] = true; } else { delete selected[rid]; }
     });
 
-    $('iinApproveBtn').addEventListener('click', function () {
+    $('iinApproveBtn').addEventListener('click', async function () {
         var ids = Object.keys(selected);
         if (!ids.length) { toast('请先选择学生', 'error'); return; }
-        if (!confirm('确认审批通过选中的 ' + ids.length + ' 条实习险记录？')) { return; }
+        if (!await showConfirm('确认审批通过选中的 ' + ids.length + ' 条实习险记录？')) { return; }
         postJSON('/api/insurance/intern/approve', { record_ids: ids.map(Number) })
             .then(function (data) {
                 if (!data.success) { toast(data.message || '审批失败', 'error'); return; }

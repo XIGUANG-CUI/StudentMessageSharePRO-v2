@@ -360,17 +360,17 @@
         });
     });
 
-    $('irvBody').addEventListener('click', function (e) {
+    $('irvBody').addEventListener('click', async function (e) {
         var stuBtn = e.target.closest('.irv-revert-student');
         if (stuBtn) {
             var sid = stuBtn.getAttribute('data-sid');
             var name = stuBtn.getAttribute('data-name');
             var record = stuBtn.getAttribute('data-record');
             var status = stuBtn.getAttribute('data-status');
-            var message = '确认撤销 ' + name + ' 的「' + record + '（' + status + '）」？\n\n'
-                + '该记录及其保单号、到期日期、缴费日期将被删除，学生回到办理前的待办池；\n'
+            var message = '确认撤销 ' + name + ' 的「' + record + '（' + status + '）」？'
+                + '该记录及其保单号、到期日期、缴费日期将被删除，学生回到办理前的待办池；'
                 + '操作日志会保留。';
-            if (!confirm(message)) { return; }
+            if (!await showConfirm(message, 'danger')) { return; }
             fetch('/api/insurance/revert/student', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -390,7 +390,7 @@
         if (!btn) { return; }
         var id = btn.getAttribute('data-id');
         var count = btn.getAttribute('data-count');
-        if (!confirm('确认撤销该导出批次？涉及 ' + count + ' 条记录将回退为「已审批待导出」。')) { return; }
+        if (!await showConfirm('确认撤销该导出批次？涉及 ' + count + ' 条记录将回退为「已审批待导出」。', 'danger')) { return; }
         fetch('/api/insurance/revert/batch', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

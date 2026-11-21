@@ -906,6 +906,13 @@ STAGE_FIRST = 'first'         # 新生首保
 STAGE_RENEWAL = 'renewal'     # 第二年续保
 STAGE_PUSH = 'push'           # 推送至实习办结池
 
+# 导出批次动作 → 撤销中心展示文案
+ACTION_LABELS = {
+    'first': '新生首保',
+    'renewal': '续保办结',
+    'intern': '实习办结',
+}
+
 
 def student_kind(enrollment_year, grade):
     """学生分类：normal（普通）/ transfer（转学生）/ deferred（推迟注册）。"""
@@ -3414,7 +3421,7 @@ def list_export_batches(conn, limit=100, offset=0):
         item['reversed'] = bool(item.get('reversed_at'))
         item['insurance_type_label'] = (
             '学平险' if item['insurance_type'] == INSURANCE_TYPE_XUEPING else '实习就业险')
-        item['action_label'] = '新生首保' if item['action'] == 'first' else '实习办结'
+        item['action_label'] = ACTION_LABELS.get(item['action'], '办结')
         item['created_at'] = to_local_time(item.get('created_at'))
         items.append(item)
     return items

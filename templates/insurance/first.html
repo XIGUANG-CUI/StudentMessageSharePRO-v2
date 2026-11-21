@@ -487,7 +487,7 @@
     }
 
     // 行内操作：只有当前状态允许的动作才会渲染按钮
-    $('ifBody').addEventListener('click', function (e) {
+    $('ifBody').addEventListener('click', async function (e) {
         var btn = e.target.closest('button[data-act]');
         if (!btn) { return; }
         var act = btn.getAttribute('data-act');
@@ -495,9 +495,9 @@
         var rid = parseInt(btn.getAttribute('data-rid'), 10);
         var row = items.filter(function (s) { return s.id === sid; })[0];
         if (act === 'approve') {
-            if (confirm('确认为「' + row.name + '」办理首保？')) { approveStudents([sid]); }
+            if (await showConfirm('确认为「' + row.name + '」办理首保？')) { approveStudents([sid]); }
         } else if (act === 'exempt') {
-            if (confirm('确认本年度不为「' + row.name + '」办理保险？该操作将使其退出后续流程。')) {
+            if (await showConfirm('确认本年度不为「' + row.name + '」办理保险？该操作将使其退出后续流程。', 'danger')) {
                 exemptStudents([sid]);
             }
         } else if (act === 'export') {
@@ -507,17 +507,17 @@
         }
     });
 
-    $('ifApproveBtn').addEventListener('click', function () {
+    $('ifApproveBtn').addEventListener('click', async function () {
         var chosen = selectedItems();
         if (!chosen.length) { toast('请先选择学生', 'error'); return; }
-        if (!confirm('确认对选中的 ' + chosen.length + ' 名学生办理首保？')) { return; }
+        if (!await showConfirm('确认对选中的 ' + chosen.length + ' 名学生办理首保？')) { return; }
         approveStudents(chosen.map(function (s) { return s.id; }));
     });
 
-    $('ifExemptBtn').addEventListener('click', function () {
+    $('ifExemptBtn').addEventListener('click', async function () {
         var chosen = selectedItems();
         if (!chosen.length) { toast('请先选择学生', 'error'); return; }
-        if (!confirm('确认本年度不为这 ' + chosen.length + ' 名学生办理保险？该操作将使其退出后续流程。')) { return; }
+        if (!await showConfirm('确认本年度不为这 ' + chosen.length + ' 名学生办理保险？该操作将使其退出后续流程。', 'danger')) { return; }
         exemptStudents(chosen.map(function (s) { return s.id; }));
     });
 

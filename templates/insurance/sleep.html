@@ -114,6 +114,7 @@
 {% block scripts %}
 <script>
 (function () {
+    var CAN_ACTIVATE = {{ can_activate|tojson }};
     var CAN_MANAGE = {{ can_manage|tojson }};
     var SCHOOL_NAMES = {
         {% for st in school_types %}{{ st.code|tojson }}: {{ st.name|tojson }}{% if not loop.last %},{% endif %}{% endfor %}
@@ -231,7 +232,7 @@
         $('slBody').innerHTML = rows.map(function (item) {
             var action = '';
             if (isSleeping) {
-                if (CAN_MANAGE) {
+                if (CAN_ACTIVATE) {
                     action = '<button type="button" class="btn btn-sm btn-primary" data-act="activate" data-sid="'
                         + item.id + '">激活</button>';
                 } else {

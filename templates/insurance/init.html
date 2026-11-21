@@ -196,7 +196,7 @@
         })
           .then(function(data) {
               if (!data.success) {
-                  alert('预览失败: ' + (data.errors ? data.errors.join('；') : (data.error || '未知错误')));
+                  showToast('预览失败: ' + (data.errors ? data.errors.join('；') : (data.error || '未知错误')), 'danger');
                   document.getElementById('iiPreview').classList.add('d-none');
                   pendingFile = null;
                   return;
@@ -246,15 +246,15 @@
               });
           })
           .catch(function(err) {
-              alert('预览失败: ' + err.message);
+              showToast('预览失败: ' + err.message, 'danger');
               document.getElementById('iiPreview').classList.add('d-none');
               pendingFile = null;
           });
     }
 
-    document.getElementById('iiSubmitBtn').addEventListener('click', function() {
-        if (!pendingFile) return alert('请先选择文件');
-        if (!confirm('确认导入该文件？将按「保险学年/批次号」写入对应批次；空单元格不修改，填 "-" 才清空。')) return;
+    document.getElementById('iiSubmitBtn').addEventListener('click', async function() {
+        if (!pendingFile) { showToast('请先选择文件', 'warning'); return; }
+        if (!await showConfirm('确认导入该文件？将按「保险学年/批次号」写入对应批次；空单元格不修改，填 "-" 才清空。')) return;
 
         var fd = new FormData();
         fd.append('file', pendingFile);
@@ -424,9 +424,9 @@
     });
 
     // 撤销本次导入：created 删除、updated 还原到导入前快照
-    document.getElementById('iiRevertBtn').addEventListener('click', function() {
+    document.getElementById('iiRevertBtn').addEventListener('click', async function() {
         if (!currentImportBatchId) return;
-        if (!confirm('确认撤销本次导入？新建的记录将被删除，已更新的记录将还原到导入前的值。')) return;
+        if (!await showConfirm('确认撤销本次导入？新建的记录将被删除，已更新的记录将还原到导入前的值。', 'danger')) return;
         fetch('/api/insurance/init/revert/' + currentImportBatchId, {method: 'POST'})
             .then(function(r) {
                 return r.json().then(function(d) { return {ok: r.ok, data: d}; });
@@ -435,11 +435,11 @@
                 if (!res.ok || !res.data.success) {
                     throw new Error(res.data.error || '撤销失败');
                 }
-                alert('已撤销 ' + res.data.reverted + ' 条记录');
+                showToast('已撤销 ' + res.data.reverted + ' 条记录', 'success');
                 document.getElementById('iiRevertBtn').style.display = 'none';
             })
             .catch(function(err) {
-                alert('撤销失败: ' + err.message);
+                showToast('撤销失败: ' + err.message, 'danger');
             });
     });
 
@@ -462,7 +462,7 @@
                 URL.revokeObjectURL(url);
             })
             .catch(function(err) {
-                alert('下载失败: ' + err.message);
+                showToast('下载失败: ' + err.message, 'danger');
             });
     });
 })();

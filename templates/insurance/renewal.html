@@ -638,10 +638,10 @@
         }
     });
 
-    $('irnStartBtn').addEventListener('click', function () {
+    $('irnStartBtn').addEventListener('click', async function () {
         var ids = Object.keys(selected);
         if (!ids.length) { toast('请先选择学生', 'error'); return; }
-        if (!confirm('确认将选中的 ' + ids.length + ' 名学生进入续保流程？'))
+        if (!await showConfirm('确认将选中的 ' + ids.length + ' 名学生进入续保流程？'))
             { return; }
         fetch('/api/insurance/renewal/start', {
             method: 'POST',
@@ -655,7 +655,7 @@
         }).catch(function () { toast('操作失败', 'error'); });
     });
 
-    $('irnPushInternBtn').addEventListener('click', function () {
+    $('irnPushInternBtn').addEventListener('click', async function () {
         var map = {};
         items.forEach(function (s) { map[s.id] = s; });
         var chosen = Object.keys(selected).map(function (id) {
@@ -674,12 +674,10 @@
         });
         var lines = [
             '确认将选中的 ' + deferred.length + ' 名推迟注册学生推送至实习就业险？',
-            '',
             '其当前待续保批次将标记为「放弃本期（不参保）」，不计入学平险已办结批次；',
             '随后生成实习就业险待审批记录，可在「就业险办结」页继续办理。'
         ];
         if (remaining > 0) {
-            lines.push('');
             lines.push(withRemaining === 1
                 ? '提示：该生后续还有 ' + remaining + ' 批学平险将不再办理。'
                 : '提示：其中 ' + withRemaining + ' 名学生后续共有 ' + remaining + ' 批学平险将不再办理。');
@@ -687,7 +685,7 @@
         if (chosen.length > deferred.length) {
             lines.push('（已忽略 ' + (chosen.length - deferred.length) + ' 名非推迟注册学生）');
         }
-        if (!confirm(lines.join('\n'))) { return; }
+        if (!await showConfirm(lines.join(''), 'danger')) { return; }
         fetch('/api/insurance/renewal/push-intern', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -709,12 +707,12 @@
         }).catch(function () { toast('推送失败', 'error'); });
     });
 
-    $('irnExemptBtn').addEventListener('click', function () {
+    $('irnExemptBtn').addEventListener('click', async function () {
         if (!canExempt) { return; }
         var ids = Object.keys(selected);
         if (!ids.length) { toast('请先选择学生', 'error'); return; }
-        if (!confirm('确认放弃选中的 ' + ids.length + ' 名学生「本期」学平险？\n\n' +
-                '仅本期不投保，学生后续批次仍会自动投保，不会退出保险流程。'))
+        if (!await showConfirm('确认放弃选中的 ' + ids.length + ' 名学生「本期」学平险？' +
+                '仅本期不投保，学生后续批次仍会自动投保，不会退出保险流程。', 'danger'))
             { return; }
         fetch('/api/insurance/renewal/exempt', {
             method: 'POST',

@@ -727,6 +727,7 @@ def insurance_sleep():
         school_types=models.get_school_types(),
         filter_values=models.get_filter_values(),
         current_school_year=insurance_domain.current_school_year(),
+        can_activate=session.get('role') in ('admin', 'finance_chief', 'finance_staff'),
         can_manage=session.get('role') in ('admin', 'finance_chief'))
 
 
