@@ -1147,7 +1147,7 @@ insurance_records.status：
 19. ⚠️ 2025-Q4 **AJAX 端点使用 `_require_admin_json()` 鉴权** —— 原因：防止session过期后302重定向泄漏HTML
 20. ⚠️ 2025-Q4 **fetch 链统一使用 `safeJSON(response)`** —— 原因：防止HTML被当作JSON解析
 21. ⚠️ 2025-Q4 **学生表单弹窗左右两栏布局** —— 原因：Bootstrap响应式优化
-22. ⚠️ 2025-Q4 **年级自动推导**：初中毕业时间→session年份→当年 —— 原因：减少人工计算错误
+22. ⚠️ 2025-Q4 **年级自动推导**：初中毕业时间→session年份→当年 —— 原因：减少人工计算错误（2026-11 起改为弹窗内可见可改，见 #94）
 23. ⚠️ 2025-Q4 **school 动态推导**：`_derive_school(major)` 查库缓存 —— 原因：专业与学校类型关联
 24. ⚠️ 2025-Q4 **新增默认值**：`registration_status`默认`'未注册'`，`school`动态推导 —— 原因：业务默认值
 25. ⚠️ 2025-05 **attendance_records 主键迁移为身份证号**：原 `student_no`→`id_card` —— 原因：学号可能重复分配
@@ -1219,3 +1219,4 @@ insurance_records.status：
 91. ⚠️ 2026-11 **时间戳时区约定**：SQLite 的 `CURRENT_TIMESTAMP` 恒为 **UTC**，直出会早 8 小时。规范：①新建业务记录（如 `students.created_at`、`update_logs`、`attendance_records.update_time`）写入时用 `datetime('now','localtime')` 直接存本地时间；②其余以 `CURRENT_TIMESTAMP` 落库的字段（`students.updated_at`、`archive_dispatch.created_at/updated_at`、`archive_settings.updated_at`、`export_history.created_at`、`insurance_export_batches/insurance_operation_logs.created_at`、`school_types.created_at`）**必须在读取时转换**：SQL 用 `datetime(col,'localtime')`，或在模型里调用 `models.db.to_local_time()`（页面展示前统一转，不改库内数据）；③`archive_dispatch.returned_at` 只存本地日期，不需转换 —— 原因：历史数据已是 UTC，只能读时换算，改写入会造成新旧数据混排
 92. ⚠️ 2026-11 **保险批次按学年锚定（9/1）**：`models.insurance.current_school_year()` 以 `SCHOOL_YEAR_START_MONTH`（默认 9）判定学年，`batch_now()` 仅在过 9/1 后升批；所有保险批次默认值不再用 `config.CURRENT_SCHOOL_YEAR`（该常量保留给档案派遣等日历年场景）。推送池新增「即将入池」预统计 `query_push_upcoming()`：与推送池同学平险判定，只取学年未到的学生，预计入池日 = 实习批次年份的 9/1，随 `/api/insurance/push/list` 的 `upcoming` 字段返回，页面顶部倒计时横幅展示 —— 原因：自然年 1/1 切换比秋季学年早 8 个月，会把学生提前推入实习险；春季入学学生按学籍秋季学年对齐，不按参保月锚定
 93. ⚠️ 2026-11 **推送池学平险判定放宽（容忍历史缺档）**：`_push_ready_students()` 统一为「最高终态学平险批次 ≥ 计划最后一个学平险批次」，不再要求每个计划批次都有终态记录；仍保留「无在办学平险批次 + 无任何实习险记录 + 学年门槛」—— 原因：生产库 2025 级 374 人只有第 2 年学平险（2026-11-06 导入，缺 2025-2026 batch1），逐批校验会永久阻塞；放宽后 2025 级即将入池由 129 人恢复为 503 人
+94. ⚠️ 2026-11 **新增弹窗年级可见可改（默认锁定）**：`templates/admin/students.html` 学籍信息区新增 `edit_grade` 字段（仅新增模式显示，编辑模式隐藏且保存仍沿用 `_originalGrade` ±1，不重算）；默认 `readonly` 锁定并随初中毕业时间/入学形式自动刷新（毕业时间前 4 位，缺失则 session 年份；转学生 -1），点击右侧锁形按钮解锁后才可手动输入，再次点击锁定并保留当前值；手动输入后不再被自动覆盖（`_gradeManual`）；保存前校验 `^\d{4}$`，转学生额外 `showConfirm()` 强制确认建议年级 —— 原因：原推导结果完全不可见，录错只能靠学籍异动补救；默认锁定避免误改

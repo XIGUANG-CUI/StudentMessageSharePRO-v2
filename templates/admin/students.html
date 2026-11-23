@@ -529,6 +529,17 @@
                                         {% endfor %}
                                     </select>
                                 </div>
+                                <div class="col-md-3" id="gradeFieldWrapper">
+                                    <label class="edit-form-label">年级 <span class="req">*</span></label>
+                                    <div class="input-group">
+                                        <input type="text" id="edit_grade" class="form-control" maxlength="4" placeholder="如 2026" autocomplete="off" readonly>
+                                        <button type="button" class="btn btn-outline-secondary" id="gradeLockBtn" title="解锁手动修改">
+                                            <i class="bi bi-lock-fill"></i>
+                                        </button>
+                                    </div>
+                                    <div class="invalid-feedback" id="gradeError"></div>
+                                    <div class="form-text" id="gradeHint" style="font-size:11px;">按初中毕业时间自动推导（已锁定）</div>
+                                </div>
                             </div>
                             <div class="row g-2">
                                 <div class="col-md-3">
@@ -796,6 +807,62 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+var _gradeManual = false;
+var _gradeLocked = true;
+
+function computeSuggestedGrade() {
+    var t = (document.getElementById('edit_junior_graduation_time').value || '').trim();
+    var m = t.match(/\d{4}/);
+    var base = m ? m[0] : String({{ current_enrollment_year if current_enrollment_year else 'null' }} || new Date().getFullYear());
+    var type = (document.getElementById('edit_admission_type').value || '').trim();
+    if (type === '转学生') {
+        var n = parseInt(base, 10) - 1;
+        if (!isNaN(n)) base = String(n);
+    }
+    return base;
+}
+
+function updateGradeHint() {
+    var hint = document.getElementById('gradeHint');
+    if (!hint) return;
+    var type = (document.getElementById('edit_admission_type').value || '').trim();
+    var base = type === '转学生' ? '转学生：已按毕业时间 -1 建议，请核对确认' : '按初中毕业时间自动推导';
+    hint.textContent = base + (_gradeLocked ? '（已锁定，点击右侧图标可修改）' : '（已解锁，可手动修改）');
+}
+
+function setGradeLock(locked) {
+    var input = document.getElementById('edit_grade');
+    var btn = document.getElementById('gradeLockBtn');
+    if (!input || !btn) return;
+    _gradeLocked = locked;
+    if (locked) {
+        _gradeManual = (input.value || '').trim() !== computeSuggestedGrade();
+        input.setAttribute('readonly', 'readonly');
+        btn.innerHTML = '<i class="bi bi-lock-fill"></i>';
+        btn.title = '解锁手动修改';
+    } else {
+        input.removeAttribute('readonly');
+        btn.innerHTML = '<i class="bi bi-unlock-fill"></i>';
+        btn.title = '锁定年级';
+        input.focus();
+        input.select();
+    }
+    updateGradeHint();
+}
+
+function refreshSuggestedGrade() {
+    var wrapper = document.getElementById('gradeFieldWrapper');
+    var input = document.getElementById('edit_grade');
+    if (!wrapper || !input || wrapper.style.display === 'none') return;
+    if (!_gradeLocked && _gradeManual) return;
+
+    input.value = computeSuggestedGrade();
+    input.classList.remove('is-invalid');
+    var err = document.getElementById('gradeError');
+    if (err) { err.textContent = ''; err.style.display = 'none'; }
+    updateGradeHint();
+}
+
 function fieldMap() {
     return {
         student_no: 'edit_student_no',
@@ -841,6 +908,8 @@ function openEditModal(studentId) {
 
     clearIdCardErrors();
     clearPhoneErrors();
+
+    document.getElementById('gradeFieldWrapper').style.display = 'none';
 
     if (editModal) {
         editModal.show();
@@ -937,6 +1006,16 @@ function openAddModal() {
 
     document.getElementById('edit_school').value = '';
     setSchoolSelectMode(document.getElementById('edit_school'), '');
+
+    document.getElementById('gradeFieldWrapper').style.display = '';
+    _gradeManual = false;
+    var gradeEl = document.getElementById('edit_grade');
+    gradeEl.value = '';
+    gradeEl.classList.remove('is-invalid');
+    var gradeErr = document.getElementById('gradeError');
+    if (gradeErr) { gradeErr.textContent = ''; gradeErr.style.display = 'none'; }
+    refreshSuggestedGrade();
+    setGradeLock(true);
 
     document.getElementById('edit_birth_date_display').value = '';
 
@@ -1239,15 +1318,52 @@ function saveEditStudent() {
     var isAdd = !studentId;
 
     if (isAdd) {
-        var schoolEl = document.getElementById('edit_school');
-        var majorVal = (document.getElementById('edit_major') || {}).value || '';
-        if (!schoolEl.value && majorVal) {
-            checkAndPromptSchool(majorVal);
+        var gradeInput = document.getElementById('edit_grade');
+        var gradeVal = (gradeInput.value || '').trim();
+        if (!/^\d{4}$/.test(gradeVal)) {
+            showToast('请填写4位年级，如 2026', 'warning');
+            gradeInput.classList.add('is-invalid');
+            var gradeErr = document.getElementById('gradeError');
+            gradeErr.textContent = '请输入4位年份';
+            gradeErr.style.display = 'block';
+            gradeInput.focus();
+            gradeInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            resetSaveBtn();
+            return;
+        }
+        gradeInput.classList.remove('is-invalid');
+        document.getElementById('gradeError').style.display = 'none';
+
+        if ((document.getElementById('edit_admission_type').value || '').trim() === '转学生') {
+            showConfirm('该生为转学生，年级将保存为 ' + gradeVal + '，请确认年级无误。').then(function(ok) {
+                if (ok) {
+                    proceedAddSave();
+                } else {
+                    resetSaveBtn();
+                }
+            });
             return;
         }
     }
 
-    doSaveStudent();
+    proceedAddSave();
+
+    function resetSaveBtn() {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> <span id="saveBtnText">' + (isAdd ? '新增保存' : '保存修改') + '</span>';
+    }
+
+    function proceedAddSave() {
+        if (isAdd) {
+            var schoolEl = document.getElementById('edit_school');
+            var majorVal = (document.getElementById('edit_major') || {}).value || '';
+            if (!schoolEl.value && majorVal) {
+                checkAndPromptSchool(majorVal);
+                return;
+            }
+        }
+        doSaveStudent();
+    }
 
     function doSaveStudent() {
         var data = {};
@@ -1264,17 +1380,7 @@ function saveEditStudent() {
         var successMsg = isAdd ? '学生新增成功' : '学生信息已更新';
 
         if (isAdd) {
-            var gradTime = data.junior_graduation_time || '';
-            if (gradTime.length >= 4) {
-                data.grade = gradTime.substring(0, 4);
-            } else {
-                var ey = {{ current_enrollment_year if current_enrollment_year else 'null' }};
-                if (!ey) ey = new Date().getFullYear();
-                data.grade = String(ey);
-            }
-            if (data.admission_type === '转学生') {
-                data.grade = String(parseInt(data.grade, 10) - 1);
-            }
+            data.grade = (document.getElementById('edit_grade').value || '').trim();
             data.registration_status = '未注册';
             data.attendance_status = '在校';
             data.virtual_class = '';
@@ -1479,6 +1585,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
     document.getElementById('edit_major').addEventListener('blur', deriveSchoolFromMajor);
     document.getElementById('edit_major').addEventListener('change', deriveSchoolFromMajor);
+
+    document.getElementById('edit_junior_graduation_time').addEventListener('input', refreshSuggestedGrade);
+    document.getElementById('edit_admission_type').addEventListener('input', refreshSuggestedGrade);
+    document.getElementById('edit_admission_type').addEventListener('change', refreshSuggestedGrade);
+    document.getElementById('edit_grade').addEventListener('input', function() {
+        _gradeManual = true;
+    });
+    document.getElementById('gradeLockBtn').addEventListener('click', function() {
+        setGradeLock(!_gradeLocked);
+    });
 
     document.getElementById('schoolPickerConfirm').addEventListener('click', function() {
         var val = document.getElementById('schoolPickerSelect').value;
