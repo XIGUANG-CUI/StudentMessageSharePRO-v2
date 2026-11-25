@@ -188,22 +188,8 @@ def create_agency(data):
         raise ValueError('请填写机构全称')
     agency_no = (data.get('agency_no') or '').strip() or code
 
-    level = (data.get('level') or '').strip()
-    district = _district_index()
-    info = district.get(code)
-    if info:
-        county_name, admin_level = info
-        level = level or LEVEL_LABELS.get(admin_level, '县区')
-    else:
-        level = level or _infer_level(code, '')
-        if level == '市':
-            county_name = district.get(code[:4] + '00', ('', 0))[0]
-        elif level == '省':
-            county_name = district.get(code[:2] + '0000', ('', 0))[0]
-        else:
-            county_name = ''
-    if level not in ('省', '市', '县区'):
-        level = '县区'
+    county_name, level, matchable = _resolve_agency_location(
+        code, data.get('level'), _district_index())
 
     conn = get_db()
     try:
@@ -213,14 +199,56 @@ def create_agency(data):
             raise ValueError(f'机构编号 {agency_no} 已存在')
         cursor = conn.execute(
             'INSERT INTO talent_agency (agency_no, county_code, county_name, level, '
-            'agency_name, address, phone, remark, matchable) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)',
+            'agency_name, address, phone, remark, matchable) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
             (agency_no, code, county_name, level, name,
              (data.get('address') or '').strip(), (data.get('phone') or '').strip(),
-             (data.get('remark') or '').strip())
+             (data.get('remark') or '').strip(), matchable)
         )
         conn.commit()
         row = conn.execute('SELECT * FROM talent_agency WHERE id = ?', (cursor.lastrowid,)).fetchone()
         return dict(row)
+    finally:
+        conn.close()
+
+
+def update_agency(agency_id, data):
+    """编辑机构（支持改机构编号、区划代码）。返回更新后记录；不存在返回 None，校验失败抛 ValueError。"""
+    code = norm_code(data.get('county_code'))
+    name = (data.get('agency_name') or '').strip()
+    if len(code) != 6:
+        raise ValueError('请填写 6 位行政区划代码')
+    if not name:
+        raise ValueError('请填写机构全称')
+    agency_no = (data.get('agency_no') or '').strip() or code
+
+    conn = get_db()
+    try:
+        row = conn.execute('SELECT * FROM talent_agency WHERE id = ?', (agency_id,)).fetchone()
+        if not row:
+            return None
+
+        county_name, level, matchable = _resolve_agency_location(
+            code, data.get('level'), _district_index())
+
+        if code != row['county_code'] and conn.execute(
+                'SELECT 1 FROM talent_agency WHERE county_code = ? AND id <> ?',
+                (code, agency_id)).fetchone():
+            raise ValueError(f'区划代码 {code} 已被其他机构占用')
+        if agency_no != row['agency_no'] and conn.execute(
+                'SELECT 1 FROM talent_agency WHERE agency_no = ? AND id <> ?',
+                (agency_no, agency_id)).fetchone():
+            raise ValueError(f'机构编号 {agency_no} 已存在')
+
+        conn.execute(
+            'UPDATE talent_agency SET agency_no = ?, county_code = ?, county_name = ?, '
+            'level = ?, agency_name = ?, address = ?, phone = ?, matchable = ?, '
+            'updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            (agency_no, code, county_name, level, name,
+             (data.get('address') or '').strip(), (data.get('phone') or '').strip(),
+             matchable, agency_id)
+        )
+        conn.commit()
+        return dict(conn.execute('SELECT * FROM talent_agency WHERE id = ?', (agency_id,)).fetchone())
     finally:
         conn.close()
 
@@ -263,6 +291,29 @@ def _infer_level(code, raw_level=''):
     if code.endswith('99') or code.endswith('00'):
         return '市'
     return EXCEL_LEVEL_MAP.get(raw_level, '县区')
+
+
+def _resolve_agency_location(code, raw_level, district, prefer_raw=True):
+    """推导 (县名, 层级, 是否参与自动匹配)。
+
+    字典查不到且非省/市编码时视为特殊区域，matchable=0，只允许人工指定。
+    prefer_raw=False 用于导入：字典命中时层级以字典为准，忽略 Excel 填写的层级。
+    """
+    raw_level = (raw_level or '').strip()
+    info = district.get(code)
+    if info:
+        county_name, admin_level = info
+        level = (raw_level if prefer_raw else '') or LEVEL_LABELS.get(admin_level, '县区')
+        if level not in ('省', '市', '县区'):
+            level = '县区'
+        return county_name, level, 1
+
+    level = raw_level or _infer_level(code, '')
+    if level == '市':
+        return district.get(code[:4] + '00', ('', 0))[0], '市', 1
+    if level == '省':
+        return district.get(code[:2] + '0000', ('', 0))[0], '省', 1
+    return '', '县区', 0
 
 
 def import_agencies(file_obj):
@@ -330,25 +381,12 @@ def import_agencies(file_obj):
             code = history[code]
             stats['aliased'] += 1
 
-        info = district.get(code)
-        raw_level = cell(row, c_level)
-        if info:
-            county_name, admin_level = info
-            level = LEVEL_LABELS.get(admin_level, '县区')
-            matchable = 1 if admin_level <= 3 else 0
-        else:
-            level = _infer_level(code, raw_level)
-            matchable = 1 if level in ('省', '市', '县区') else 0
-            if level == '市':
-                county_name = district.get(code[:4] + '00', ('', 0))[0]
-            elif level == '省':
-                county_name = district.get(code[:2] + '0000', ('', 0))[0]
-            else:
-                # 编码不属于任何行政区划 → 特殊区域，不参与自动匹配，仅支持人工指定
-                county_name = ''
-                matchable = 0
-                stats['special'] += 1
-                stats['specials'].append(f'{raw_code} {name}')
+        county_name, level, matchable = _resolve_agency_location(
+            code, cell(row, c_level), district, prefer_raw=False)
+        if not matchable:
+            # 编码不属于任何行政区划 → 特殊区域，不参与自动匹配，仅支持人工指定
+            stats['special'] += 1
+            stats['specials'].append(f'{raw_code} {name}')
 
         agency_no = cell(row, c_no) or code
         address = cell(row, c_addr)
@@ -1142,6 +1180,17 @@ def build_export_rows(batch_no, redispatch_only=False):
     conn = get_db()
     held_ids = {r['student_id'] for r in conn.execute(
         'SELECT student_id FROM archive_hold WHERE released = 0').fetchall()}
+    # 转递单上的接收机构信息取字典最新值（机构更名/改地址后重印即生效）；
+    # 机构记录不存在时回退为批次快照
+    agency_ids = tuple({r['agency_id'] for r in rows if r.get('agency_id')})
+    agencies = {}
+    if agency_ids:
+        qmarks = ','.join('?' * len(agency_ids))
+        agencies = {
+            r['id']: dict(r) for r in conn.execute(
+                'SELECT id, agency_no, agency_name, address, phone FROM talent_agency '
+                f'WHERE id IN ({qmarks})', agency_ids).fetchall()
+        }
     conn.close()
     result = []
     for row in rows:
@@ -1153,6 +1202,12 @@ def build_export_rows(batch_no, redispatch_only=False):
                 continue
         elif status in EXPORT_EXCLUDED_STATUSES:
             continue
+        agency = agencies.get(row.get('agency_id'))
+        if agency:
+            row['agency_no'] = agency['agency_no'] or row.get('agency_no') or ''
+            row['agency_name'] = agency['agency_name'] or row.get('agency_name') or ''
+            row['agency_address'] = agency['address'] or row.get('agency_address') or ''
+            row['agency_phone'] = agency['phone'] or row.get('agency_phone') or ''
         date = (row.get('dispatch_date') or '').strip()
         # 历史批次兼容：旧数据生成时未写 dispatch_date（created_at 为 UTC，
         # 直接取会差一天）；未派遣/已退回的按导出当天（本地）填充

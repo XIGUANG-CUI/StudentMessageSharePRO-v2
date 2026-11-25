@@ -453,6 +453,8 @@ StudentMessageSharePRO-v2/
 | `/admin/key-supervision` | GET | 🛡️admin装饰器 | 重点监管学生名单（外省生源） | 4 统计卡 + 命中类型多选 + 17 列 + 分页 20 |
 | `/admin/key-supervision/export` | GET | 🛡️admin装饰器 | 导出重点监管名单 Excel | 17 列含命中原因，冻结首行 + 自动筛选 |
 | `/admin/archive/query` | GET | 🛡️admin装饰器 | 派遣查询页（跨县单人检索） | 13 列 + 4 统计卡 + 跳转派遣工作台 |
+| `/admin/archive/agencies` | GET | 🛡️admin装饰器 | 人才机构字典（列表/搜索/新增/编辑/导入/启停） | 表格 + 新增/编辑共用弹窗 |
+| `/api/archive/agencies/<id>/update` | POST | 🛡️JSON | 编辑机构（支持改机构编号、区划代码） | 行内「编辑」按钮 → 弹窗 |
 
 ### 保险模块页面路由 ⭐v3 重构
 

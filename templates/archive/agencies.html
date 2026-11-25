@@ -160,7 +160,7 @@
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="bi bi-plus-circle"></i> 新增人才机构</h5>
+                <h5 class="modal-title" id="arAddModalTitle"><i class="bi bi-plus-circle"></i> 新增人才机构</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -214,6 +214,8 @@
     'use strict';
 
     var LEVEL_CLASS = { '县区': 'ar-badge-county', '市': 'ar-badge-city', '省': 'ar-badge-province' };
+    var editingId = null;
+    var agencyMap = {};
 
     function esc(v) {
         return String(v === null || v === undefined ? '' : v)
@@ -258,7 +260,9 @@
                     body.innerHTML = '<tr><td colspan="9" class="ar-empty">暂无机构数据，请先导入机构表</td></tr>';
                     return;
                 }
+                agencyMap = {};
                 body.innerHTML = rows.map(function(a) {
+                    agencyMap[a.id] = a;
                     var lvlClass = LEVEL_CLASS[a.level] || 'ar-badge-county';
                     var special = a.matchable ? '' : ' <span class="ar-badge ar-badge-special">特殊区域</span>';
                     var statusHtml = a.status
@@ -273,9 +277,12 @@
                         '<td>' + esc(a.address || '-') + '</td>' +
                         '<td>' + esc(a.phone || '-') + '</td>' +
                         '<td>' + statusHtml + '</td>' +
-                        '<td><button type="button" class="btn btn-sm btn-outline-secondary" ' +
-                            'data-toggle-id="' + a.id + '" data-toggle-status="' + a.status + '">' +
-                            (a.status ? '停用' : '启用') + '</button></td>' +
+                        '<td class="text-nowrap">' +
+                            '<button type="button" class="btn btn-sm btn-outline-primary me-1" ' +
+                                'data-edit-id="' + a.id + '">编辑</button>' +
+                            '<button type="button" class="btn btn-sm btn-outline-secondary" ' +
+                                'data-toggle-id="' + a.id + '" data-toggle-status="' + a.status + '">' +
+                                (a.status ? '停用' : '启用') + '</button></td>' +
                         '</tr>';
                 }).join('');
             })
@@ -299,6 +306,11 @@
     });
 
     document.getElementById('arTableBody').addEventListener('click', function(e) {
+        var editBtn = e.target.closest('[data-edit-id]');
+        if (editBtn) {
+            openAgencyModal(agencyMap[editBtn.getAttribute('data-edit-id')] || null);
+            return;
+        }
         var btn = e.target.closest('[data-toggle-id]');
         if (!btn) return;
         fetch('/api/archive/agencies/' + btn.getAttribute('data-toggle-id') + '/toggle', { method: 'POST' })
@@ -344,17 +356,23 @@
     var addModalEl = document.getElementById('arAddModal');
     var addModal = bootstrap.Modal.getOrCreateInstance(addModalEl);
 
-    function clearAddForm() {
-        ['arAddCode', 'arAddName', 'arAddNo', 'arAddAddress', 'arAddPhone'].forEach(function(id) {
-            document.getElementById(id).value = '';
-        });
-        document.getElementById('arAddLevel').value = '';
+    function openAgencyModal(agency) {
+        editingId = agency ? agency.id : null;
+        document.getElementById('arAddModalTitle').innerHTML = agency
+            ? '<i class="bi bi-pencil-square"></i> 编辑人才机构'
+            : '<i class="bi bi-plus-circle"></i> 新增人才机构';
+        document.getElementById('arAddCode').value = agency ? (agency.county_code || '') : '';
+        document.getElementById('arAddName').value = agency ? (agency.agency_name || '') : '';
+        document.getElementById('arAddNo').value = agency ? (agency.agency_no || '') : '';
+        document.getElementById('arAddLevel').value = agency ? (agency.level || '') : '';
+        document.getElementById('arAddAddress').value = agency ? (agency.address || '') : '';
+        document.getElementById('arAddPhone').value = agency ? (agency.phone || '') : '';
+        addModal.show();
+        document.getElementById('arAddCode').focus();
     }
 
     document.getElementById('arAddBtn').addEventListener('click', function() {
-        clearAddForm();
-        addModal.show();
-        document.getElementById('arAddCode').focus();
+        openAgencyModal(null);
     });
 
     document.getElementById('arAddSave').addEventListener('click', function() {
@@ -374,9 +392,12 @@
             showToast('请填写机构全称', 'warning');
             return;
         }
+        var isEdit = editingId !== null;
+        var url = isEdit ? '/api/archive/agencies/' + editingId + '/update'
+                         : '/api/archive/agencies';
         var saveBtn = this;
         saveBtn.disabled = true;
-        fetch('/api/archive/agencies', {
+        fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -386,15 +407,16 @@
                 saveBtn.disabled = false;
                 if (data.success) {
                     addModal.hide();
-                    showToast(data.message || '新增成功', 'success');
+                    showToast(data.message || (isEdit ? '更新成功' : '新增成功'), 'success');
+                    editingId = null;
                     loadAgencies();
                 } else {
-                    showToast(data.message || '新增失败', 'danger');
+                    showToast(data.message || (isEdit ? '更新失败' : '新增失败'), 'danger');
                 }
             })
             .catch(function() {
                 saveBtn.disabled = false;
-                showToast('新增失败，请重试', 'danger');
+                showToast(isEdit ? '更新失败，请重试' : '新增失败，请重试', 'danger');
             });
     });
 

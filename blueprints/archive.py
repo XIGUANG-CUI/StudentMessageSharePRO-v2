@@ -122,6 +122,20 @@ def api_agency_create():
                     'message': f'已新增机构「{agency["agency_name"]}」'})
 
 
+@bp.route('/api/archive/agencies/<int:agency_id>/update', methods=['POST'])
+@auth.admin_required
+def api_agency_update(agency_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        agency = models.update_agency(agency_id, data)
+    except ValueError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    if not agency:
+        return jsonify({'success': False, 'message': '机构不存在'}), 404
+    return jsonify({'success': True, 'agency': agency,
+                    'message': f'已更新机构「{agency["agency_name"]}」'})
+
+
 @bp.route('/api/archive/agencies/import', methods=['POST'])
 @auth.admin_required
 def api_agencies_import():
