@@ -3,6 +3,7 @@
 PY_SPECIAL_SURNAMES = {
     '单': 'shan',
     '单于': 'chanyu',
+    '都': 'du',
     '仇': 'qiu',
     '解': 'xie',
     '曾': 'zeng',
